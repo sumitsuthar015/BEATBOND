@@ -1,8 +1,9 @@
 import express from "express";
 import dotenv from "dotenv";
-import { clerkMiddleware } from "@clerk/express";
+import { clerkMiddleware } from "@clerk/express"; 
 import fileUpload from "express-fileupload";
 import path from "path";
+import { fileURLToPath } from "url";
 import cors from "cors";
 import fs from "fs";
 import { createServer } from "http";
@@ -32,7 +33,9 @@ import commentRoutes from "./routes/comment.route.js";
 
 dotenv.config();
 
-const __dirname = path.resolve();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const frontendDistPath = path.resolve(__dirname, "../../frontend/dist");
 const app = express();
 const PORT = Number(process.env.PORT) || 5002;
 
@@ -125,9 +128,9 @@ app.use("/api/comments", commentRoutes);
 app.use("/health", healthRoutes);
 
 if (process.env.NODE_ENV === "production") {
-  app.use(express.static(path.join(__dirname, "../frontend/dist")));
+  app.use(express.static(frontendDistPath));
   app.get("*", (req, res) => {
-    res.sendFile(path.resolve(__dirname, "../frontend", "dist", "index.html"));
+    res.sendFile(path.join(frontendDistPath, "index.html"));
   });
 }
 
