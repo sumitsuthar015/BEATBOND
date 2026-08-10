@@ -1,0 +1,142 @@
+.friend-map {
+  --map-surface: #09090b;
+  --map-panel: rgb(9 9 11 / 0.9);
+  --map-border: rgb(255 255 255 / 0.12);
+  background: var(--map-surface);
+}
+
+.friend-map .leaflet-container {
+  height: 100%;
+  width: 100%;
+  background: #111827;
+  color: #f4f4f5;
+  font: inherit;
+  outline: 0;
+}
+
+/* Keep the streets readable in the dark application without hiding map detail. */
+.friend-map .leaflet-tile-pane {
+  filter: saturate(0.82) contrast(1.05) brightness(0.9);
+}
+
+.friend-map .leaflet-tile {
+  transition: opacity 160ms ease-out;
+  will-change: opacity, transform;
+}
+
+.friend-map .leaflet-control-zoom {
+  margin: 0 1rem 10.75rem 0 !important;
+  overflow: hidden;
+  border: 1px solid var(--map-border) !important;
+  border-radius: 0.85rem !important;
+  box-shadow: 0 12px 28px rgb(0 0 0 / 0.35) !important;
+}
+
+.friend-map .leaflet-control-zoom a {
+  height: 2.35rem !important;
+  width: 2.35rem !important;
+  border-color: var(--map-border) !important;
+  background: var(--map-panel) !important;
+  color: #f4f4f5 !important;
+  line-height: 2.2rem !important;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.friend-map .leaflet-control-zoom a:hover,
+.friend-map .leaflet-control-zoom a:focus-visible {
+  background: #27272a !important;
+  color: white !important;
+}
+
+.friend-map .leaflet-control-attribution {
+  margin: 0 !important;
+  border-radius: 0.5rem 0 0 0 !important;
+  background: rgb(9 9 11 / 0.75) !important;
+  color: #a1a1aa !important;
+  font-size: 10px !important;
+}
+
+.friend-map .leaflet-control-attribution a { color: #d4d4d8; }
+
+.map-action-controls > button {
+  border: 1px solid rgb(255 255 255 / 0.12) !important;
+  background: rgb(9 9 11 / 0.94) !important;
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.38) !important;
+}
+
+.map-action-controls > button:hover:not(:disabled) {
+  background: #27272a !important;
+}
+
+.map-action-controls > button[aria-pressed="true"] {
+  border-color: rgb(244 63 94 / 0.7) !important;
+  background: #e11d48 !important;
+  color: white !important;
+}
+
+.map-action-controls > button[aria-pressed="true"]:hover:not(:disabled) {
+  background: #be123c !important;
+}
+
+.friend-map-marker {
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.friend-map-marker__dot {
+  display: grid;
+  height: 40px;
+  width: 40px;
+  place-items: center;
+  border: 3px solid white;
+  border-radius: 9999px;
+  background: var(--marker-color);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.4), 0 0 0 2px rgb(9 9 11 / 0.35);
+  color: white;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.friend-map-marker:hover .friend-map-marker__dot {
+  transform: scale(1.1);
+  box-shadow: 0 9px 24px rgb(0 0 0 / 0.48), 0 0 0 3px rgba(255, 255, 255, 0.195);
+}
+
+.friend-map .leaflet-popup-content-wrapper,
+.friend-map .leaflet-popup-tip {
+  background: #18181b;
+  color: #f4f4f5;
+  box-shadow: 0 16px 36px rgb(0 0 0 / 0.4);
+}
+
+.friend-map .leaflet-popup-content-wrapper {
+  border: 1px solid var(--map-border);
+  border-radius: 0.9rem;
+}
+
+.friend-map .leaflet-popup-content {
+  margin: 0.75rem 0.9rem;
+  line-height: 1.35;
+}
+
+.friend-map .leaflet-popup-content span { color: #a1a1aa; font-size: 0.75rem; }
+.friend-map .leaflet-popup-close-button { color: #d4d4d8 !important; }
+
+/* Leaflet panes use values up to 1000. App controls must always remain usable. */
+.friend-map > form,
+.friend-map > section,
+.friend-map > div:not(.leaflet-container) {
+  z-index: 1100 !important;
+}
+
+@media (max-width: 640px) {
+  .friend-map .leaflet-control-zoom { margin-bottom: 13.25rem !important; }
+  .friend-map .leaflet-control-attribution { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .friend-map .leaflet-tile,
+  .friend-map-marker__dot { transition: none; }
+}

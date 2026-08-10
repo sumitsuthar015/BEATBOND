@@ -1,0 +1,25 @@
+{
+  "name": "spotify-clone",
+  "version": "1.0.0",
+  "description": "Spotify Clone Application",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "start": "cd backend && npm start",
+    "build": "npm run build:frontend && npm run build:backend",
+    "build:frontend": "cd frontend && npm install && npm run build",
+    "build:backend": "cd backend && npm install",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && npm run dev",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\""
+  },
+  "engines": {
+    "node": ">=20.0.0 <23.0.0"
+  },
+  "dependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

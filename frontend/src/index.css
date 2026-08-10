@@ -1,0 +1,198 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+	:root {
+	  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+	  
+	  --background: 0 0% 100%;
+	  --foreground: 0 0% 0%;
+	  --card: 0 0% 100%;
+	  --card-foreground: 0 0% 0%;
+	  --popover: 0 0% 100%;
+	  --popover-foreground: 0 0% 0%;
+	  --primary: 0 0% 0%;
+	  --primary-foreground: 0 0% 100%;
+	  --secondary: 0 0% 96%;
+	  --secondary-foreground: 0 0% 0%;
+	  --muted: 0 0% 96%;
+	  --muted-foreground: 0 0% 45%;
+	  --accent: 0 0% 94%;
+	  --accent-foreground: 0 0% 0%;
+	  --destructive: 0 84% 60%;
+	  --destructive-foreground: 0 0% 100%;
+	  --border: 0 0% 89%;
+	  --input: 0 0% 89%;
+	  --ring: 0 0% 0%;
+	  --radius: 0.5rem;
+	  --chart-1: 0 0% 20%;
+	  --chart-2: 0 0% 40%;
+	  --chart-3: 0 0% 60%;
+	  --chart-4: 0 0% 80%;
+	  --chart-5: 0 0% 100%;
+	  
+	  /* Scrollbar colors for light mode */
+	  --scrollbar-track: 0 0% 96%;
+	  --scrollbar-thumb: 0 0% 80%;
+	  --scrollbar-thumb-hover: 0 0% 70%;
+	}
+  
+	.dark {
+	  --background: 0 0% 0%;
+	  --foreground: 0 0% 100%;
+	  --card: 0 0% 2%;
+	  --card-foreground: 0 0% 100%;
+	  --popover: 0 0% 2%;
+	  --popover-foreground: 0 0% 100%;
+	  --primary: 0 0% 100%;
+	  --primary-foreground: 0 0% 0%;
+	  --secondary: 0 0% 12%;
+	  --secondary-foreground: 0 0% 100%;
+	  --muted: 0 0% 12%;
+	  --muted-foreground: 0 0% 63%;
+	  --accent: 0 0% 12%;
+	  --accent-foreground: 0 0% 100%;
+	  --destructive: 0 84% 60%;
+	  --destructive-foreground: 0 0% 100%;
+	  --border: 0 0% 15%;
+	  --input: 0 0% 15%;
+	  --ring: 0 0% 100%;
+	  --chart-1: 0 0% 100%;
+	  --chart-2: 0 0% 80%;
+	  --chart-3: 0 0% 60%;
+	  --chart-4: 0 0% 40%;
+	  --chart-5: 0 0% 20%;
+	  
+	  /* Scrollbar colors for dark mode */
+	  --scrollbar-track: 0 0% 10%;
+	  --scrollbar-thumb: 0 0% 30%;
+	  --scrollbar-thumb-hover: 0 0% 40%;
+	}
+}
+  
+@layer base {
+	* {
+		@apply border-border outline-ring/50;
+	}
+	body {
+		@apply bg-background text-foreground;
+		font-feature-settings: "ss01", "ss02", "cv01", "cv02", "cv03", "cv04";
+		font-family: var(--font-sans);
+		-webkit-text-size-adjust: 100%;
+		text-size-adjust: 100%;
+	}
+	input, select, textarea { font-size: max(16px, 1em); }
+	/* Compact the supporting copy on phones while title utilities keep their
+	   own deliberate scale. This gives every screen the same baseline rhythm. */
+	@media (max-width: 767px) {
+		body { font-size: 0.875rem; }
+	}
+}
+
+/* Project-wide scrollbar styles */
+@layer utilities {
+	/* Firefox */
+	* {
+		scrollbar-width: thin;
+		scrollbar-color: hsl(var(--scrollbar-thumb)) hsl(var(--scrollbar-track));
+	}
+
+	/* WebKit browsers (Chrome, Safari, Edge) */
+	*::-webkit-scrollbar {
+		width: 8px;
+		height: 8px;
+	}
+
+	*::-webkit-scrollbar-track {
+		background: hsl(var(--scrollbar-track));
+		border-radius: 4px;
+	}
+
+	*::-webkit-scrollbar-thumb {
+		background: hsl(var(--scrollbar-thumb));
+		border-radius: 4px;
+		transition: background 0.2s ease;
+	}
+
+	*::-webkit-scrollbar-thumb:hover {
+		background: hsl(var(--scrollbar-thumb-hover));
+	}
+
+	/* Keeps the existing utility for scrollable touch panels. */
+	.scrollbar-custom {
+		touch-action: pan-x pan-y;
+	}
+
+	/* Hide the visual scrollbar while retaining scrolling behaviour. */
+	.scrollbar-hide {
+		scrollbar-width: none;
+		-ms-overflow-style: none;
+	}
+
+	.scrollbar-hide::-webkit-scrollbar {
+		display: none;
+	}
+	
+	/* Allow horizontal scrolling inside vertical scroll containers */
+	/* .horizontal-scroll-container {
+		touch-action: pan-x;
+		-webkit-overflow-scrolling: touch;
+	} */
+}
+
+/* The queue number is deliberately in the button flow, rather than over the
+   queue icon. This keeps both controls readable on narrow Now Playing screens. */
+.now-playing-queue-button {
+	position: relative;
+	display: inline-flex;
+	min-width: 2.75rem;
+	height: 2.25rem;
+	align-items: center;
+	justify-content: center;
+	gap: 0.2rem;
+	padding: 0.25rem;
+	border-radius: 0.5rem;
+}
+
+.now-playing-queue-button > svg {
+	width: 1rem;
+	height: 1rem;
+	flex: 0 0 auto;
+}
+
+.now-playing-queue-count {
+	position: static;
+	display: inline-grid;
+	min-width: 1rem;
+	height: 1rem;
+	place-items: center;
+	flex: 0 0 auto;
+	padding: 0 0.15rem;
+	border: 1px solid rgb(9 9 11 / 0.9);
+	border-radius: 9999px;
+	background: #22c55e;
+	color: #fff;
+	font-size: 0.55rem;
+	font-weight: 700;
+	line-height: 1;
+}
+
+/* A dedicated scrollbar keeps long playlist lists usable without scrolling the
+   complete left navigation panel. */
+.playlist-sidebar-scroll {
+	scrollbar-gutter: stable;
+}
+
+.playlist-sidebar-scroll::-webkit-scrollbar {
+	width: 6px;
+}
+
+.playlist-sidebar-scroll::-webkit-scrollbar-thumb {
+	background: hsl(var(--muted-foreground) / 0.6);
+	border-radius: 9999px;
+}
+
+.playlist-sidebar-scroll::-webkit-scrollbar-thumb:hover {
+	background: hsl(var(--foreground) / 0.75);
+}

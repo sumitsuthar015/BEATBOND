@@ -1,0 +1,14 @@
+import { Router } from "express";
+import { protectRoute } from "../middleware/auth.middleware.js";
+import { addSong, createPlaylist, deletePlaylist, getMyPlaylists, getPlaylistById, removeSong, setPlaylistDownloaded, updatePlaylist } from "../controller/playlist.controller.js";
+const router = Router();
+router.use(protectRoute);
+router.get("/", getMyPlaylists);
+router.get("/:playlistId", getPlaylistById);
+router.post("/", createPlaylist);
+router.put("/:playlistId", updatePlaylist);
+router.delete("/:playlistId", deletePlaylist);
+router.put("/:playlistId/download", setPlaylistDownloaded);
+router.post("/:playlistId/songs", addSong);
+router.delete("/:playlistId/songs/:songId", removeSong);
+export default router;
