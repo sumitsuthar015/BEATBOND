@@ -1,30 +1,21 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { axiosInstance } from "@/lib/axios";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import BackButton from "@/components/ui/BackButton";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useClerk, useUser } from "@clerk/clerk-react";
 import { toast } from "react-hot-toast";
-import { useState, useEffect, useMemo, useCallback, memo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { motion } from "framer-motion";
 import FriendRequestButton from "@/components/friends/FriendRequestButton";
 import { useChatStore } from "@/stores/useChatStore";
 import { beginBackNavigation } from "@/lib/routeHistory";
-import { usePlayerStore } from "@/stores/usePlayerStore";
 import { ShareToMessageDialog } from "@/components/ShareToMessageDialog";
-import type { Song } from "@/types";
 import {
   MessageCircle,
-  MessageSquare,
-  Trash2,
-  Users,
-  Calendar,
-  Mail,
-  MapPin,
-  Link2,
   Settings,
   Share2,
   Loader2,
@@ -33,10 +24,9 @@ import {
   UserCheck,
   Clock,
   Shield,
-  Headphones,
-  Music2,
-  Play,
   LogOut,
+  Disc3,
+  Copy,
 } from "lucide-react";
 
 interface UserProfile {
@@ -51,6 +41,8 @@ interface UserProfile {
   joinedDate?: string;
   friendsCount?: number;
   mutualFriendsCount?: number;
+  friendshipSince?: string | null;
+  conversationCount?: number;
   isFriend?: boolean;
   friendshipStatus?: "none" | "pending" | "accepted" | "blocked";
   isOnline?: boolean;
@@ -75,43 +67,6 @@ interface Friend {
 
 
 
-// Memoized Friend Card Component
-const FriendCard = memo(({ friend }: any) => {
-  const friendId = friend.id || friend.clerkId || friend._id;
-  if (!friendId || friendId === 'undefined') return null;
-  
-  return (
-    <Link to={`/profile/${friendId}`}>
-      <Card className="cursor-pointer hover:bg-zinc-800/30 transition-all hover:scale-[1.02] active:scale-[0.98] border-zinc-800/50 backdrop-blur-sm group">
-        <CardContent className="p-4">
-          <div className="flex flex-col items-center text-center">
-            <div className="relative mb-3">
-              <Avatar className="h-16 w-16 sm:h-20 sm:w-20 ring-2 ring-zinc-800 group-hover:ring-blue-500/50 transition-all">
-                <AvatarImage src={friend.imageUrl} />
-                <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-500">
-                  {friend.fullName.charAt(0)}
-                </AvatarFallback>
-              </Avatar>
-              {friend.isOnline && (
-                <div className="absolute bottom-0 right-0 h-3.5 w-3.5 bg-green-500 rounded-full border-2 border-zinc-900 ring-2 ring-green-500/20"></div>
-              )}
-            </div>
-            <h4 className="font-semibold mb-0.5 truncate text-sm w-full">{friend.fullName}</h4>
-            <p className="text-xs text-zinc-400 truncate w-full mb-2">@{friend.username}</p>
-            {friend.mutualFriends !== undefined && friend.mutualFriends > 0 && (
-              <Badge variant="secondary" className="text-xs">
-                {friend.mutualFriends} mutual
-              </Badge>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </Link>
-  );
-});
-
-FriendCard.displayName = "FriendCard";
-
 const UserProfilePage = () => {
   const { userId } = useParams();
   const navigate = useNavigate();
@@ -119,10 +74,7 @@ const UserProfilePage = () => {
   const { signOut } = useClerk();
   const socket = useChatStore((state) => state.socket);
   const ownCurrentActivity = useChatStore((state) => state.currentActivity);
-  const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState("about");
   const [profileActivity, setProfileActivity] = useState<string | null | undefined>(undefined);
-  const setCurrentSong = usePlayerStore((state) => state.setCurrentSong);
 
   const isOwnProfile = user?.id === userId;
 
@@ -174,38 +126,17 @@ const UserProfilePage = () => {
     staleTime: 60000,
   });
 
-
-
-interface CommentItem {
-  _id: string;
-  userId: string;
-  songId: string;
-  songTitle: string;
-  songArtist: string;
-  songImageUrl: string;
-  content: string;
-  createdAt: string;
-}
-
-  const { data: userComments = [], isLoading: commentsLoading } = useQuery<CommentItem[]>({
-    queryKey: ["userComments", userId],
+  const { data: userComments = [] } = useQuery<Array<{ _id: string }>>({
+    queryKey: ["userCommentsCount", userId],
     queryFn: async () => {
-      if (!userId || userId === 'undefined' || userId === 'null') return [];
+      if (!userId || userId === "undefined" || userId === "null") return [];
       return (await axiosInstance.get(`/comments/user/${userId}`)).data;
     },
-    enabled: !!userId && userId !== 'undefined' && userId !== 'null',
-    staleTime: 30000,
+    enabled: Boolean(userId) && userId !== "undefined" && userId !== "null",
+    staleTime: 30_000,
   });
 
-  const deleteCommentMutation = useMutation({
-    mutationFn: async (commentId: string) => {
-      return (await axiosInstance.delete(`/comments/${commentId}`)).data;
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["userComments", userId] });
-      toast.success("Comment deleted");
-    },
-  });
+
 
   // Fetch user's friends - with proper error handling
   const { data: friendsRaw = [] } = useQuery<Friend[]>({
@@ -273,13 +204,12 @@ interface CommentItem {
   const handleSignOut = async () => {
     await signOut({ redirectUrl: "/" });
   };
-
-  const formatDate = useCallback((dateString?: string) => {
-    if (!dateString) return "Recently";
+  const handleCopyProfileLink = useCallback(async () => {
     try {
-      return new Date(dateString).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+      await navigator.clipboard.writeText(window.location.href);
+      toast.success("Profile link copied");
     } catch {
-      return "Recently";
+      toast.error("Could not copy the profile link");
     }
   }, []);
 
@@ -333,10 +263,12 @@ interface CommentItem {
                 Try again
               </Button>
             )}
-            <Button onClick={() => navigate('/users')} variant="outline" className="w-full">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Search
-            </Button>
+            <BackButton
+              onClick={() => navigate('/users')}
+              variant="outline"
+              className="w-full"
+              label={<><ArrowLeft className="h-4 w-4 mr-2" />Back to Search</>}
+            />
           </div>
         </Card>
       </div>
@@ -344,53 +276,59 @@ interface CommentItem {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-[#101010] pb-28 md:pb-8">
+    <div className="h-full overflow-y-auto bg-[#09090b] p-4 pb-28 text-zinc-100 sm:p-6 sm:pb-28 lg:p-8 lg:pb-10">
       {/* Cover Section - Fixed */}
-      <div className="relative">
-        <div className="h-32 sm:h-40 md:h-48 bg-gradient-to-br from-emerald-500/80 via-emerald-700/50 to-[#101010] relative">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_50%,rgba(255,255,255,0.18),transparent_68%)]"></div>
+      <motion.section
+        className="relative mx-auto w-full max-w-5xl overflow-hidden rounded-2xl border border-white/10 bg-zinc-950 shadow-2xl shadow-black/30"
+        initial={{ opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.42, ease: "easeOut" }}
+      >
+        <div className="relative h-36 bg-gradient-to-br from-primary/40 via-zinc-900 to-[#101010] sm:h-40">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_0%,hsl(var(--primary)/.22),transparent_45%)]" />
+          <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-zinc-950/60 to-transparent" />
           
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute top-2 left-2 sm:top-3 sm:left-3 bg-black/50 hover:bg-black/70 backdrop-blur-sm z-10"
+          <BackButton
+            className="absolute left-4 top-4 z-10 rounded-lg border border-white/10 bg-black/30 text-white backdrop-blur-md hover:bg-white/10"
             onClick={() => navigate(beginBackNavigation(), { replace: true })}
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
+            size="icon"
+            variant="ghost"
+            ariaLabel="Go back"
+          />
 
-          <div className="absolute -bottom-12 sm:-bottom-14 md:-bottom-16 left-4 sm:left-6">
-            <div className="relative group">
-              <Avatar className="h-24 w-24 sm:h-28 sm:w-28 md:h-32 md:w-32 border-4 border-zinc-900 shadow-xl ring-4 ring-zinc-800/50">
-                <AvatarImage src={profile.imageUrl} alt={profile.fullName} />
-                <AvatarFallback className="text-xl sm:text-2xl md:text-3xl bg-gradient-to-br from-blue-500 to-purple-500">
-                  {profile.fullName.charAt(0)}
-                </AvatarFallback>
-              </Avatar>
-              
-              {profile.isOnline && (
-                <div className="absolute bottom-1 right-1 sm:bottom-2 sm:right-2">
-                  <div className="h-4 w-4 sm:h-5 sm:w-5 bg-green-500 rounded-full border-3 border-zinc-900 ring-2 ring-green-500/30"></div>
-                </div>
-              )}
-
-              {isOwnProfile && (
-                <Link to="/settings/profile" className="absolute inset-0 bg-black/0 group-hover:bg-black/50 rounded-full flex items-center justify-center transition-all">
-                  <Settings className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity" />
-                </Link>
-              )}
-            </div>
-          </div>
         </div>
 
-        {/* Profile Info */}
-        <div className="px-4 sm:px-6 pt-14 sm:pt-16 pb-4">
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
+        <div className="relative px-5 pb-6 sm:px-6">
+          <motion.div
+            className="relative -mt-14 mb-4 w-fit group"
+            initial={{ opacity: 0, scale: 0.8, y: -12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ type: "spring", stiffness: 260, damping: 20, delay: 0.1 }}
+          >
+            <Avatar className="size-24 border-4 border-zinc-950 shadow-xl shadow-black/50 ring-1 ring-white/20 sm:size-28">
+              <AvatarImage src={profile.imageUrl} alt={profile.fullName} />
+              <AvatarFallback className="bg-gradient-to-br from-primary to-zinc-500 text-xl text-primary-foreground sm:text-2xl md:text-3xl">
+                {profile.fullName.charAt(0)}
+              </AvatarFallback>
+            </Avatar>
+            {profile.isOnline && (
+              <div className="absolute bottom-1 right-1 sm:bottom-2 sm:right-2">
+                <div className="h-4 w-4 rounded-full border-2 border-zinc-950 bg-green-500 ring-2 ring-green-500/30 sm:h-5 sm:w-5" />
+              </div>
+            )}
+            {isOwnProfile && (
+              <Link to="/settings" className="absolute inset-0 flex items-center justify-center rounded-full bg-black/0 transition-all group-hover:bg-black/50">
+                <Settings className="h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100" />
+              </Link>
+            )}
+          </motion.div>
+
+          <div className="mb-5 flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex-1 min-w-0">
-              <div className="flex items-start gap-2 mb-1">
-                <h1 className="text-xl sm:text-2xl md:text-3xl font-bold truncate">{profile.fullName}</h1>
+              <div className="mb-1 flex items-start gap-2">
+                <h1 className="truncate text-2xl font-bold tracking-tight sm:text-3xl">{profile.fullName}</h1>
                 {!isOwnProfile && profile.friendshipStatus === "accepted" && (
-                  <Badge variant="secondary" className="flex items-center gap-1 text-xs flex-shrink-0">
+                  <Badge variant="secondary" className="flex shrink-0 items-center gap-1 border border-primary/25 bg-primary/10 text-xs text-primary">
                     <UserCheck className="h-3 w-3" />
                     Friends
                   </Badge>
@@ -415,7 +353,7 @@ interface CommentItem {
               )}
             </div>
 
-            <div className="flex gap-2 flex-shrink-0">
+            <div className="flex shrink-0 flex-wrap gap-2">
               {!isOwnProfile ? (
                 <>
                   <div className="relative group">
@@ -423,8 +361,7 @@ interface CommentItem {
                       onClick={handleStartChat}
                       disabled={!canMessage}
                       variant={canMessage ? "default" : "outline"}
-                      size="sm"
-                      className="flex items-center gap-2"
+                      className="h-10 rounded-xl bg-primary px-4 font-bold text-primary-foreground shadow-lg shadow-black/20 hover:bg-primary/90"
                     >
                       {canMessage ? <MessageCircle className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
                       <span className="hidden xs:inline text-sm">Message</span>
@@ -446,255 +383,59 @@ interface CommentItem {
                 </>
               ) : (
                 <>
-                  <Link to="/settings/profile">
-                    <Button variant="outline" size="sm">
+                  <Link to="/settings">
+                    <Button variant="outline" className="h-10 rounded-xl border-white/10 bg-white/5 hover:bg-white/10">
                       <Settings className="h-4 w-4" />
                       <span className="hidden xs:inline ml-2 text-sm">Edit</span>
                     </Button>
                   </Link>
-                  <Button variant="outline" size="sm" onClick={() => void handleSignOut()} className="text-destructive hover:text-destructive">
+                  <Button variant="outline" className="h-10 rounded-xl border-white/10 bg-white/5 text-destructive hover:text-destructive" onClick={() => void handleSignOut()}>
                     <LogOut className="h-4 w-4" />
                     <span className="hidden xs:inline ml-2 text-sm">Sign out</span>
                   </Button>
                 </>
               )}
               
-              <ShareToMessageDialog message={`Check out ${profile.fullName}'s profile on BeatBond:\n${window.location.href}`} trigger={<Button variant="ghost" size="icon" className="h-9 w-9" aria-label="Share profile in a message"><Share2 className="h-4 w-4" /></Button>} />
+              <Button variant="ghost" size="icon" className="size-10 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10" aria-label="Copy profile link" onClick={() => void handleCopyProfileLink()}><Copy className="size-4" /></Button>
+              <ShareToMessageDialog message={`Check out ${profile.fullName}'s profile on BeatBond:\n${window.location.href}`} trigger={<Button variant="ghost" size="icon" className="size-10 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10" aria-label="Share profile in a message"><Share2 className="size-4" /></Button>} />
             </div>
           </div>
 
-          {/* Stats */}
-          <div className="flex gap-4 sm:gap-6 py-3 border-y border-zinc-800/50">
-            <div className="text-center">
-              <div className="text-lg sm:text-xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">
-                {userComments.length}
-              </div>
-              <div className="text-xs text-zinc-400">Comments</div>
+          <motion.div
+            className="mt-1 flex items-center gap-8"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.2 }}
+          >
+            <div>
+              <p className="text-xl font-bold text-white">{userComments.length}</p>
+              <p className="text-xs font-medium text-zinc-500">Comments</p>
             </div>
-            
             <button
+              type="button"
               onClick={() => navigate(`/profile/${userId}/friends`)}
-              className="text-center hover:bg-zinc-800/30 rounded-lg px-2 py-1 transition-colors"
+              className="text-left transition-colors hover:text-primary"
             >
-              <div className="text-lg sm:text-xl font-bold bg-gradient-to-r from-green-500 to-emerald-500 bg-clip-text text-transparent">
-                {profile.friendsCount ?? friends.length}
-              </div>
-              <div className="text-xs text-zinc-400">Friends</div>
+              <p className="text-xl font-bold text-primary">{profile.friendsCount ?? friends.length}</p>
+              <p className="text-xs font-medium text-zinc-500">Friends</p>
             </button>
-            
-            {!isOwnProfile && profile.mutualFriendsCount !== undefined && profile.mutualFriendsCount > 0 && (
-              <button
-                onClick={() => navigate(`/profile/${userId}/mutual`)}
-                className="text-center hover:bg-zinc-800/30 rounded-lg px-2 py-1 transition-colors"
-              >
-                <div className="text-lg sm:text-xl font-bold bg-gradient-to-r from-pink-500 to-rose-500 bg-clip-text text-transparent">
-                  {profile.mutualFriendsCount}
-                </div>
-                <div className="text-xs text-zinc-400">Mutual</div>
-              </button>
-            )}
-          </div>
+          </motion.div>
 
           {profile.canSeeMusicActivity && isListening && (
-            <div className="mt-4 flex items-center gap-3 rounded-xl border border-emerald-400/20 bg-emerald-400/10 p-3">
-              <div className="flex size-10 items-center justify-center rounded-lg bg-emerald-400 text-black">
-                <Headphones className="size-5" />
+            <motion.div className="mt-4 flex items-center gap-3 rounded-2xl border border-primary/25 bg-gradient-to-r from-primary/15 to-transparent p-4" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
+              <div className="flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lg shadow-black/20">
+                <Disc3 className="size-5" />
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-medium uppercase tracking-wide text-emerald-300">Listening activity</p>
-                <p className="truncate text-sm text-white">{liveActivity}</p>
+                <p className="text-xs font-bold uppercase tracking-widest text-primary">Listening now</p>
+                <p className="mt-0.5 truncate text-sm font-semibold text-white">{liveActivity}</p>
               </div>
-            </div>
+            </motion.div>
           )}
         </div>
-      </div>
+      </motion.section>
 
-      {/* Tabs Content */}
-      <div className="px-4 sm:px-6 pb-6">
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-2 mb-4">
-              <TabsTrigger value="about" className="text-xs sm:text-sm">About</TabsTrigger>
-              <TabsTrigger value="comments" className="text-xs sm:text-sm">
-                Comments{userComments.length > 0 && <Badge variant="secondary" className="ml-1.5 text-xs">{userComments.length}</Badge>}
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="about" className="space-y-4 mt-0">
-              <Card className="overflow-hidden border-emerald-400/20 bg-gradient-to-r from-emerald-500/15 to-transparent">
-                <CardContent className="flex items-center gap-3 p-4">
-                  <div className="flex size-11 items-center justify-center rounded-full bg-emerald-400 text-black"><Music2 className="size-5" /></div>
-                  <div><p className="font-semibold">{isOwnProfile ? "Your music corner" : `${profile.fullName.split(' ')[0]}'s music corner`}</p><p className="text-xs text-zinc-400">Connect, share activity and discover music together.</p></div>
-                </CardContent>
-              </Card>
-              <Card className="border-zinc-800/50 backdrop-blur-sm">
-                <CardContent className="p-4 sm:p-6 space-y-4">
-                  {profile.bio && (
-                    <div className="pb-4 border-b border-zinc-800/50">
-                      <h3 className="font-semibold mb-2 flex items-center gap-2 text-sm">
-                        <Users className="h-4 w-4 text-blue-500" />
-                        About
-                      </h3>
-                      <p className="text-zinc-300 text-sm leading-relaxed">{profile.bio}</p>
-                    </div>
-                  )}
-
-                  <div className="space-y-3">
-                    {profile.email && (
-                      <div className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-800/30 transition-colors">
-                        <div className="h-9 w-9 rounded-full bg-blue-500/10 flex items-center justify-center flex-shrink-0">
-                          <Mail className="h-4 w-4 text-blue-500" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs text-zinc-500">Email</p>
-                          <p className="text-sm text-zinc-300 break-all">{profile.email}</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {profile.location && (
-                      <div className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-800/30 transition-colors">
-                        <div className="h-9 w-9 rounded-full bg-green-500/10 flex items-center justify-center flex-shrink-0">
-                          <MapPin className="h-4 w-4 text-green-500" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs text-zinc-500">Location</p>
-                          <p className="text-sm text-zinc-300">{profile.location}</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {profile.website && (
-                      <div className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-800/30 transition-colors">
-                        <div className="h-9 w-9 rounded-full bg-purple-500/10 flex items-center justify-center flex-shrink-0">
-                          <Link2 className="h-4 w-4 text-purple-500" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs text-zinc-500">Website</p>
-                          <a
-                            href={profile.website}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sm text-blue-400 hover:underline break-all"
-                          >
-                            {profile.website}
-                          </a>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex items-center gap-3 p-2.5 rounded-lg bg-zinc-800/20">
-                      <div className="h-9 w-9 rounded-full bg-pink-500/10 flex items-center justify-center flex-shrink-0">
-                        <Calendar className="h-4 w-4 text-pink-500" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-zinc-500">Member since</p>
-                        <p className="text-sm text-zinc-300">{formatDate(profile.joinedDate)}</p>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="comments" className="space-y-3 mt-0">
-              {commentsLoading ? (
-                <div className="space-y-3">
-                  {[1, 2, 3].map((i) => (
-                    <Card key={i} className="border-zinc-800/50">
-                      <CardContent className="p-4 flex gap-3">
-                        <Skeleton className="h-12 w-12 rounded-lg" />
-                        <div className="flex-1 space-y-2">
-                          <Skeleton className="h-4 w-1/3" />
-                          <Skeleton className="h-8 w-full" />
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              ) : userComments.length > 0 ? (
-                userComments.map((comment) => (
-                  <Card key={comment._id} className="border-zinc-800/50 bg-zinc-900/60 backdrop-blur-sm overflow-hidden">
-                    <CardContent className="p-4 space-y-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-3 min-w-0 flex-1">
-                          <div className="relative size-12 rounded-lg bg-zinc-800 overflow-hidden flex items-center justify-center shrink-0 border border-zinc-700">
-                            {comment.songImageUrl ? (
-                              <img src={comment.songImageUrl} alt={comment.songTitle} className="size-full object-cover" />
-                            ) : (
-                              <Music2 className="size-6 text-zinc-400" />
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="font-semibold text-sm truncate text-white">{comment.songTitle}</p>
-                            <p className="text-xs text-zinc-400 truncate">{comment.songArtist}</p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-1.5">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              setCurrentSong({
-                                _id: comment.songId,
-                                title: comment.songTitle,
-                                artist: comment.songArtist,
-                                imageUrl: comment.songImageUrl,
-                                audioUrl: "",
-                                duration: 0,
-                              } as Song);
-                            }}
-                            className="size-8 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-full"
-                            title="Play Song"
-                          >
-                            <Play className="size-4 fill-current" />
-                          </Button>
-
-                          {isOwnProfile && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => deleteCommentMutation.mutate(comment._id)}
-                              disabled={deleteCommentMutation.isPending}
-                              className="size-8 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-full"
-                              title="Delete Comment"
-                            >
-                              <Trash2 className="size-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="bg-zinc-800/40 rounded-xl p-3 border border-zinc-800/80">
-                        <p className="text-xs text-zinc-200 whitespace-pre-wrap break-words leading-relaxed">
-                          {comment.content}
-                        </p>
-                        <p className="text-[10px] text-zinc-500 mt-2 text-right">
-                          {getRelativeTime(comment.createdAt)}
-                        </p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
-              ) : (
-                <Card className="border-zinc-800/50">
-                  <CardContent className="py-12 text-center">
-                    <div className="h-14 w-14 rounded-full bg-zinc-800/50 flex items-center justify-center mx-auto mb-3">
-                      <MessageSquare className="h-7 w-7 text-zinc-600" />
-                    </div>
-                    <p className="font-medium mb-1 text-sm">No comments yet</p>
-                    <p className="text-xs text-zinc-500">
-                      {isOwnProfile
-                        ? "Comment on songs around BeatBond to see them displayed here!"
-                        : `${profile.fullName.split(" ")[0]} hasn't commented on any songs yet.`}
-                    </p>
-                  </CardContent>
-                </Card>
-              )}
-            </TabsContent>
-          </Tabs>
-        </div>
-    </div>
+          </div>
   );
 };
 

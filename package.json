@@ -1,7 +1,7 @@
 {
-  "name": "spotify-clone",
+  "name": "beatbond",
   "version": "1.0.0",
-  "description": "Spotify Clone Application",
+  "description": "Beatbond real-time web-app Application",
   "private": true,
   "workspaces": [
     "frontend",

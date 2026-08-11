@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -43,6 +43,17 @@ const FriendsActivityPage = () => {
   const queryClient = useQueryClient();
   const { onlineUsers, userActivities, isConnected } = useChatStore();
   const [friendToRemove, setFriendToRemove] = useState<Friend | null>(null);
+  const [, setNicknameVersion] = useState(0);
+
+  useEffect(() => {
+    const refresh = () => setNicknameVersion((version) => version + 1);
+    window.addEventListener("beatbond:nickname-updated", refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener("beatbond:nickname-updated", refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, []);
 
   const { data: friends = [], isLoading, isError, error } = useQuery<Friend[]>({
     queryKey: ["friends"],
@@ -172,7 +183,8 @@ const FriendsActivityPage = () => {
               const isOnline = onlineUsers.has(friend.clerkId);
               const activity = userActivities.get(friend.clerkId) ?? "";
               const hasActivity = activity.length > 0 && activity.trim().toLowerCase() !== "idle";
-
+              const nickname = localStorage.getItem(`beatbond:nickname:${friend.clerkId}`) || friend.fullName;
+ 
               return (
                 <div
                   key={friend.clerkId}
@@ -181,13 +193,13 @@ const FriendsActivityPage = () => {
                   <Link
                     to={`/chat?userId=${friend.clerkId}`}
                     className="flex items-center gap-3 flex-1 min-w-0"
-                    aria-label={`Open chat with ${friend.fullName}`}
+                    aria-label={`Open chat with ${nickname}`}
                   >
                     <div className="relative shrink-0">
                       <Avatar className="size-11 border border-border">
-                        <AvatarImage src={friend.imageUrl} alt={friend.fullName} />
+                        <AvatarImage src={friend.imageUrl} alt={nickname} />
                         <AvatarFallback className="bg-primary/10 text-primary font-bold">
-                          {friend.fullName.charAt(0).toUpperCase()}
+                          {nickname.charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                       <span
@@ -196,9 +208,9 @@ const FriendsActivityPage = () => {
                         }`}
                       />
                     </div>
-
+ 
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm truncate">{friend.fullName}</p>
+                      <p className="font-semibold text-sm truncate">{nickname}</p>
                       {isOnline && hasActivity ? (
                         <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-medium mt-0.5">
                           <Music className="size-3 shrink-0 animate-pulse" />

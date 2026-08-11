@@ -337,12 +337,23 @@ export const getUserProfile = async (req, res, next) => {
 		const acceptedRequests = await FriendRequest.find({
 			$or: [{ senderId: profileUserId }, { receiverId: profileUserId }],
 			status: "accepted",
-		}).select("senderId receiverId").lean();
+		}).select("senderId receiverId createdAt").lean();
 		const connectionIds = [...new Set([
 			...(user.friends || []),
 			...acceptedRequests.map((request) => request.senderId === profileUserId ? request.receiverId : request.senderId),
 		])];
 		const friendsCount = await User.countDocuments({ clerkId: { $in: connectionIds } });
+		const friendshipRequest = acceptedRequests.find(
+			(request) => request.senderId === currentUserId || request.receiverId === currentUserId
+		);
+		const conversationCount = currentUserId
+			? await Message.countDocuments({
+				$or: [
+					{ senderId: currentUserId, receiverId: profileUserId },
+					{ senderId: profileUserId, receiverId: currentUserId },
+				],
+			})
+			: 0;
 
 		res.status(200).json({
 			clerkId: user.clerkId,
@@ -356,6 +367,8 @@ export const getUserProfile = async (req, res, next) => {
 			joinedDate: user.createdAt,
 			friendsCount,
 			mutualFriendsCount,
+			friendshipSince: friendshipRequest?.createdAt || null,
+			conversationCount,
 			isFriend,
 			friendshipStatus: isFriend ? 'accepted' : 'none',
 			isOnline: isUserOnline(user.clerkId),

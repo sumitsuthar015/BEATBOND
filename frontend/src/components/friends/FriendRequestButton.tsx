@@ -24,14 +24,6 @@ const FriendRequestButton = ({ userId, showFriendActions = false, allowRemove = 
   const { user } = useUser();
   const queryClient = useQueryClient();
 
-  if (userId === user?.id) {
-    return (
-      <span className="text-xs font-semibold text-muted-foreground px-3 py-1 rounded-full bg-secondary">
-        You
-      </span>
-    );
-  }
-
   const { data: friendshipStatus, isLoading } = useQuery<FriendshipStatus>({
     queryKey: ["friendshipStatus", userId],
     queryFn: async () => {
@@ -105,6 +97,14 @@ const FriendRequestButton = ({ userId, showFriendActions = false, allowRemove = 
       toast.error(error.response?.data?.error || "Failed to cancel friend request");
     },
   });
+
+  if (userId === user?.id) {
+    return (
+      <span className="text-xs font-semibold text-muted-foreground px-3 py-1 rounded-full bg-secondary">
+        You
+      </span>
+    );
+  }
 
   if (isLoading) {
     return (

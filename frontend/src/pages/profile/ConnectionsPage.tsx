@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { useUser } from "@clerk/clerk-react";
+import { useEffect, useState } from "react";
 import { MessageCircle, UserRound, Users } from "lucide-react";
 import { axiosInstance } from "@/lib/axios";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -22,6 +23,17 @@ const ConnectionsPage = () => {
     staleTime: 30_000,
   });
 
+  const [, setNicknameVersion] = useState(0);
+  useEffect(() => {
+    const refresh = () => setNicknameVersion((version) => version + 1);
+    window.addEventListener("beatbond:nickname-updated", refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener("beatbond:nickname-updated", refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, []);
+
   return (
     <main className="h-full overflow-y-auto px-4 pb-28 pt-[calc(env(safe-area-inset-top)+1rem)] sm:px-6 md:pb-8">
       <div className="mx-auto max-w-xl">
@@ -41,23 +53,24 @@ const ConnectionsPage = () => {
           <div className="space-y-2.5">
             {data.map((friend) => {
               const isSelf = friend.clerkId === user?.id;
-
+              const nickname = localStorage.getItem(`beatbond:nickname:${friend.clerkId}`) || friend.fullName;
+ 
               return (
                 <div key={friend.clerkId} className="flex min-h-16 items-center gap-3 rounded-2xl border border-border/80 bg-card p-3 shadow-sm">
                   <div className="relative shrink-0">
                     <Avatar className="size-11 border border-border">
-                      <AvatarImage src={friend.imageUrl} alt={friend.fullName} />
+                      <AvatarImage src={friend.imageUrl} alt={nickname} />
                       <AvatarFallback className="bg-primary/10 text-primary font-bold">
-                        {friend.fullName[0]}
+                        {nickname[0]}
                       </AvatarFallback>
                     </Avatar>
                     {friend.isOnline && (
                       <span className="absolute bottom-0 right-0 size-3 rounded-full border-2 border-card bg-emerald-500" />
                     )}
                   </div>
-
+ 
                   <Link to={`/profile/${friend.clerkId}`} className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold">{friend.fullName}</p>
+                    <p className="truncate text-sm font-semibold">{nickname}</p>
                     <p className="truncate text-xs text-muted-foreground">@{friend.username || friend.clerkId}</p>
                   </Link>
 
