@@ -1,5 +1,8 @@
 import { Album, Song } from "@/types";
+import { axiosInstance } from "@/lib/axios";
 
+// Retained for legacy browser helpers. New API requests below use
+// axiosInstance so they honour VITE_API_URL in a separately hosted frontend.
 export const SAAVN_API_BASE = "/api/saavn";
 
 const searchCache = new Map<string, { expiresAt: number; request: Promise<any[]> }>();
@@ -14,14 +17,13 @@ const searchSaavn = async (type: "songs" | "artists" | "albums", query: string, 
   const cached = searchCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.request;
 
-  const request = fetch(
-    `${SAAVN_API_BASE}/search/${type}?query=${encodeURIComponent(normalizedQuery)}&limit=${limit}`
-  )
-    .then(async (response) => {
-      if (!response.ok) throw new Error("Saavn search is currently unavailable");
-      const payload = await response.json();
-      return payload?.data?.results || payload?.data || [];
-    })
+  // Never use a browser-relative `/api` path for search. It works through
+  // Vite's local proxy, but a separately hosted frontend would query its own
+  // host after deployment and silently fall back to a different catalogue.
+  const request = axiosInstance.get(`/saavn/search/${type}`, {
+    params: { query: normalizedQuery, limit },
+  })
+    .then((response) => response.data?.data?.results || response.data?.data || [])
     .catch((error) => {
       searchCache.delete(key);
       throw error;
@@ -34,6 +36,33 @@ const searchSaavn = async (type: "songs" | "artists" | "albums", query: string, 
 export const searchSaavnSongs = (query: string, limit = 50) => searchSaavn("songs", query, limit);
 export const searchSaavnArtists = (query: string, limit = 10) => searchSaavn("artists", query, limit);
 export const searchSaavnAlbums = (query: string, limit = 20) => searchSaavn("albums", query, limit);
+
+export type SaavnCatalogueSearch = {
+  query: string;
+  intent: "artist" | "song" | "album" | "general";
+  songs: any[];
+  artists: any[];
+  albums: any[];
+};
+
+/** One normalized, ranked JioSaavn search response for the main search UI. */
+export const searchSaavnCatalogue = async (query: string, limit = 30): Promise<SaavnCatalogueSearch> => {
+  const normalizedQuery = query.trim();
+  if (!normalizedQuery) return { query: "", intent: "general", songs: [], artists: [], albums: [] };
+  try {
+    const response = await axiosInstance.get("/saavn/search", { params: { query: normalizedQuery, limit } });
+    return response.data?.data || { query: normalizedQuery, intent: "general", songs: [], artists: [], albums: [] };
+  } catch {
+    // A deployed frontend can briefly be newer than its backend. Keep search
+    // working against the established individual endpoints during that window.
+    const [songs, artists, albums] = await Promise.all([
+      searchSaavn("songs", normalizedQuery, limit),
+      searchSaavn("artists", normalizedQuery, 10),
+      searchSaavn("albums", normalizedQuery, 20),
+    ]);
+    return { query: normalizedQuery, intent: "general", songs, artists, albums };
+  }
+};
 
 export const TRENDING_ARTIST_NAMES = [
   "Arijit Singh",

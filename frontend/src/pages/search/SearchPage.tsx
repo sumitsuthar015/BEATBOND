@@ -18,7 +18,7 @@ import {
   XCircle
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useUser } from "@clerk/clerk-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
@@ -64,6 +64,7 @@ const readRecents = () => {
 const SearchPage = () => {
   const { user } = useUser();
   const navigate = useNavigate();
+  const [urlSearchParams, setUrlSearchParams] = useSearchParams();
   const inputRef = useRef<HTMLInputElement>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [recentSearches, setRecentSearches] = useState<string[]>(readRecents);
@@ -104,6 +105,14 @@ const SearchPage = () => {
   const displayedArtists = artists;
   const total = songs.length + artists.length + albums.length + playlists.length;
   const hasResults = total > 0;
+
+  // Desktop search links to this screen with `?q=`. Hydrating the shared
+  // store from that value guarantees mobile receives the exact same query and
+  // therefore the same unified songs/artists/albums/playlists result set.
+  useEffect(() => {
+    const requestedQuery = urlSearchParams.get("q")?.trim() || "";
+    if (requestedQuery && requestedQuery !== searchQuery) setSearchQuery(requestedQuery);
+  }, [urlSearchParams, searchQuery, setSearchQuery]);
 
   // Initialize speech recognition
   useEffect(() => {
@@ -172,7 +181,7 @@ const SearchPage = () => {
   }, [query, searchSongs, clearSearch, clearSuggestions, getSuggestions]);
 
   const show = (section: Filter) => filter === "all" || filter === section;
-  const chooseSearch = (value: string) => { setSearchQuery(value); inputRef.current?.focus(); };
+  const chooseSearch = (value: string) => { setSearchQuery(value); setUrlSearchParams({ q: value }); inputRef.current?.focus(); };
   const formatDuration = (duration: number) => `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, "0")}`;
   const clearRecents = () => { localStorage.removeItem(recentKey); setRecentSearches([]); };
 
@@ -240,7 +249,7 @@ const SearchPage = () => {
                 <button 
                   type="button" 
                   aria-label="Clear search" 
-                  onClick={() => { clearSearch(); inputRef.current?.focus(); }} 
+                  onClick={() => { clearSearch(); setUrlSearchParams({}); inputRef.current?.focus(); }} 
                   className="absolute right-2 top-1/2 grid size-10 -translate-y-1/2 place-items-center rounded-full text-muted-foreground hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <X className="size-5" />
@@ -250,7 +259,7 @@ const SearchPage = () => {
               <Input 
                 ref={inputRef} 
                 value={searchQuery} 
-                onChange={(e) => setSearchQuery(e.target.value)} 
+                onChange={(e) => { const value = e.target.value; setSearchQuery(value); setUrlSearchParams(value.trim() ? { q: value } : {}); }} 
                 placeholder="Songs, artists, albums…" 
                 enterKeyHint="search" 
                 className="h-12 rounded-2xl border-border bg-card/80 pl-12 pr-12 text-base shadow-sm placeholder:text-muted-foreground/80 sm:rounded-full"

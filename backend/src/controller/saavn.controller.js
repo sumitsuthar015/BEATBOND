@@ -2,6 +2,7 @@ import {
   searchSongs,
   searchArtists,
   searchAlbums,
+  searchCatalogue,
   getAlbumDetails,
   getArtistDetails,
   getArtistSongs,
@@ -24,6 +25,12 @@ export const handleSearchArtists = async (req, res) => {
 export const handleSearchAlbums = async (req, res) => {
   const { query, limit } = req.query;
   const result = await searchAlbums(query || "", limit || 20);
+  res.status(200).json(result);
+};
+
+export const handleSearchCatalogue = async (req, res) => {
+  const { query, limit } = req.query;
+  const result = await searchCatalogue(query || "", limit || 30);
   res.status(200).json(result);
 };
 

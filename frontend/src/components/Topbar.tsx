@@ -106,6 +106,12 @@ const Topbar = ({ showInstall = false }: { showInstall?: boolean }) => {
               setSearchQuery(e.target.value);
             }}
             onFocus={() => searchQuery && setShowResults(true)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && searchQuery.trim()) {
+                setShowResults(false);
+                navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+              }
+            }}
             placeholder="Search songs, albums..."
             className="w-full pl-10 pr-10 bg-secondary/50 dark:bg-secondary/30 
                      border-border focus:ring-primary"
@@ -193,6 +199,13 @@ const Topbar = ({ showInstall = false }: { showInstall?: boolean }) => {
                       <PlayButton song={renderSearchResult(song)} size="small" />
                     </div>
                   ))}
+                  <button
+                    type="button"
+                    onClick={() => { setShowResults(false); navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`); }}
+                    className="m-2 w-[calc(100%-1rem)] rounded-lg border border-border px-3 py-2 text-sm font-semibold text-primary hover:bg-secondary"
+                  >
+                    View all results
+                  </button>
                 </>
               )}
             </div>

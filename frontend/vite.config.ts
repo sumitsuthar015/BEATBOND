@@ -22,6 +22,8 @@ export default defineConfig({
 			// cold backend request silently reuse a week-old mood response.
 			runtimeCaching: [
 				{ urlPattern: /\/api\/songs\/mood\//, handler: "NetworkOnly" },
+				// Search must be fresh and identical on web/mobile after deployment.
+				{ urlPattern: /\/api\/saavn\/search(?:\/|$)/, handler: "NetworkOnly" },
 				{ urlPattern: /\/api\/(songs|albums|playlists)/, handler: "NetworkFirst", options: { cacheName: "beatbond-library-api", networkTimeoutSeconds: 8, expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 14 }, cacheableResponse: { statuses: [0, 200] } } },
 				{ urlPattern: ({ request }) => request.destination === "audio", handler: "CacheFirst", options: { cacheName: "beatbond-audio", expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 30 }, cacheableResponse: { statuses: [0, 200] } } },
 				{ urlPattern: ({ request }) => request.destination === "image", handler: "StaleWhileRevalidate", options: { cacheName: "beatbond-images", expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 }, cacheableResponse: { statuses: [0, 200] } } },

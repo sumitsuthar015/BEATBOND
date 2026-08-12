@@ -46,7 +46,7 @@ const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:5173",
   "http://localhost:4173",
-  "https://spotify-hdw7.onrender.com",
+  "https://beatbond-75ns.onrender.com",
   process.env.CLIENT_URL,
   process.env.FRONTEND_URL,
 ].filter(Boolean);

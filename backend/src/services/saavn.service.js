@@ -5,6 +5,92 @@ const CACHE_TTL_MS = 60 * 60 * 1000;
 const searchResultCache = new Map();
 const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
 
+// Keep matching independent of accents, punctuation, spacing, and HTML
+// entities returned by the provider. The same normal form is used for cache
+// keys, relevance scoring, and duplicate detection.
+const normaliseSearchText = (value) => String(value || "")
+  .replace(/&amp;/gi, " and ")
+  .replace(/&#39;|&apos;/gi, "'")
+  .replace(/&quot;/gi, '"')
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, " ")
+  .trim()
+  .replace(/\s+/g, " ");
+
+const SEARCH_NOISE_WORDS = new Set([
+  "song", "songs", "music", "official", "video", "audio", "lyrics",
+  "full", "new", "latest", "download", "listen", "play",
+]);
+
+const searchTerms = (query) => {
+  const terms = normaliseSearchText(query).split(" ").filter(Boolean);
+  const useful = terms.filter((term) => !SEARCH_NOISE_WORDS.has(term));
+  return useful.length ? useful : terms;
+};
+
+const songArtistText = (song) => [
+  song?.artist,
+  song?.primary_artists,
+  ...(song?.artists?.primary || []).map((artist) => artist?.name),
+  ...(song?.artists?.all || []).map((artist) => artist?.name),
+].filter(Boolean).join(" ");
+
+const detectSearchIntent = (query, artists, albums) => {
+  const normalized = normaliseSearchText(query);
+  if (/\b(artist|singer|singers)\b/.test(normalized)) return "artist";
+  if (/\b(album|ep|soundtrack)\b/.test(normalized)) return "album";
+  if (/\b(song|track|single|lyrics)\b/.test(normalized)) return "song";
+
+  // An exact provider match is a stronger signal than keyword heuristics.
+  if (artists.some((artist) => normaliseSearchText(artist?.name) === normalized)) return "artist";
+  if (albums.some((album) => normaliseSearchText(album?.name || album?.title) === normalized)) return "album";
+  return "general";
+};
+
+const resultText = (item, type) => type === "song"
+  ? `${item?.name || item?.title || ""} ${songArtistText(item)} ${item?.album?.name || item?.albumName || ""}`
+  : type === "artist"
+    ? item?.name || item?.title || ""
+    : `${item?.name || item?.title || ""} ${songArtistText(item)}`;
+
+const resultKey = (item, type) => {
+  const id = String(item?.id || item?._id || "").trim();
+  if (id) return `id:${id}`;
+  if (type === "song") return `song:${normaliseSearchText(item?.name || item?.title)}:${normaliseSearchText(songArtistText(item))}`;
+  return `${type}:${normaliseSearchText(resultText(item, type))}`;
+};
+
+const rankResults = (items, type, query, intent, limit) => {
+  const normalized = normaliseSearchText(query);
+  const terms = searchTerms(query);
+  const unique = new Map();
+  items.filter(Boolean).forEach((item, index) => {
+    const key = resultKey(item, type);
+    if (!unique.has(key)) unique.set(key, { item, index });
+  });
+
+  return [...unique.values()]
+    .map(({ item, index }) => {
+      const name = normaliseSearchText(item?.name || item?.title);
+      const text = normaliseSearchText(resultText(item, type));
+      let score = Math.max(0, 100 - index); // preserve upstream quality as a tie-breaker
+      if (name === normalized) score += 10_000;
+      else if (name.startsWith(normalized)) score += 4_000;
+      else if (text.includes(normalized)) score += 1_000;
+      score += terms.reduce((sum, term) => sum + (name.includes(term) ? 550 : text.includes(term) ? 240 : -450), 0);
+      if (terms.length && terms.every((term) => text.includes(term))) score += 2_000;
+      if (intent === type || (intent === "song" && type === "song")) score += 700;
+      if (type === "artist" && item?.isVerified) score += 150;
+      score += Math.min(Math.log10(Number(item?.followerCount) + 1) * 12 || 0, 100);
+      return { item, score, index };
+    })
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .slice(0, limit)
+    .map(({ item }) => item);
+};
+
 // Search responses are read-heavy and identical queries are common while a
 // user refines text. Cache the already-shaped payload, not the raw provider
 // response, so clients receive the smallest possible object immediately.
@@ -16,6 +102,53 @@ const cachedSearch = async (kind, query, limit, fetcher) => {
   const value = await fetcher(normalized);
   searchResultCache.set(key, { expiresAt: Date.now() + SEARCH_CACHE_TTL_MS, value });
   return value;
+};
+
+// The SDK occasionally returns an empty collection for newer Indian releases
+// and international tracks even though they are present in JioSaavn's web
+// catalogue. Use JioSaavn's own web search response as a server-side fallback.
+// It also avoids making browsers depend on a third-party CORS policy.
+const searchJioSaavnWebSongs = async (query, limit) => {
+  try {
+    const params = new URLSearchParams({
+      __call: "search.getResults",
+      _format: "json",
+      _marker: "0",
+      api_version: "4",
+      ctx: "web6dot0",
+      p: "1",
+      n: String(Math.min(Math.max(Number(limit) || 20, 1), 50)),
+      q: query,
+    });
+    const response = await fetch(`https://www.jiosaavn.com/api.php?${params}`, {
+      headers: { Accept: "application/json", "User-Agent": "BeatBond/1.0" },
+    });
+    if (!response.ok) return [];
+    const payload = await response.json();
+    const results = Array.isArray(payload?.results) ? payload.results : [];
+    return results.map((item) => {
+      const primaryArtists = item?.more_info?.artistMap?.primary_artists || [];
+      const artistName = primaryArtists.map((artist) => artist?.name).filter(Boolean).join(", ") || item?.subtitle?.split(" - ")[0] || "";
+      return {
+      id: String(item?.id || ""),
+      name: item?.title || item?.song || "",
+      artist: artistName,
+      primary_artists: artistName,
+      artists: {
+        primary: primaryArtists,
+        all: [...primaryArtists, ...(item?.more_info?.artistMap?.featured_artists || [])],
+      },
+      image: item?.image || item?.more_info?.image || "",
+      duration: Number(item?.more_info?.duration || item?.duration) || 0,
+      album: {
+        id: String(item?.more_info?.album_id || ""),
+        name: item?.more_info?.album || "",
+      },
+      media: { encryptedUrl: item?.more_info?.encrypted_media_url || "" },
+    }; }).filter((item) => item.id && item.name && item.artist && item.media.encryptedUrl);
+  } catch {
+    return [];
+  }
 };
 
 async function resolveFullStreamUrls(encUrl) {
@@ -278,7 +411,18 @@ export async function searchSongs(query, limit = 50) {
   return cachedSearch("songs", query, limit, async (normalized) => {
     try {
       const res = await Song.search({ query: normalized, limit: Number(limit) });
-      const results = (await Promise.all((res.results || []).map(mapSongWithFullAudio))).filter((song) => song?.id);
+      const sdkResults = res.results || [];
+      // Always merge the web catalogue: the SDK can return a non-empty but
+      // incomplete list (for example a remix) while missing the official song.
+      const webResults = await searchJioSaavnWebSongs(normalized, limit);
+      const sourceResults = [...sdkResults, ...webResults];
+      const results = (await Promise.all(sourceResults.map(mapSongWithFullAudio))).filter((song) => song?.id);
+      // Some SDK results contain metadata but no playable stream, while the
+      // web catalogue does. Retry against it before giving up on the query.
+      if (!results.length && !webResults.length) {
+        const retryWebResults = await searchJioSaavnWebSongs(normalized, limit);
+        return { status: "SUCCESS", data: { results: (await Promise.all(retryWebResults.map(mapSongWithFullAudio))).filter((song) => song?.id) } };
+      }
       return { status: "SUCCESS", data: { results } };
     } catch { return { status: "SUCCESS", data: { results: [] } }; }
   });
@@ -301,6 +445,38 @@ export async function searchAlbums(query, limit = 20) {
       return { status: "SUCCESS", data: { results } };
     } catch { return { status: "SUCCESS", data: { results: [] } }; }
   });
+}
+
+// The search page and the top-bar need one consistent view of a query. Fetch
+// all JioSaavn entity types first, then score and cap them together rather
+// than trusting whichever provider endpoint happened to respond first.
+export async function searchCatalogue(query, limit = 30) {
+  const normalized = normaliseSearchText(query);
+  const cappedLimit = Math.min(Math.max(Number(limit) || 30, 1), 30);
+  if (!normalized) {
+    return { status: "SUCCESS", data: { query: "", intent: "general", songs: [], artists: [], albums: [] } };
+  }
+
+  const [songResponse, artistResponse, albumResponse] = await Promise.all([
+    searchSongs(normalized, 50),
+    searchArtists(normalized, 20),
+    searchAlbums(normalized, 30),
+  ]);
+  const songs = songResponse?.data?.results || [];
+  const artists = artistResponse?.data?.results || [];
+  const albums = albumResponse?.data?.results || [];
+  const intent = detectSearchIntent(normalized, artists, albums);
+
+  return {
+    status: "SUCCESS",
+    data: {
+      query: normalized,
+      intent,
+      songs: rankResults(songs, "song", normalized, intent, cappedLimit),
+      artists: rankResults(artists, "artist", normalized, intent, 10),
+      albums: rankResults(albums, "album", normalized, intent, 12),
+    },
+  };
 }
 
 export async function getAlbumDetails(albumId) {

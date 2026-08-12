@@ -17,7 +17,7 @@ export const getOnlineUserIds = () => Array.from(userSockets.keys());
 const SOCKET_ORIGINS = [
   "http://localhost:3000",
   "http://localhost:5173",
-  "https://spotify-hdw7.onrender.com",
+  "https://beatbond-75ns.onrender.com",
 ];
 
 const addUserSocket = (userId, socketId) => {

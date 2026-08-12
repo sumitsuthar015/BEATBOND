@@ -3,6 +3,7 @@ import {
   handleSearchSongs,
   handleSearchArtists,
   handleSearchAlbums,
+  handleSearchCatalogue,
   handleGetAlbumById,
   handleGetArtistById,
   handleGetArtistSongs,
@@ -12,6 +13,7 @@ import {
 
 const router = Router();
 
+router.get("/search", handleSearchCatalogue);
 router.get("/search/songs", handleSearchSongs);
 router.get("/search/artists", handleSearchArtists);
 router.get("/search/albums", handleSearchAlbums);

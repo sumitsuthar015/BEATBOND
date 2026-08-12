@@ -23,21 +23,63 @@ const normalise = (value: unknown) => String(value || "")
   .replace(/[^a-z0-9]+/g, " ")
   .trim();
 
+// These words describe the kind of query, not the music being searched for.
+// Ignoring them prevents searches such as "Arijit songs" and "song Kesariya"
+// from promoting unrelated results that merely contain "song" or "official".
+const SEARCH_NOISE_WORDS = new Set([
+  "song", "songs", "music", "official", "video", "audio", "lyrics",
+  "full", "new", "latest", "download", "listen", "play",
+]);
+const meaningfulTerms = (query: string) => {
+  const terms = normalise(query).split(" ").filter(Boolean);
+  const filtered = terms.filter((term) => !SEARCH_NOISE_WORDS.has(term));
+  return filtered.length ? filtered : terms;
+};
+const containsAllTerms = (text: string, terms: string[]) => terms.length > 0 && terms.every((term) => text.includes(term));
+
+// JioSaavn exposes free-text search rather than Spotify-style `track:` and
+// `artist:` filters. For a multi-word query we probe likely artist phrases at
+// either end ("Kesariya Arijit Singh" / "Arijit Singh Kesariya") and then
+// search the remaining title separately once an exact artist is found.
+const artistPhraseCandidates = (query: string) => {
+  const words = meaningfulTerms(query);
+  if (words.length < 3) return [];
+  const candidates = [
+    words.slice(0, 3).join(" "), words.slice(0, 2).join(" "),
+    words.slice(-3).join(" "), words.slice(-2).join(" "),
+  ].filter((value) => value.split(" ").length >= 2);
+  return [...new Set(candidates)];
+};
+
 // Provider result ordering changes from request to request. Rank locally so
 // an exact title/artist match always stays ahead of a loose match.
 const rankSongs = (songs: Song[], query: string) => {
-  const phrase = normalise(query);
-  const terms = phrase.split(" ").filter(Boolean);
+  const terms = meaningfulTerms(query);
+  const meaningfulPhrase = terms.join(" ");
   const score = (song: Song) => {
     const title = normalise(song.title);
     const artist = normalise(song.artist);
-    const album = normalise(song.albumId);
+    const album = normalise(song.albumName || song.albumTitle || song.albumId);
     const combined = `${title} ${artist} ${album}`;
-    let value = title === phrase ? 1000 : artist === phrase ? 900 : 0;
-    if (title.startsWith(phrase)) value += 500;
-    if (artist.startsWith(phrase)) value += 350;
-    if (combined.includes(phrase)) value += 200;
-    value += terms.reduce((total, term) => total + (title.includes(term) ? 40 : artist.includes(term) ? 30 : combined.includes(term) ? 10 : 0), 0);
+    const artistTerms = normalise(song.artist).split(" ").filter(Boolean);
+    const titleTerms = normalise(song.title).split(" ").filter(Boolean);
+    const queryWithoutArtist = terms.filter((term) => !artistTerms.includes(term));
+    const queryWithoutTitle = terms.filter((term) => !titleTerms.includes(term));
+    let value = title === meaningfulPhrase ? 10_000 : artist === meaningfulPhrase ? 9_000 : 0;
+    if (title.startsWith(meaningfulPhrase)) value += 4_000;
+    if (artist.startsWith(meaningfulPhrase)) value += 3_500;
+    if (combined.includes(meaningfulPhrase)) value += 1_000;
+    value += terms.reduce((total, term) => {
+      if (title.includes(term)) return total + 800;
+      if (artist.includes(term)) return total + 700;
+      if (album.includes(term)) return total + 300;
+      return total - 600;
+    }, 0);
+    // Handle either word order: "Kesariya Arijit Singh" and "Arijit Singh
+    // Kesariya" should both place the actual track above partial matches.
+    if (containsAllTerms(combined, terms)) value += 2_500;
+    if (artistTerms.length && meaningfulPhrase.includes(artist) && containsAllTerms(title, queryWithoutArtist)) value += 12_000;
+    if (titleTerms.length && meaningfulPhrase.includes(title) && containsAllTerms(artist, queryWithoutTitle)) value += 12_000;
     return value;
   };
 
@@ -61,12 +103,19 @@ const rankSongs = (songs: Song[], query: string) => {
     }
   }
   
-  return [...titleArtistMap.values()].sort((left, right) => score(right) - score(left));
+  const ranked = [...titleArtistMap.values()].map((song) => ({ song, score: score(song) }));
+  // If relevant matches exist, do not let unrelated provider suggestions take
+  // their place. Keep a small fallback only when the provider has no direct
+  // match at all (useful for spelling variations).
+  const relevant = ranked.filter(({ score }) => score > 0);
+  return (relevant.length ? relevant : ranked)
+    .sort((left, right) => right.score - left.score || left.song.title.localeCompare(right.song.title) || left.song.artist.localeCompare(right.song.artist))
+    .map(({ song }) => song);
 };
 
 const matchesQuery = (value: string, query: string) => {
   const text = normalise(value);
-  const terms = normalise(query).split(" ").filter(Boolean);
+  const terms = meaningfulTerms(query);
   return terms.length > 0 && terms.every((term) => text.includes(term));
 };
 
@@ -364,11 +413,13 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
       // The specialised endpoints keep every result type complete; the
       // aggregate endpoint is also requested as a fallback for API variants
       // that return an empty specialised collection.
-      const [songs, artists, albums, playlists] = await Promise.allSettled([
+      const artistCandidates = artistPhraseCandidates(normalizedQuery);
+      const [songs, artists, albums, playlists, ...artistLookups] = await Promise.allSettled([
         searchSaavnSongs(normalizedQuery, 50),
         searchSaavnArtists(normalizedQuery, 10),
         searchSaavnAlbums(normalizedQuery, 20),
         axiosInstance.get("/playlists"),
+        ...artistCandidates.map((candidate) => searchSaavnArtists(candidate, 5)),
       ]);
       let rawSongs = songs.status === "fulfilled" ? songs.value : [];
       const rawArtists = artists.status === "fulfilled" ? artists.value : [];
@@ -376,6 +427,27 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
       const rawPlaylists = playlists.status === "fulfilled" && Array.isArray(playlists.value.data)
         ? playlists.value.data
         : [];
+
+      const detectedArtist = artistLookups.flatMap((lookup, index) => {
+        if (lookup.status !== "fulfilled") return [];
+        const candidate = artistCandidates[index];
+        return lookup.value
+          .map((artist: any) => mapSaavnArtist(artist))
+          .filter((artist: SaavnArtistResult | null): artist is SaavnArtistResult => Boolean(artist))
+          .filter((artist: SaavnArtistResult) => normalise(artist.name) === normalise(candidate));
+      })[0];
+      if (detectedArtist) {
+        const artistTerms = normalise(detectedArtist.name).split(" ").filter(Boolean);
+        const titleQuery = meaningfulTerms(normalizedQuery).filter((term) => !artistTerms.includes(term)).join(" ");
+        if (titleQuery) {
+          try {
+            const titleResults = await searchSaavnSongs(titleQuery, 50);
+            rawSongs = [...rawSongs, ...titleResults];
+          } catch {
+            // Keep the original broad search result if this refinement fails.
+          }
+        }
+      }
 
       // Saavn is an enhancement, not a single point of failure. Fall back to
       // our own indexed catalogue when the upstream search is unavailable.
