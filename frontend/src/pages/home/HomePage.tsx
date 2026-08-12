@@ -89,18 +89,21 @@ const HomePage = () => {
               title="Made For You"
               songs={madeForYouSongs}
               isLoading={isLoading}
+              collectionId="made-for-you"
             />
 
             <SectionGrid
               title="Trending"
               songs={trendingSongs}
               isLoading={isLoading}
+              collectionId="trending"
             />
 
             <AlbumGrid
               title="Featured Albums"
               albums={madeForYouAlbums}
               isLoading={isLoading}
+              collectionId="featured-albums"
             />
 
             <ArtistGrid

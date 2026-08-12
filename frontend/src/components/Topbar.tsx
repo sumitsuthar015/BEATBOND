@@ -12,9 +12,11 @@ import { useDebounce } from "@/hooks/useDebounce";
 import PlayButton from "@/pages/home/components/PlayButton";
 import { InstallAppButton } from "./InstallAppButton";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
+import { useMyProfile } from "@/hooks/useMyProfile";
 
 const Topbar = ({ showInstall = false }: { showInstall?: boolean }) => {
   const { user } = useUser();
+  const { data: profile } = useMyProfile();
   const { isAdmin } = useAuthStore();
   const navigate = useNavigate();
   const {
@@ -239,8 +241,8 @@ const Topbar = ({ showInstall = false }: { showInstall?: boolean }) => {
               aria-label="My Profile"
             >
               <Avatar className="size-8 sm:size-9">
-                <AvatarImage src={user?.imageUrl} alt={user?.fullName || "Profile"} />
-                <AvatarFallback>{(user?.fullName || "U")[0]}</AvatarFallback>
+                <AvatarImage src={profile?.imageUrl || user?.imageUrl} alt={profile?.fullName || user?.fullName || "Profile"} />
+                <AvatarFallback>{(profile?.fullName || user?.fullName || "U")[0]}</AvatarFallback>
               </Avatar>
             </Link>
           </div>

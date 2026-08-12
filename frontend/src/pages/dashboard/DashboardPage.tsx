@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ListeningEvent, readListeningHistory } from "@/lib/listeningHistory";
 import { axiosInstance } from "@/lib/axios";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useMyProfile } from "@/hooks/useMyProfile";
 
 interface DashboardStats {
   hoursListened: number;
@@ -21,6 +23,7 @@ interface DashboardStats {
 
 const DashboardPage = () => {
   const { user } = useUser();
+  const { data: profile } = useMyProfile();
 
   // IMPORTANT: select only the fields this component needs instead of
   // `usePlayerStore()` / `useMusicStore()` (which subscribe to the WHOLE
@@ -214,14 +217,7 @@ const DashboardPage = () => {
       <div className="p-4 sm:p-6 space-y-6 pb-24 sm:pb-6">
         {/* Welcome Section */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
-              Your Dashboard
-            </h1>
-            <p className="text-sm sm:text-base text-muted-foreground">
-              Welcome back, {user?.firstName || user?.fullName || "Music Lover"} 👋
-            </p>
-          </div>
+          <div className="flex items-center gap-3"><Avatar className="size-12 border border-primary/30"><AvatarImage src={profile?.imageUrl || user?.imageUrl} alt="Your profile" /><AvatarFallback>{(profile?.fullName || user?.fullName || "U")[0]}</AvatarFallback></Avatar><div className="space-y-1"><h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">Your Dashboard</h1><p className="text-sm sm:text-base text-muted-foreground">Welcome back, {profile?.fullName || user?.firstName || user?.fullName || "Music Lover"} 👋</p></div></div>
           <div className="flex items-center gap-2 bg-gradient-to-r from-primary/20 to-primary/10 px-4 py-2 rounded-full border border-primary/20">
             <Calendar className="h-4 w-4 text-primary" />
             <span className="text-sm font-semibold">

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useUser } from "@clerk/clerk-react";
-import { Camera, Loader2, Save } from "lucide-react";
+import { Camera, Loader2, Save, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -21,7 +21,9 @@ export function EditProfileDialog() {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [formData, setFormData] = useState<ProfileForm>(emptyForm);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!isOpen || !user) return;
@@ -55,12 +57,35 @@ export function EditProfileDialog() {
     setFormData((current) => ({ ...current, [name]: value }));
   };
 
+  const handlePhotoSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { toast.error("Please choose an image file."); return; }
+    if (file.size > 5 * 1024 * 1024) { toast.error("Profile photos must be 5 MB or smaller."); return; }
+    setIsUploadingPhoto(true);
+    try {
+      const upload = new FormData();
+      upload.append("photo", file);
+      const { data } = await axiosInstance.post<{ imageUrl: string }>("/users/profile/photo", upload, { headers: { "Content-Type": "multipart/form-data" } });
+      setFormData((current) => ({ ...current, imageUrl: data.imageUrl }));
+      await queryClient.invalidateQueries({ queryKey: ["myProfile"] });
+      await queryClient.invalidateQueries({ queryKey: ["userProfile"] });
+      await queryClient.invalidateQueries({ queryKey: ["friends"] });
+      await queryClient.invalidateQueries({ queryKey: ["userFriends"] });
+      toast.success("Profile photo uploaded");
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Could not upload your photo.");
+    } finally {
+      setIsUploadingPhoto(false);
+      event.target.value = "";
+    }
+  };
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!user?.id) return toast.error("Please sign in again to update your profile.");
     if (!formData.fullName.trim()) return toast.error("Add your display name before saving.");
     if (formData.username && !/^[a-zA-Z0-9_]{3,30}$/.test(formData.username)) return toast.error("Username must be 3–30 letters, numbers, or underscores.");
-    if (formData.imageUrl && !/^https?:\/\//i.test(formData.imageUrl)) return toast.error("Use a full image URL beginning with http:// or https://.");
 
     setIsLoading(true);
     try {
@@ -77,7 +102,9 @@ export function EditProfileDialog() {
         username: formData.username.trim() || undefined,
       });
       await queryClient.invalidateQueries({ queryKey: ["myProfile", user.id] });
-      await queryClient.invalidateQueries({ queryKey: ["userProfile", user.id] });
+      await queryClient.invalidateQueries({ queryKey: ["userProfile"] });
+      await queryClient.invalidateQueries({ queryKey: ["friends"] });
+      await queryClient.invalidateQueries({ queryKey: ["userFriends"] });
       toast.success("Profile updated");
       setIsOpen(false);
     } catch (error: any) {
@@ -97,7 +124,9 @@ export function EditProfileDialog() {
       <form onSubmit={handleSubmit} className="space-y-6 px-6 pb-6">
         <div className="flex items-center gap-4 rounded-xl bg-secondary/40 p-4">
           <Avatar className="h-16 w-16 border-2 border-background shadow-sm"><AvatarImage src={formData.imageUrl} alt="Profile preview" /><AvatarFallback className="bg-primary/15 text-lg text-primary">{initials}</AvatarFallback></Avatar>
-          <div className="min-w-0"><div className="flex items-center gap-2 font-medium"><Camera className="h-4 w-4 text-primary" /> Profile photo</div><p className="mt-1 text-xs text-muted-foreground">Paste a secure image URL below to update the preview.</p></div>
+          <div className="min-w-0 flex-1"><div className="flex items-center gap-2 font-medium"><Camera className="h-4 w-4 text-primary" /> Profile photo</div><p className="mt-1 text-xs text-muted-foreground">Choose a photo from your device or gallery. JPG, PNG, or WebP up to 5 MB.</p></div>
+          <input ref={photoInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handlePhotoSelect} disabled={isLoading || isUploadingPhoto} />
+          <Button type="button" variant="outline" size="sm" onClick={() => photoInputRef.current?.click()} disabled={isLoading || isUploadingPhoto}>{isUploadingPhoto ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}{isUploadingPhoto ? "Uploading" : "Upload"}</Button>
         </div>
         {isFetching ? <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading your profile…</div> : <>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -105,7 +134,6 @@ export function EditProfileDialog() {
             <div className="space-y-2"><Label htmlFor="username">Username <span className="text-muted-foreground">(optional)</span></Label><Input id="username" name="username" value={formData.username} onChange={handleChange} disabled={isLoading} maxLength={30} /></div>
           </div>
           <div className="space-y-2"><Label htmlFor="email">Email</Label><Input id="email" name="email" type="email" value={formData.email} onChange={handleChange} disabled={isLoading} /></div>
-          <div className="space-y-2"><Label htmlFor="imageUrl">Profile image URL</Label><Input id="imageUrl" name="imageUrl" type="url" placeholder="https://example.com/photo.jpg" value={formData.imageUrl} onChange={handleChange} disabled={isLoading} /></div>
           <div className="space-y-2"><div className="flex justify-between"><Label htmlFor="bio">About you</Label><span className="text-xs text-muted-foreground">{formData.bio.length}/280</span></div><Textarea id="bio" name="bio" value={formData.bio} onChange={handleChange} disabled={isLoading} maxLength={280} placeholder="Tell listeners a little about yourself" className="min-h-28 resize-none" /></div>
         </>}
         <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-end"><Button type="button" variant="ghost" onClick={() => setIsOpen(false)} disabled={isLoading}>Cancel</Button><Button type="submit" disabled={isLoading || isFetching}>{isLoading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving</> : <><Save className="mr-2 h-4 w-4" /> Save changes</>}</Button></div>

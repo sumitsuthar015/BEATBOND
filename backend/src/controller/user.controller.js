@@ -4,6 +4,8 @@ import { ListeningActivity } from "../models/listeningActivity.model.js";
 import { FriendRequest } from "../models/friendRequest.model.js";
 import mongoose from "mongoose";
 import { isUserOnline } from "../lib/socket.js";
+import cloudinary from "../lib/cloudinary.js";
+import fs from "fs/promises";
 
 export const saveListeningActivity = async (req, res, next) => {
 	try {
@@ -293,6 +295,42 @@ export const updateUserProfile = async (req, res, next) => {
 			user
 		});
 	} catch (error) {
+		next(error);
+	}
+};
+
+export const uploadProfilePhoto = async (req, res, next) => {
+	try {
+		const photo = req.files?.photo;
+		if (!photo || Array.isArray(photo)) return res.status(400).json({ message: "Choose a profile photo to upload." });
+		if (!photo.mimetype?.startsWith("image/")) return res.status(400).json({ message: "Please upload an image file." });
+		if (photo.size > 5 * 1024 * 1024) return res.status(400).json({ message: "Profile photos must be 5 MB or smaller." });
+		if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+			return res.status(503).json({ message: "Photo uploads are not configured yet." });
+		}
+
+		let uploaded;
+		try {
+			uploaded = await cloudinary.uploader.upload(photo.tempFilePath, {
+				folder: "beatbond/profile-photos",
+				resource_type: "image",
+				transformation: [{ width: 512, height: 512, crop: "fill", gravity: "face" }, { fetch_format: "auto", quality: "auto" }],
+			});
+		} finally {
+			if (photo.tempFilePath) await fs.unlink(photo.tempFilePath).catch(() => undefined);
+		}
+
+		const user = await User.findOneAndUpdate(
+			{ clerkId: req.auth.userId },
+			{ imageUrl: uploaded.secure_url },
+			{ new: true },
+		).select("imageUrl");
+		if (!user) return res.status(404).json({ message: "User not found" });
+		res.json({ imageUrl: user.imageUrl });
+	} catch (error) {
+		if (error?.http_code === 401 || /invalid signature/i.test(error?.message || "")) {
+			return res.status(503).json({ message: "Photo upload configuration is invalid. Update CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET with matching values from one Cloudinary account." });
+		}
 		next(error);
 	}
 };

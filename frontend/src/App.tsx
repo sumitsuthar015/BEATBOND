@@ -1,6 +1,7 @@
 import { Route, Routes } from "react-router-dom";
 import { lazy, Suspense } from "react";
 import HomePage from "./pages/home/HomePage";
+import HomeCollectionPage from "./pages/home/HomeCollectionPage";
 import AuthCallbackPage from "./pages/auth-callback/AuthCallbackPage";
 import { AuthenticateWithRedirectCallback } from "@clerk/clerk-react";
 import MainLayout from "./layout/MainLayout";
@@ -62,6 +63,7 @@ function App() {
 
         <Route element={<MainLayout />}>
           <Route path="/" element={<HomePage />} />
+          <Route path="/home/collection/:collectionId" element={<HomeCollectionPage />} />
           <Route
             path="/chat"
             element={

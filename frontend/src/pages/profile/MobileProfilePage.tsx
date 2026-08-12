@@ -30,7 +30,7 @@ const MobileProfilePage = () => {
   const { data: connections = [] } = useQuery<Connection[]>({ queryKey: ["friends"], queryFn: async () => (await axiosInstance.get("/friends")).data, enabled: Boolean(user?.id), staleTime: 30_000 });
   const { data: avatar } = useQuery<AvatarConfig | null>({ queryKey: ["myAvatar"], queryFn: async () => (await axiosInstance.get("/avatars/me")).data, enabled: Boolean(user?.id), staleTime: 60_000 });
   useEffect(() => { if (user?.id) void fetchPlaylists(); }, [user?.id, fetchPlaylists]);
-  const profileImage = avatar && user ? avatarUrl(avatar, user.id) : (profile?.imageUrl || user?.imageUrl);
+  const profileImage = profile?.imageUrl || (avatar && user ? avatarUrl(avatar, user.id) : user?.imageUrl);
   const shareMessage = `Shared ${profile?.fullName || user?.fullName || "my"} profile`;
   const shareContent = { type: "profile" as const, title: profile?.fullName || user?.fullName || "My BeatBond profile", subtitle: profile?.bio || "BeatBond profile", imageUrl: profileImage || user?.imageUrl, href: `/profile/${user?.id}` };
   const addPlaylist = () => { const name = window.prompt("Name your playlist"); if (name?.trim()) void createPlaylist(name.trim()); };

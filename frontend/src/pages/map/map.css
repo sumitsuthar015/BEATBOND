@@ -104,6 +104,38 @@
   box-shadow: 0 9px 24px rgb(0 0 0 / 0.48), 0 0 0 3px rgba(255, 255, 255, 0.195);
 }
 
+.live-user-marker {
+  width: 48px !important;
+  height: 48px !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.live-user-marker__avatar {
+  position: relative;
+  display: grid;
+  width: 48px;
+  height: 48px;
+  box-sizing: border-box;
+  overflow: hidden;
+  place-items: center;
+  border: 3px solid #a78bfa;
+  border-radius: 9999px;
+  background: #27272a;
+  box-shadow: 0 8px 22px rgb(0 0 0 / 0.5), 0 0 0 4px rgb(124 58 237 / 0.18);
+  color: white;
+  font-size: 17px;
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.live-user-marker__avatar.is-friend { border-color: #34d399; box-shadow: 0 8px 22px rgb(0 0 0 / 0.5), 0 0 0 4px rgb(16 185 129 / 0.18); }
+.live-user-marker__avatar img { display: block; width: 100% !important; height: 100% !important; min-width: 100%; min-height: 100%; border-radius: inherit; object-fit: cover; }
+.live-user-marker__fallback { display: none; position: absolute; inset: 0; place-items: center; }
+.live-user-marker__avatar > b:not(.live-user-marker__fallback) { display: grid; }
+.live-user-marker.is-last-location .live-user-marker__avatar { filter: grayscale(0.9); opacity: 0.72; }
+.live-user-marker__avatar i { position: absolute; right: 1px; bottom: 1px; width: 10px; height: 10px; border: 2px solid #18181b; border-radius: 9999px; background: #34d399; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.35); }
+.live-user-marker:hover .live-user-marker__avatar { transform: scale(1.1); box-shadow: 0 11px 28px rgb(0 0 0 / 0.55), 0 0 0 5px rgb(167 139 250 / 0.25); }
+
 .friend-map .leaflet-popup-content-wrapper,
 .friend-map .leaflet-popup-tip {
   background: #18181b;
@@ -132,6 +164,8 @@
 }
 
 @media (max-width: 640px) {
+  /* MainLayout gives /map the complete dynamic viewport on mobile. */
+  .friend-map { min-height: 100dvh; }
   .friend-map .leaflet-control-zoom { margin-bottom: 13.25rem !important; }
   .friend-map .leaflet-control-attribution { display: none; }
 }

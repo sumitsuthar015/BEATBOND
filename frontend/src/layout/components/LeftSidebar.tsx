@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useMyProfile } from "@/hooks/useMyProfile";
 
 interface LeftSidebarProps {
   onNavigate?: () => void;
@@ -37,6 +38,7 @@ const LeftSidebar = ({ onNavigate }: LeftSidebarProps) => {
   const navigate = useNavigate();
   const { openSignIn } = useClerk();
   const { user } = useUser();
+  const { data: profile } = useMyProfile();
   const handleNavigation = () => onNavigate?.();
 
   const handleGoogleSignIn = () => {
@@ -139,14 +141,14 @@ const LeftSidebar = ({ onNavigate }: LeftSidebarProps) => {
             >
               <Avatar className="size-10 border border-border">
                 <AvatarImage
-                  src={user?.imageUrl}
-                  alt={user?.fullName || "Your profile"}
+                  src={profile?.imageUrl || user?.imageUrl}
+                  alt={profile?.fullName || user?.fullName || "Your profile"}
                 />
                 <AvatarFallback>{user?.firstName?.[0] || "U"}</AvatarFallback>
               </Avatar>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold">
-                  {user?.fullName || "Your profile"}
+                  {profile?.fullName || user?.fullName || "Your profile"}
                 </span>
                 <span className="block text-xs text-muted-foreground">
                   Profile & account

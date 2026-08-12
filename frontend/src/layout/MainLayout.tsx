@@ -17,6 +17,7 @@ const MainLayout = () => {
   const [isMobile, setIsMobile] = useState(false);
   const [isFloating, setIsFloating] = useState(false);
   const isChatPage = location.pathname === "/chat";
+  const isMapPage = location.pathname === "/map";
 
   useEffect(() => {
     const checkMobile = () => {
@@ -28,9 +29,10 @@ const MainLayout = () => {
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
-  // A conversation needs every available pixel. Keep it outside the normal
-  // shell so a playing song, mobile nav, or desktop sidebars never cover it.
-  if (isChatPage && isMobile) {
+  // Chat and the map are immersive mobile screens. Keep them outside the
+  // regular shell so the player and bottom navigation never reduce or cover
+  // their viewport.
+  if ((isChatPage || isMapPage) && isMobile) {
     return (
       <div className="relative h-dvh min-h-0 overflow-hidden bg-background">
         <AnimatedBackground />

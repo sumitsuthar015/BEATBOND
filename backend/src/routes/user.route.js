@@ -7,6 +7,7 @@ import {
 	searchUsers,
 	getSuggestedUsers,
 	updateUserProfile, 
+	uploadProfilePhoto,
 	getUserProfile,
 	markAllMessagesAsRead,
 	deleteMessage,
@@ -26,6 +27,7 @@ router.get("/messages/:userId", protectRoute, getMessages);
 router.get("/messages/:userId/shared", protectRoute, getSharedMessages);
 router.get("/search", protectRoute, searchUsers);
 router.put("/profile/:clerkId", protectRoute, updateUserProfile);
+router.post("/profile/photo", protectRoute, uploadProfilePhoto);
 router.get("/profile/:userId", protectRoute, getUserProfile);
 router.put("/messages/:userId/mark-read", protectRoute, markAllMessagesAsRead);
 router.delete("/messages/:messageId", protectRoute, deleteMessage);

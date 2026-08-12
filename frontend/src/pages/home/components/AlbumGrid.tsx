@@ -8,9 +8,10 @@ type AlbumGridProps = {
     title: string;
     albums: Album[];
     isLoading: boolean;
+    collectionId?: string;
 };
 
-const AlbumGrid = ({ title, albums, isLoading }: AlbumGridProps) => {
+const AlbumGrid = ({ title, albums, isLoading, collectionId }: AlbumGridProps) => {
     const navigate = useNavigate();
 
     if (isLoading && (!albums || albums.length === 0)) {
@@ -43,6 +44,7 @@ const AlbumGrid = ({ title, albums, isLoading }: AlbumGridProps) => {
                 </h2>
                 <Button
                     variant="link"
+                    onClick={() => collectionId && navigate(`/home/collection/${collectionId}`)}
                     className="text-xs sm:text-sm text-muted-foreground hover:text-foreground transition-colors p-0 h-auto"
                 >
                     Show all

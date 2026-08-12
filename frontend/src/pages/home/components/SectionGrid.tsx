@@ -5,15 +5,18 @@ import PlayButton from "./PlayButton";
 import { motion } from "framer-motion";
 import { usePlayerStore } from "@/stores/usePlayerStore";
 import { SongOptionsMenu } from "@/components/SongOptionsMenu";
+import { useNavigate } from "react-router-dom";
 
 type SectionGridProps = {
   title: string;
   songs: Song[];
   isLoading: boolean;
+  collectionId?: string;
 };
 
-const SectionGrid = ({ songs, title, isLoading }: SectionGridProps) => {
+const SectionGrid = ({ songs, title, isLoading, collectionId }: SectionGridProps) => {
   const playAlbum = usePlayerStore((state) => state.playAlbum);
+  const navigate = useNavigate();
   if (isLoading && (!songs || songs.length === 0)) return <SectionGridSkeleton />;
 
   return (
@@ -24,6 +27,7 @@ const SectionGrid = ({ songs, title, isLoading }: SectionGridProps) => {
         </h2>
         <Button
           variant="link"
+          onClick={() => collectionId && navigate(`/home/collection/${collectionId}`)}
           className="text-xs sm:text-sm text-muted-foreground hover:text-foreground transition-colors p-0 h-auto"
         >
           Show all
