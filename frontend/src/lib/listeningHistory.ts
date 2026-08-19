@@ -1,5 +1,4 @@
 import { Song } from "@/types";
-import { axiosInstance } from "@/lib/axios";
 
 export type ListeningEvent = Song & { playedAt: string };
 
@@ -27,7 +26,6 @@ export const recordListeningEvent = (song: Song) => {
   // navigation or refresh; a user can only clear it explicitly in storage.
   localStorage.setItem(keyFor(userId), JSON.stringify([...history, event].slice(-1000)));
   window.dispatchEvent(new CustomEvent("beatbond:history-updated", { detail: userId }));
-  // The local copy updates the UI instantly; the protected API keeps the
-  // same user history available after a new login/device session.
-  void axiosInstance.post("/users/listening-history", song).catch(() => undefined);
+  // Server persistence happens after a meaningful playback outcome, not on
+  // an accidental click. See `recordPlaybackOutcome`.
 };

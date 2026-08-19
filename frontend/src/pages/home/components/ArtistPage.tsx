@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { ChevronLeft, Clock3, Heart, MoreHorizontal, Music2, Pause, Play } from "lucide-react";
+import { ChevronLeft, Clock3, Heart, Music2, Pause, Play, Share2 } from "lucide-react";
 import Topbar from "@/components/Topbar";
 import { useMusicStore } from "@/stores/useMusicStore";
 import { usePlayerStore } from "@/stores/usePlayerStore";
@@ -10,6 +10,7 @@ import { fetchSavedArtists, publishSavedArtists, toggleSavedArtistRemote } from 
 import { useChatStore } from "@/stores/useChatStore";
 import { isVerifiedValidSong } from "@/lib/songUtils";
 import toast from "react-hot-toast";
+import { ShareToMessageDialog } from "@/components/ShareToMessageDialog";
 
 type Tab = "overview" | "songs" | "albums";
 type Sort = "popular" | "name" | "date";
@@ -84,7 +85,7 @@ const ArtistPage = () => {
             <p className="mb-2 text-sm font-medium text-white/70">Artist</p>
             <h1 className="truncate text-4xl font-black tracking-tight sm:text-6xl">{artist.name}</h1>
             <p className="mt-3 text-sm text-white/70">{artist.fanCount || artist.followerCount?.toLocaleString() || ""} {artist.fanCount || artist.followerCount ? "listeners" : ""}{artist.dominantLanguage ? ` · ${artist.dominantLanguage}` : ""}</p>
-            <div className="mt-6 flex items-center justify-center gap-3 sm:justify-start"><button onClick={playAll} className="flex min-w-32 items-center justify-center gap-2 rounded-full bg-primary px-7 py-3 font-bold text-primary-foreground transition hover:scale-105">{isPlaying && currentSong && artist.topSongs?.some((song) => song._id === currentSong._id) ? <Pause className="size-5 fill-current" /> : <Play className="size-5 fill-current" />} {isPlaying && currentSong && artist.topSongs?.some((song) => song._id === currentSong._id) ? "Pause" : "Play"}</button><button onClick={saveArtist} aria-label={isSaved ? "Remove from liked artists" : "Save artist"} title={isSaved ? "Remove from liked artists" : "Save artist"} className={`rounded-full border p-3 transition ${isSaved ? "border-primary bg-primary text-primary-foreground" : "border-white/25 text-white/80 hover:bg-white/10"}`}><Heart className={`size-5 ${isSaved ? "fill-current" : ""}`} /></button><button className="rounded-full border border-white/25 p-3 text-white/80"><MoreHorizontal className="size-5" /></button></div>
+            <div className="mt-6 flex items-center justify-center gap-3 sm:justify-start"><button onClick={playAll} className="flex min-w-32 items-center justify-center gap-2 rounded-full bg-primary px-7 py-3 font-bold text-primary-foreground transition hover:scale-105">{isPlaying && currentSong && artist.topSongs?.some((song) => song._id === currentSong._id) ? <Pause className="size-5 fill-current" /> : <Play className="size-5 fill-current" />} {isPlaying && currentSong && artist.topSongs?.some((song) => song._id === currentSong._id) ? "Pause" : "Play"}</button><button onClick={saveArtist} aria-label={isSaved ? "Remove from liked artists" : "Save artist"} title={isSaved ? "Remove from liked artists" : "Save artist"} className={`rounded-full border p-3 transition ${isSaved ? "border-primary bg-primary text-primary-foreground" : "border-white/25 text-white/80 hover:bg-white/10"}`}><Heart className={`size-5 ${isSaved ? "fill-current" : ""}`} /></button><ShareToMessageDialog message={`Check out ${artist.name} on BeatBond`} sharedContent={{ type: "artist", title: artist.name, subtitle: artist.dominantLanguage ? `${artist.dominantLanguage} artist` : "Artist", imageUrl: image, href: `/artist/${artist.id}` }} trigger={<button type="button" aria-label={`Share ${artist.name}`} title="Share artist" className="rounded-full border border-white/25 p-3 text-white/80 transition hover:bg-white/10"><Share2 className="size-5" /></button>} /></div>
           </div>
         </div>
       </div>

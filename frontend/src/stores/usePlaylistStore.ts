@@ -3,6 +3,7 @@ import { Song } from "@/types";
 import { axiosInstance } from "@/lib/axios";
 import { toast } from "react-hot-toast";
 import { cachePlaylists, getCachedPlaylists } from "@/lib/offlineLibrary";
+import { recordPlaybackOutcome } from "@/lib/recommendations";
 
 export interface Playlist {
   id: string;
@@ -94,6 +95,8 @@ export const usePlaylistStore = create<PlaylistStore>((set) => ({
       });
       if (song) {
         await axiosInstance.post(`/playlists/${data.id}/songs`, { song });
+        // A playlist add is a strong positive recommendation signal.
+        recordPlaybackOutcome(song, song.duration || 1, song.duration || 1);
         await usePlaylistStore.getState().fetchPlaylists();
       }
       toast.success("Playlist created");
@@ -130,6 +133,7 @@ export const usePlaylistStore = create<PlaylistStore>((set) => ({
         cachePlaylists(next.playlists);
         return next;
       });
+      recordPlaybackOutcome(song, song.duration || 1, song.duration || 1);
       toast.success("Song added to playlist");
     } catch (error: any) {
       toast.error(error.response?.data?.message || "Could not add song");

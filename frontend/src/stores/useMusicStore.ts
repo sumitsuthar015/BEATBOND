@@ -607,6 +607,13 @@ export const useMusicStore = create<MusicStore>((set, get) => ({
 	toggleLike: async (id) => {
 		try {
 			const response = await axiosInstance.post(`/songs/${id}/toggle-like`);
+			if (response.data.isLiked) {
+				const liked = get().songs.find((song) => song._id === id) || get().trendingSongs.find((song) => song._id === id);
+				if (liked) {
+					const { recordPlaybackOutcome } = await import("@/lib/recommendations");
+					recordPlaybackOutcome(liked, liked.duration || 1, liked.duration || 1);
+				}
+			}
 
 			set((state) => ({
 				songs: state.songs.map((song) =>

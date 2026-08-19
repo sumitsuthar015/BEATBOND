@@ -1,3 +1,4 @@
+
 import { Song, Album, Artist, fetchFromSaavn } from "@saavn-labs/sdk";
 
 const streamCache = new Map();
@@ -15,7 +16,7 @@ const normaliseSearchText = (value) => String(value || "")
   .normalize("NFD")
   .replace(/[\u0300-\u036f]/g, "")
   .toLowerCase()
-  .replace(/[^a-z0-9]+/g, " ")
+  .replace(/[^\p{L}\p{N}]+/gu, " ")
   .trim()
   .replace(/\s+/g, " ");
 
@@ -24,18 +25,57 @@ const SEARCH_NOISE_WORDS = new Set([
   "full", "new", "latest", "download", "listen", "play",
 ]);
 
+export const normalizeSearchQuery = (query) => normaliseSearchText(query);
+
+export const tokenizeQuery = (query) => normaliseSearchText(query).split(" ").filter(Boolean);
+
 const searchTerms = (query) => {
   const terms = normaliseSearchText(query).split(" ").filter(Boolean);
   const useful = terms.filter((term) => !SEARCH_NOISE_WORDS.has(term));
   return useful.length ? useful : terms;
 };
 
-const songArtistText = (song) => [
-  song?.artist,
-  song?.primary_artists,
-  ...(song?.artists?.primary || []).map((artist) => artist?.name),
-  ...(song?.artists?.all || []).map((artist) => artist?.name),
-].filter(Boolean).join(" ");
+// These fields are based on verified JioSaavn `search.getResults` responses:
+// title, subtitle, more_info.album, and more_info.artistMap.*. The SDK shape
+// is also accepted because both sources flow through this one normalizer.
+export const extractSearchFields = (song) => {
+  const artistMap = song?.more_info?.artistMap || song?.moreInfo?.artistMap || {};
+  const artistEntries = [
+    ...(Array.isArray(artistMap.primary_artists) ? artistMap.primary_artists : []),
+    ...(Array.isArray(artistMap.featured_artists) ? artistMap.featured_artists : []),
+    ...(Array.isArray(song?.artists?.primary) ? song.artists.primary : []),
+    ...(Array.isArray(song?.artists?.all) ? song.artists.all : []),
+  ];
+  const artists = [...new Set([
+    ...artistEntries.map((artist) => String(artist?.name || "").trim()),
+    ...String(song?.artist || song?.primary_artists || "").split(/,|&| feat\.? | ft\.? /i).map((name) => name.trim()),
+  ].filter(Boolean))];
+  const title = String(song?.title || song?.name || song?.song || "").trim();
+  const album = String(song?.more_info?.album || song?.album?.name || song?.album?.title || song?.albumName || "").trim();
+  return { title, artists, album, searchableText: normaliseSearchText(`${title} ${artists.join(" ")} ${album}`) };
+};
+
+const songArtistText = (song) => extractSearchFields(song).artists.join(" ");
+
+const editDistance = (left, right) => {
+  if (left === right) return 0;
+  if (!left || !right) return Math.max(left.length, right.length);
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= left.length; i += 1) {
+    const current = [i];
+    for (let j = 1; j <= right.length; j += 1) current[j] = Math.min(current[j - 1] + 1, previous[j] + 1, previous[j - 1] + (left[i - 1] === right[j - 1] ? 0 : 1));
+    previous = current;
+  }
+  return previous[right.length];
+};
+
+const fuzzyScore = (query, fields) => {
+  if (query.length < 4) return 0;
+  const words = fields.searchableText.split(" ").filter(Boolean);
+  const queryWords = tokenizeQuery(query);
+  const close = queryWords.filter((term) => words.some((word) => Math.abs(word.length - term.length) <= 2 && editDistance(term, word) <= (term.length >= 7 ? 2 : 1))).length;
+  return close === queryWords.length ? 80 : close ? close * 15 : 0;
+};
 
 const detectSearchIntent = (query, artists, albums) => {
   const normalized = normaliseSearchText(query);
@@ -50,7 +90,7 @@ const detectSearchIntent = (query, artists, albums) => {
 };
 
 const resultText = (item, type) => type === "song"
-  ? `${item?.name || item?.title || ""} ${songArtistText(item)} ${item?.album?.name || item?.albumName || ""}`
+  ? extractSearchFields(item).searchableText
   : type === "artist"
     ? item?.name || item?.title || ""
     : `${item?.name || item?.title || ""} ${songArtistText(item)}`;
@@ -73,20 +113,34 @@ const rankResults = (items, type, query, intent, limit) => {
 
   return [...unique.values()]
     .map(({ item, index }) => {
-      const name = normaliseSearchText(item?.name || item?.title);
-      const text = normaliseSearchText(resultText(item, type));
-      let score = Math.max(0, 100 - index); // preserve upstream quality as a tie-breaker
-      if (name === normalized) score += 10_000;
-      else if (name.startsWith(normalized)) score += 4_000;
-      else if (text.includes(normalized)) score += 1_000;
-      score += terms.reduce((sum, term) => sum + (name.includes(term) ? 550 : text.includes(term) ? 240 : -450), 0);
-      if (terms.length && terms.every((term) => text.includes(term))) score += 2_000;
-      if (intent === type || (intent === "song" && type === "song")) score += 700;
+      const fields = type === "song" ? extractSearchFields(item) : { title: String(item?.name || item?.title || ""), artists: type === "artist" ? [String(item?.name || item?.title || "")] : [songArtistText(item)], album: String(item?.name || item?.title || ""), searchableText: normaliseSearchText(resultText(item, type)) };
+      const title = normaliseSearchText(fields.title);
+      const artists = fields.artists.map(normaliseSearchText).filter(Boolean);
+      const album = normaliseSearchText(fields.album);
+      const text = fields.searchableText;
+      let score = 0;
+      // Relevance order: exact -> prefix -> contains -> all tokens -> partial -> fuzzy.
+      if (title === normalized) score += 1000;
+      if (artists.some((artist) => artist === normalized)) score += 950;
+      if (album === normalized) score += 900;
+      if (title.startsWith(normalized)) score += 800;
+      if (artists.some((artist) => artist.startsWith(normalized))) score += 750;
+      if (album.startsWith(normalized)) score += 700;
+      if (title.includes(normalized)) score += 600;
+      if (artists.some((artist) => artist.includes(normalized))) score += 550;
+      if (album.includes(normalized)) score += 500;
+      if (terms.length && terms.every((term) => title.includes(term))) score += 450;
+      if (terms.length && terms.every((term) => artists.some((artist) => artist.includes(term)))) score += 400;
+      if (terms.length && terms.every((term) => text.includes(term))) score += 300;
+      score += terms.reduce((sum, term) => sum + (text.includes(term) ? 50 : 0), 0);
+      score += fuzzyScore(normalized, fields);
+      if (intent === type || (intent === "song" && type === "song")) score += 25;
       if (type === "artist" && item?.isVerified) score += 150;
-      score += Math.min(Math.log10(Number(item?.followerCount) + 1) * 12 || 0, 100);
-      return { item, score, index };
+      const popularity = Math.min(Math.log10(Number(item?.play_count || item?.playCount || item?.followerCount || 0) + 1) || 0, 12);
+      return { item, score, popularity, index };
     })
-    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .filter(({ score }) => score > 0)
+    .sort((left, right) => right.score - left.score || right.popularity - left.popularity || left.index - right.index)
     .slice(0, limit)
     .map(({ item }) => item);
 };
@@ -144,8 +198,13 @@ const searchJioSaavnWebSongs = async (query, limit) => {
         id: String(item?.more_info?.album_id || ""),
         name: item?.more_info?.album || "",
       },
-      media: { encryptedUrl: item?.more_info?.encrypted_media_url || "" },
-    }; }).filter((item) => item.id && item.name && item.artist && item.media.encryptedUrl);
+      // Confirmed in live `search.getResults` payloads. It is a safe
+      // provider preview fallback when auth-token stream resolution fails.
+      media: {
+        encryptedUrl: item?.more_info?.encrypted_media_url || "",
+        previewUrl: item?.more_info?.vlink || "",
+      },
+    }; }).filter((item) => item.id && item.name && item.artist && (item.media.encryptedUrl || item.media.previewUrl));
   } catch {
     return [];
   }
@@ -407,14 +466,17 @@ export const mapArtist = (artist) => {
   };
 };
 
-export async function searchSongs(query, limit = 50) {
-  return cachedSearch("songs", query, limit, async (normalized) => {
+export async function searchSongs(query, limit = 50, page = 1) {
+  const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 50);
+  const safePage = Math.max(Number(page) || 1, 1);
+  return cachedSearch(`songs:p${safePage}`, query, safeLimit, async (normalized) => {
     try {
-      const res = await Song.search({ query: normalized, limit: Number(limit) });
+      const providerLimit = Math.min(safeLimit * safePage, 50);
+      const res = await Song.search({ query: normalized, limit: providerLimit });
       const sdkResults = res.results || [];
       // Always merge the web catalogue: the SDK can return a non-empty but
       // incomplete list (for example a remix) while missing the official song.
-      const webResults = await searchJioSaavnWebSongs(normalized, limit);
+      const webResults = await searchJioSaavnWebSongs(normalized, providerLimit);
       const sourceResults = [...sdkResults, ...webResults];
       const results = (await Promise.all(sourceResults.map(mapSongWithFullAudio))).filter((song) => song?.id);
       // Some SDK results contain metadata but no playable stream, while the
@@ -423,7 +485,8 @@ export async function searchSongs(query, limit = 50) {
         const retryWebResults = await searchJioSaavnWebSongs(normalized, limit);
         return { status: "SUCCESS", data: { results: (await Promise.all(retryWebResults.map(mapSongWithFullAudio))).filter((song) => song?.id) } };
       }
-      return { status: "SUCCESS", data: { results } };
+      const start = (safePage - 1) * safeLimit;
+      return { status: "SUCCESS", data: { results: results.slice(start, start + safeLimit), page: safePage, limit: safeLimit, hasMore: results.length > start + safeLimit } };
     } catch { return { status: "SUCCESS", data: { results: [] } }; }
   });
 }

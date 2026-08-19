@@ -63,13 +63,18 @@ const resetStalePresence = () => {
   return presenceReset;
 };
 
-// Location payloads are emitted only to accepted friends. The HTTP location
-// route owns persistence; this helper keeps socket authorization centralized.
+// Coordinates are never sent through the socket. This is only a refresh
+// signal; the authenticated HTTP endpoint applies the visibility policy before
+// it returns any location data to a client.
 export const emitLocationToFriends = async (userId, location) => {
   if (!socketServer) return;
+  if (location?.visibility === "everyone") {
+    socketServer.emit("live_location_updated", { userId });
+    return;
+  }
   const user = await User.findOne({ clerkId: userId }).select("friends").lean();
   for (const friendId of user?.friends ?? []) {
-    emitToUser(socketServer, friendId, "friend_location_updated", { userId, location });
+    emitToUser(socketServer, friendId, "friend_location_updated", { userId });
   }
 };
 

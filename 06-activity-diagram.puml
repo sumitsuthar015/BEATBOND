@@ -1,0 +1,32 @@
+@startuml
+title BeatBond - Activity Diagram: Discover Mood Music
+start
+:User opens BeatBond;
+if (Authenticated?) then (yes)
+  :Load home page and profile;
+else (no)
+  :Sign in through Clerk;
+  :Create or load BeatBond user profile;
+endif
+:Choose a mood;
+if (Mood is supported?) then (happy/sad/romantic/party)
+  :Request curated mood songs;
+  :Search Saavn using mood-specific queries;
+  :Rank playable results and exclude unsuitable tracks;
+  :Display mood playlist;
+  :Select song and start playback;
+  fork
+    :Store listening activity;
+  fork again
+    if (Music privacy allows sharing?) then (yes)
+      :Publish activity to authorised friends;
+    endif
+  end fork
+  if (Save song?) then (yes)
+    :Like song or add it to a playlist;
+  endif
+else (no)
+  :Show available mood choices;
+endif
+stop
+@enduml

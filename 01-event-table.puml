@@ -1,0 +1,54 @@
+@startuml
+title BeatBond - Event Table
+skinparam classAttributeIconSize 0
+class "Sign in / Register" as E1 {
+  Trigger: User completes Clerk authentication
+  Processing: Verify token and create/load user profile
+  Response: Open personalised BeatBond home page
+}
+class "Search Music" as E2 {
+  Trigger: User enters song, artist, or album query
+  Processing: Query Saavn catalogue and store search history
+  Response: Display matching results and suggestions
+}
+class "Play Song" as E3 {
+  Trigger: User selects a track
+  Processing: Start audio; save listening activity; update privacy-aware activity
+  Response: Play music and optionally show activity to friends
+}
+class "Manage Playlist" as E4 {
+  Trigger: User creates, edits, adds/removes song, or downloads playlist
+  Processing: Validate ownership and update playlist document
+  Response: Refresh playlist/library and offline metadata
+}
+class "Like Music" as E5 {
+  Trigger: User likes a song or artist
+  Processing: Update song likes or liked-artist collection
+  Response: Update liked songs/artists library
+}
+class "Mood Playlist" as E6 {
+  Trigger: User chooses happy, sad, romantic, or party mood
+  Processing: Curate and rank playable Saavn songs for that mood
+  Response: Display mood-based playlist
+}
+class "Friend Request" as E7 {
+  Trigger: User sends or responds to request
+  Processing: Update friend request and both friend lists
+  Response: Send friend request notification
+}
+class "Send Message" as E8 {
+  Trigger: User sends private chat content or shared item
+  Processing: Save message and emit Socket.IO event
+  Response: Recipient receives real-time message and notification
+}
+class "Share Location" as E9 {
+  Trigger: User enables/shares location
+  Processing: Save coordinates and apply visibility setting
+  Response: Authorised users receive map refresh event
+}
+class "Admin Management" as E10 {
+  Trigger: Administrator adds/deletes song or album
+  Processing: Verify admin role and update catalogue
+  Response: Updated administration dashboard
+}
+@enduml

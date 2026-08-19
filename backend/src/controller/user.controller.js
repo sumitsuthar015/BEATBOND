@@ -9,12 +9,18 @@ import fs from "fs/promises";
 
 export const saveListeningActivity = async (req, res, next) => {
 	try {
-		const { _id, title, artist, imageUrl, audioUrl, albumId, genre, duration } = req.body;
+		const { _id, title, artist, imageUrl, audioUrl, albumId, genre, duration, durationPlayed, completionPercentage, completed, skipped, skipPosition, source } = req.body;
 		if (!_id || !title) return res.status(400).json({ message: "Song id and title are required" });
+		const safeDuration = Number(duration) || 0;
+		const played = Math.max(0, Math.min(Number(durationPlayed) || 0, safeDuration || Number(durationPlayed) || 0));
+		const completion = Math.max(0, Math.min(Number(completionPercentage) || (safeDuration ? (played / safeDuration) * 100 : 0), 100));
+		// Ignore accidental taps: playback history should represent meaningful use.
+		if (!completed && !skipped && played < 10) return res.status(204).end();
 		const activity = await ListeningActivity.create({
 			userId: req.auth.userId,
 			songId: String(_id), title, artist, imageUrl, audioUrl, albumId, genre,
-			duration: Number(duration) || 0, playedAt: new Date(),
+			duration: safeDuration, durationPlayed: played, completionPercentage: completion,
+			completed: Boolean(completed), skipped: Boolean(skipped), skipPosition: Math.max(0, Number(skipPosition) || 0), source: String(source || "player").slice(0, 40), playedAt: new Date(),
 		});
 		res.status(201).json(activity);
 	} catch (error) { next(error); }
@@ -28,6 +34,7 @@ export const getListeningHistory = async (req, res, next) => {
 			_id: item.songId, title: item.title, artist: item.artist, imageUrl: item.imageUrl,
 			audioUrl: item.audioUrl, albumId: item.albumId, genre: item.genre, duration: item.duration,
 			playedAt: item.playedAt.toISOString(), userId: item.userId, videoUrl: null, isLiked: false,
+			durationPlayed: item.durationPlayed, completionPercentage: item.completionPercentage, completed: item.completed, skipped: item.skipped, source: item.source,
 			lyrics: "", createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString(),
 		})));
 	} catch (error) { next(error); }

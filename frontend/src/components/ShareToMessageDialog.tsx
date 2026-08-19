@@ -11,7 +11,7 @@ import type { Song } from "@/types";
 
 type Friend = { clerkId: string; fullName: string; imageUrl: string };
 export type SharedContent = {
-  type: "song" | "profile" | "playlist" | "post" | "album";
+  type: "song" | "profile" | "playlist" | "post" | "album" | "artist";
   title: string;
   subtitle?: string;
   imageUrl?: string;
@@ -38,7 +38,7 @@ export function ShareToMessageDialog({ trigger, message, sharedContent }: { trig
     setSendingTo(friend.clerkId);
     // In BeatBond, the structured card is the share. Do not duplicate it as a
     // raw URL in the chat bubble; external shares still receive the full link.
-    const itemLabel = sharedContent?.type === "profile" ? "a profile" : sharedContent?.type === "song" ? "a song" : sharedContent?.type === "album" ? "an album" : "an item";
+    const itemLabel = sharedContent?.type === "profile" ? "a profile" : sharedContent?.type === "artist" ? "an artist" : sharedContent?.type === "song" ? "a song" : sharedContent?.type === "album" ? "an album" : "an item";
     const inAppContent = sharedContent ? `Shared ${itemLabel}` : message;
     socket.emit("sendMessage", { receiverId: friend.clerkId, content: inAppContent, sharedContent });
     setSendingTo(null);
@@ -48,7 +48,7 @@ export function ShareToMessageDialog({ trigger, message, sharedContent }: { trig
 
   const resolvedHref = sharedContent?.href?.startsWith("/") ? `${window.location.origin}${sharedContent.href}` : sharedContent?.href;
   const shareUrl = resolvedHref ?? message.match(/https?:\/\/\S+/)?.[0] ?? window.location.href;
-  const shareText = sharedContent?.type === "profile" ? `Check out ${sharedContent.title || "this profile"} on BeatBond` : message;
+  const shareText = sharedContent?.type === "profile" || sharedContent?.type === "artist" ? `Check out ${sharedContent.title || "this artist"} on BeatBond` : message;
   const encodedMessage = encodeURIComponent(shareText);
   const copyForUnsupportedPlatform = async (platform: string) => {
     try {

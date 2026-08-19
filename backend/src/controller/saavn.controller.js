@@ -11,8 +11,8 @@ import {
 } from "../services/saavn.service.js";
 
 export const handleSearchSongs = async (req, res) => {
-  const { query, limit } = req.query;
-  const result = await searchSongs(query || "", limit || 50);
+  const { query, limit, page } = req.query;
+  const result = await searchSongs(query || "", limit || 50, page || 1);
   res.status(200).json(result);
 };
 

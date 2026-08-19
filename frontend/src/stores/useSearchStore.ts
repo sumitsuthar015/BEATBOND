@@ -5,6 +5,7 @@ import {
   mapSaavnSong,
   searchSaavnAlbums,
   searchSaavnArtists,
+  searchSaavnCatalogue,
   searchSaavnSongs,
   SaavnArtistResult,
   SaavnPlaylistResult,
@@ -337,6 +338,7 @@ interface SearchStore {
     years: number[];
   };
   setSearchQuery: (query: string) => void;
+  autocomplete: (query: string) => Promise<void>;
   setFilters: (filters: SearchFilters) => void;
   searchSongs: (query: string) => Promise<void>;
   getSuggestions: (query: string) => Promise<void>;
@@ -383,6 +385,34 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
 
   setSearchQuery: (query) => {
     set({ searchQuery: query });
+  },
+
+  // Compact provider-backed lookup for the top-bar. The full search page
+  // continues to use `searchSongs`; autocomplete avoids its extra playlist
+  // and artist-phrase requests on each debounce tick.
+  autocomplete: async (query) => {
+    const requestId = ++latestSearchRequest;
+    const normalizedQuery = query.trim().replace(/\s+/g, " ");
+    if (normalizedQuery.length < 2) {
+      set({ searchResults: [], artistResults: [], albumResults: [], isLoading: false, error: null });
+      return;
+    }
+    set({ isLoading: true, error: null });
+    try {
+      const catalogue = await searchSaavnCatalogue(normalizedQuery, 8);
+      if (requestId !== latestSearchRequest) return;
+      set({
+        searchResults: rankSongs(catalogue.songs.map((song: any) => mapSaavnSong(song)).filter(Boolean) as Song[], normalizedQuery).slice(0, 6),
+        artistResults: rankArtists(catalogue.artists.map((artist: any) => mapSaavnArtist(artist)).filter(Boolean) as SaavnArtistResult[], normalizedQuery).slice(0, 3),
+        albumResults: catalogue.albums.map((album: any) => mapSaavnAlbum(album)).filter(Boolean) as Album[],
+        playlistResults: [],
+        isLoading: false,
+        error: null,
+      });
+    } catch {
+      if (requestId !== latestSearchRequest) return;
+      set({ searchResults: [], artistResults: [], albumResults: [], playlistResults: [], isLoading: false, error: "Search is temporarily unavailable" });
+    }
   },
 
   setFilters: (filters) => {

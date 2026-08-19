@@ -30,6 +30,7 @@ import playlistRoutes from "./routes/playlist.route.js";
 import postRoutes from "./routes/post.route.js";
 import saavnRoutes from "./routes/saavn.route.js";
 import commentRoutes from "./routes/comment.route.js";
+import musicRoutes from "./routes/music.route.js";
 
 dotenv.config();
 
@@ -59,7 +60,7 @@ app.use(cors({
     // Allow deployed custom domains while preserving credentials
     return callback(null, true);
   },
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   credentials: true,
   allowedHeaders: ["Content-Type", "Authorization"]
 }));
@@ -102,7 +103,7 @@ app.use((req, res, next) => {
   // Saavn proxy/mood curation does not read MongoDB. Keeping it available
   // during a transient database reconnect prevents the Mood page from failing
   // even though its upstream music source is healthy.
-  if (req.path === "/health" || req.path.startsWith("/api/saavn") || req.path.startsWith("/api/songs/mood/") || isDatabaseConnected()) return next();
+  if (req.path === "/health" || req.path.startsWith("/api/saavn") || req.path.startsWith("/api/music") || req.path.startsWith("/api/songs/mood/") || isDatabaseConnected()) return next();
   res.status(503).json({
     message: "Database is temporarily unavailable. Please try again shortly.",
   });
@@ -124,6 +125,7 @@ app.use("/api/locations", locationRoutes);
 app.use("/api/playlists", playlistRoutes);
 app.use("/api/posts", postRoutes);
 app.use("/api/saavn", saavnRoutes);
+app.use("/api/music", musicRoutes);
 app.use("/api/comments", commentRoutes);
 app.use("/health", healthRoutes);
 

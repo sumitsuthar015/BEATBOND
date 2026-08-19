@@ -5,10 +5,14 @@ const AudioPlayer = () => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const lastPlayNonce = useRef(0);
   const lastSource = useRef<string | null>(null);
+  const lastPrefetchSong = useRef<string | null>(null);
   const currentSong = usePlayerStore((state) => state.currentSong);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
+  const progress = usePlayerStore((state) => state.progress);
+  const duration = usePlayerStore((state) => state.duration);
   const playNonce = usePlayerStore((state) => state.playNonce);
   const handleTrackEnded = usePlayerStore((state) => state.handleTrackEnded);
+  const autoQueueRelatedOrTrending = usePlayerStore((state) => state.autoQueueRelatedOrTrending);
   const setIsPlaying = usePlayerStore((state) => state.setIsPlaying);
   const setProgress = usePlayerStore((state) => state.setProgress);
   const setDuration = usePlayerStore((state) => state.setDuration);
@@ -58,6 +62,20 @@ const AudioPlayer = () => {
       audio.pause();
     }
   }, [isPlaying, playNonce, source, setIsPlaying]);
+
+  // Refill before the end (30% remaining) instead of waiting for `ended`.
+  // A per-track guard prevents timeupdate from causing repeat API calls.
+  useEffect(() => {
+    if (!isPlaying || !currentSong) return;
+    const state = usePlayerStore.getState();
+    const remaining = state.queue.length - state.currentIndex - 1;
+    const trackDuration = duration || currentSong.duration || 0;
+    const nearEnd = trackDuration > 0 ? progress / trackDuration >= 0.7 : progress >= 30;
+    if (remaining < 3 && nearEnd && lastPrefetchSong.current !== currentSong._id) {
+      lastPrefetchSong.current = currentSong._id;
+      void autoQueueRelatedOrTrending();
+    }
+  }, [autoQueueRelatedOrTrending, currentSong, duration, isPlaying, progress]);
 
   useEffect(() => {
     // Some mobile WebViews expose mediaSession but not MediaMetadata or every
@@ -111,7 +129,7 @@ const AudioPlayer = () => {
           setSourceIndex((index) => index + 1);
           return;
         }
-        if (usePlayerStore.getState().isPlaying && source) setIsPlaying(false);
+        if (usePlayerStore.getState().isPlaying && source) void handleTrackEnded();
       }}
     />
   );

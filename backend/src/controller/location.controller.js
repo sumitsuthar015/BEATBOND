@@ -5,6 +5,8 @@ import { emitLocationToFriends, isUserOnline } from "../lib/socket.js";
 
 const parseLocation = (body) => ({ latitude: Number(body.latitude), longitude: Number(body.longitude) });
 const valid = ({ latitude, longitude }) => Number.isFinite(latitude) && Number.isFinite(longitude) && latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180;
+const locationVisibilities = new Set(["everyone", "friends"]);
+const parseVisibility = (value) => locationVisibilities.has(value) ? value : null;
 
 // External map providers must be called by the server, never from the browser:
 // Overpass and Nominatim do not consistently allow cross-origin requests.
@@ -43,9 +45,33 @@ export const updateMyLocation = async (req, res, next) => {
     const location = parseLocation(req.body);
     if (!valid(location)) return res.status(400).json({ message: "Invalid coordinates" });
     const sharingEnabled = Boolean(req.body.sharingEnabled);
-    const saved = await UserLocation.findOneAndUpdate({ userId: req.auth.userId }, { ...location, sharingEnabled, visibility: "everyone", updatedAt: new Date() }, { new: true, upsert: true, runValidators: true });
+    const visibility = parseVisibility(req.body.visibility) || "everyone";
+    const saved = await UserLocation.findOneAndUpdate({ userId: req.auth.userId }, { ...location, sharingEnabled, visibility, updatedAt: new Date() }, { new: true, upsert: true, runValidators: true });
     if (sharingEnabled) await emitLocationToFriends(req.auth.userId, saved);
     res.json(saved);
+  } catch (error) { next(error); }
+};
+
+export const getMyLocationPreference = async (req, res, next) => {
+  try {
+    const location = await UserLocation.findOne({ userId: req.auth.userId }).select("sharingEnabled visibility").lean();
+    res.json({ sharingEnabled: Boolean(location?.sharingEnabled), visibility: location?.visibility || "everyone" });
+  } catch (error) { next(error); }
+};
+
+export const updateMyLocationVisibility = async (req, res, next) => {
+  try {
+    const visibility = parseVisibility(req.body.visibility);
+    if (!visibility) return res.status(400).json({ message: "Visibility must be everyone or friends" });
+    const saved = await UserLocation.findOneAndUpdate(
+      { userId: req.auth.userId },
+      { visibility, updatedAt: new Date() },
+      { new: true }
+    );
+    // Broadcast a refresh signal (never coordinates) so a privacy change is
+    // reflected immediately for viewers who should no longer see this pin.
+    await emitLocationToFriends(req.auth.userId, { visibility: "everyone" });
+    res.json({ sharingEnabled: Boolean(saved?.sharingEnabled), visibility });
   } catch (error) { next(error); }
 };
 
@@ -77,6 +103,7 @@ export const getLiveLocations = async (req, res, next) => {
       // location records.
       if (!user || user.blockedUsers?.includes(viewerId)) return [];
       const isFriend = friends.has(location.userId);
+      if (location.visibility === "friends" && !isFriend) return [];
       const canSeeActivity = user.musicPrivacy === "everyone" || (user.musicPrivacy === "friends" && isFriend);
       return [{
         userId: location.userId,
@@ -119,8 +146,12 @@ export const getFriendLocations = async (req, res, next) => {
 
 export const disableMyLocation = async (req, res, next) => {
   try {
-    await UserLocation.findOneAndUpdate({ userId: req.auth.userId }, { sharingEnabled: false, updatedAt: new Date() });
-    await emitLocationToFriends(req.auth.userId, null);
+    const saved = await UserLocation.findOneAndUpdate(
+      { userId: req.auth.userId },
+      { sharingEnabled: false, updatedAt: new Date() },
+      { new: true }
+    );
+    await emitLocationToFriends(req.auth.userId, saved);
     res.status(204).end();
   } catch (error) { next(error); }
 };

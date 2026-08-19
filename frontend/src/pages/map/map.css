@@ -24,30 +24,6 @@
   will-change: opacity, transform;
 }
 
-.friend-map .leaflet-control-zoom {
-  margin: 0 1rem 10.75rem 0 !important;
-  overflow: hidden;
-  border: 1px solid var(--map-border) !important;
-  border-radius: 0.85rem !important;
-  box-shadow: 0 12px 28px rgb(0 0 0 / 0.35) !important;
-}
-
-.friend-map .leaflet-control-zoom a {
-  height: 2.35rem !important;
-  width: 2.35rem !important;
-  border-color: var(--map-border) !important;
-  background: var(--map-panel) !important;
-  color: #f4f4f5 !important;
-  line-height: 2.2rem !important;
-  transition: background-color 150ms ease, color 150ms ease;
-}
-
-.friend-map .leaflet-control-zoom a:hover,
-.friend-map .leaflet-control-zoom a:focus-visible {
-  background: #27272a !important;
-  color: white !important;
-}
-
 .friend-map .leaflet-control-attribution {
   margin: 0 !important;
   border-radius: 0.5rem 0 0 0 !important;
@@ -166,7 +142,6 @@
 @media (max-width: 640px) {
   /* MainLayout gives /map the complete dynamic viewport on mobile. */
   .friend-map { min-height: 100dvh; }
-  .friend-map .leaflet-control-zoom { margin-bottom: 13.25rem !important; }
   .friend-map .leaflet-control-attribution { display: none; }
 }
 

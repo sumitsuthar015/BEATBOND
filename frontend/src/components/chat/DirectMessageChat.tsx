@@ -46,7 +46,7 @@ interface Message {
     senderId: string;
   };
   sharedContent?: {
-    type: 'song' | 'profile' | 'playlist' | 'post';
+    type: 'song' | 'profile' | 'playlist' | 'post' | 'album' | 'artist';
     title: string;
     subtitle?: string;
     imageUrl?: string;

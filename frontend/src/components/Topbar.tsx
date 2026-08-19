@@ -25,7 +25,7 @@ const Topbar = ({ showInstall = false }: { showInstall?: boolean }) => {
     artistResults,
     isLoading,
     setSearchQuery,
-    searchSongs,
+    autocomplete,
     clearSearch,
   } = useSearchStore();
   const [showResults, setShowResults] = useState(false);
@@ -35,13 +35,13 @@ const Topbar = ({ showInstall = false }: { showInstall?: boolean }) => {
 
   useEffect(() => {
     if (debouncedSearch && debouncedSearch.trim().length > 0) {
-      searchSongs(debouncedSearch);
+      void autocomplete(debouncedSearch);
       setShowResults(true);
     } else if (!debouncedSearch) {
       clearSearch();
       setShowResults(false);
     }
-  }, [debouncedSearch, searchSongs, clearSearch]);
+  }, [autocomplete, debouncedSearch, clearSearch]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -108,8 +108,9 @@ const Topbar = ({ showInstall = false }: { showInstall?: boolean }) => {
             onFocus={() => searchQuery && setShowResults(true)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && searchQuery.trim()) {
-                setShowResults(false);
-                navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+                event.preventDefault();
+                void autocomplete(searchQuery.trim());
+                setShowResults(true);
               }
             }}
             placeholder="Search songs, albums..."
@@ -199,13 +200,6 @@ const Topbar = ({ showInstall = false }: { showInstall?: boolean }) => {
                       <PlayButton song={renderSearchResult(song)} size="small" />
                     </div>
                   ))}
-                  <button
-                    type="button"
-                    onClick={() => { setShowResults(false); navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`); }}
-                    className="m-2 w-[calc(100%-1rem)] rounded-lg border border-border px-3 py-2 text-sm font-semibold text-primary hover:bg-secondary"
-                  >
-                    View all results
-                  </button>
                 </>
               )}
             </div>
