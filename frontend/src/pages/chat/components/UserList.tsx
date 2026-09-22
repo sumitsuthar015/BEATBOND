@@ -170,6 +170,10 @@ export const UserList = memo(
     const filteredUsers = users.filter((user) => {
       const nickname = localStorage.getItem(`beatbond:nickname:${user.clerkId}`) || "";
       return `${user.fullName} ${nickname}`.toLowerCase().includes(debouncedSearch.toLowerCase());
+    }).sort((first, second) => {
+      const firstTime = first.lastMessageTime ? new Date(first.lastMessageTime).getTime() : 0;
+      const secondTime = second.lastMessageTime ? new Date(second.lastMessageTime).getTime() : 0;
+      return secondTime - firstTime;
     });
 
     const handleUserSelect = useCallback(

@@ -9,6 +9,7 @@ import { AlertCircle, ArrowLeft, Loader2, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { beginBackNavigation } from "@/lib/routeHistory";
 import { useChatStore } from "@/stores/useChatStore";
+import { useUser } from "@clerk/clerk-react";
 
 interface FriendUser {
   _id?: string;
@@ -21,29 +22,56 @@ interface FriendUser {
   unreadCount?: number;
 }
 
+interface RealtimeMessage {
+  senderId: string;
+  receiverId: string;
+  content: string;
+  createdAt?: string;
+  sharedContent?: { title?: string };
+}
+
 const ChatPage = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useUser();
   const selectedUserId = searchParams.get("userId") || undefined;
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const socket = useChatStore((state) => state.socket);
   const isSocketConnected = useChatStore((state) => state.isConnected);
 
+  const promoteConversation = useCallback((message: RealtimeMessage) => {
+    const otherUserId = message.senderId === user?.id ? message.receiverId : message.senderId;
+    const lastMessage = message.content || message.sharedContent?.title || "Shared an item";
+    const lastMessageTime = message.createdAt || new Date().toISOString();
+
+    queryClient.setQueryData<FriendUser[]>(["friends"], (friends = []) => {
+      const matchingFriend = friends.find((friend) => friend.clerkId === otherUserId);
+      if (!matchingFriend) return friends;
+
+      return [
+        { ...matchingFriend, lastMessage, lastMessageTime },
+        ...friends.filter((friend) => friend.clerkId !== otherUserId),
+      ];
+    });
+    void queryClient.invalidateQueries({ queryKey: ["friends"] });
+  }, [queryClient, user?.id]);
+
   useEffect(() => {
     if (!isSocketConnected) return;
-    const refreshConversations = () => queryClient.invalidateQueries({ queryKey: ["friends"] });
-    socket.on("messageReceived", refreshConversations);
-    socket.on("messageSent", refreshConversations);
+    const handleRealtimeMessage = ({ message }: { message: RealtimeMessage }) => promoteConversation(message);
+    const refreshConversations = () => void queryClient.invalidateQueries({ queryKey: ["friends"] });
+    socket.on("messageReceived", handleRealtimeMessage);
+    socket.on("messageSent", handleRealtimeMessage);
     socket.on("messageStatusUpdate", refreshConversations);
     socket.on("conversationRead", refreshConversations);
     return () => {
-      socket.off("messageReceived", refreshConversations);
-      socket.off("messageSent", refreshConversations);
+      socket.off("messageReceived", handleRealtimeMessage);
+      socket.off("messageSent", handleRealtimeMessage);
       socket.off("messageStatusUpdate", refreshConversations);
       socket.off("conversationRead", refreshConversations);
     };
-  }, [socket, isSocketConnected, queryClient]);
+  }, [socket, isSocketConnected, promoteConversation, queryClient]);
 
   const handleResize = useCallback(() => {
     setIsMobile(window.innerWidth <= 768);
