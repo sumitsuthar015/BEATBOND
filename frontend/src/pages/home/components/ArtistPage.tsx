@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { ChevronLeft, Clock3, Heart, Music2, Pause, Play, Share2 } from "lucide-react";
+import { Clock3, Heart, Music2, Pause, Play, Share2 } from "lucide-react";
 import Topbar from "@/components/Topbar";
 import { useMusicStore } from "@/stores/useMusicStore";
 import { usePlayerStore } from "@/stores/usePlayerStore";
-import { beginBackNavigation } from "@/lib/routeHistory";
 import { useUser } from "@clerk/clerk-react";
 import { fetchSavedArtists, publishSavedArtists, toggleSavedArtistRemote } from "@/lib/savedArtists";
 import { useChatStore } from "@/stores/useChatStore";
@@ -79,7 +78,6 @@ const ArtistPage = () => {
     <main className="h-[calc(100vh-124px)] overflow-y-auto pb-28">
       <div className="relative overflow-hidden border-b border-white/10 bg-gradient-to-br from-primary/30 via-[#1b1b1b] to-[#101010]">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-8 sm:flex-row sm:items-end sm:px-8 sm:py-12">
-          <button onClick={() => navigate(beginBackNavigation(), { replace: true })} className="absolute left-4 top-4 rounded-full bg-black/40 p-2 text-white sm:hidden"><ChevronLeft className="size-5" /></button>
           <img src={image} alt={artist.name} className="mx-auto size-40 rounded-full object-cover shadow-2xl ring-4 ring-white/10 sm:mx-0 sm:size-52" onError={(e) => { (e.target as HTMLImageElement).src = "/default-image.png"; }} />
           <div className="min-w-0 flex-1 text-center sm:text-left">
             <p className="mb-2 text-sm font-medium text-white/70">Artist</p>

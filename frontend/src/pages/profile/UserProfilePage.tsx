@@ -12,7 +12,6 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { motion } from "framer-motion";
 import FriendRequestButton from "@/components/friends/FriendRequestButton";
 import { useChatStore } from "@/stores/useChatStore";
-import { beginBackNavigation } from "@/lib/routeHistory";
 import { ShareToMessageDialog } from "@/components/ShareToMessageDialog";
 import {
   MessageCircle,
@@ -288,14 +287,6 @@ const UserProfilePage = () => {
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_0%,hsl(var(--primary)/.22),transparent_45%)]" />
           <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-zinc-950/60 to-transparent" />
           
-          <BackButton
-            className="absolute left-4 top-4 z-10 rounded-lg border border-white/10 bg-black/30 text-white backdrop-blur-md hover:bg-white/10"
-            onClick={() => navigate(beginBackNavigation(), { replace: true })}
-            size="icon"
-            variant="ghost"
-            ariaLabel="Go back"
-          />
-
         </div>
 
         <div className="relative px-5 pb-6 sm:px-6">

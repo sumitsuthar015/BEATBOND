@@ -1,7 +1,10 @@
 import { axiosInstance, setAuthTokenProvider } from "@/lib/axios";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useChatStore } from "@/stores/useChatStore";
+import { useMusicStore } from "@/stores/useMusicStore";
+import { usePlaylistStore } from "@/stores/usePlaylistStore";
 import { useAuth } from "@clerk/clerk-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Music } from "lucide-react";
 import { useEffect, useState } from "react";
 import { setActiveListener } from "@/lib/listeningHistory";
@@ -17,6 +20,32 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 	const checkAdminStatus = useAuthStore((state) => state.checkAdminStatus);
 	const initSocket = useChatStore((state) => state.initSocket);
 	const disconnectSocket = useChatStore((state) => state.disconnectSocket);
+	const socket = useChatStore((state) => state.socket);
+	const queryClient = useQueryClient();
+
+	useEffect(() => {
+		const refreshLiveData = ({ resource, actorId }: { resource: string; actorId: string | null }) => {
+			// React Query only refetches visible queries here, so a background update
+			// does not trigger unnecessary requests for screens the user is not viewing.
+			void queryClient.invalidateQueries({ refetchType: "active" });
+
+			if (resource === "admin") {
+				void useMusicStore.getState().fetchSongs();
+				void useMusicStore.getState().fetchAlbums();
+			}
+			if (resource === "playlists") {
+				void usePlaylistStore.getState().fetchPlaylists();
+			}
+			if (resource === "songs" && actorId === userId) {
+				void useMusicStore.getState().fetchLikedSongs();
+			}
+		};
+
+		socket.on("data_updated", refreshLiveData);
+		return () => {
+			socket.off("data_updated", refreshLiveData);
+		};
+	}, [queryClient, socket, userId]);
 
 	useEffect(() => {
 		setActiveListener(userId || null);

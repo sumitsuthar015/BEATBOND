@@ -23,9 +23,6 @@ export default function NotFoundPage() {
 				</div>
 
 				<div className="flex flex-col sm:flex-row gap-3 justify-center">
-					<Button onClick={() => navigate(-1)} variant="outline" className="w-full sm:w-auto">
-						Go Back
-					</Button>
 					<Button onClick={() => navigate("/")} className="w-full sm:w-auto">
 						<Home className="mr-2 h-4 w-4" />
 						Back to Home

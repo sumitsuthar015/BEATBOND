@@ -8,9 +8,7 @@ import cors from "cors";
 import fs from "fs";
 import { createServer } from "http";
 import cron from "node-cron";
-
-import { initializeSocket } from "./lib/socket.js";
-
+import { emitRealtimeUpdate, initializeSocket } from "./lib/socket.js";
 import { connectDB, isDatabaseConnected } from "./lib/db.js";
 import userRoutes from "./routes/user.route.js";
 import adminRoutes from "./routes/admin.route.js";
@@ -79,6 +77,24 @@ app.use(
   })
 );
 
+// Announce successful data mutations to connected clients. The event contains
+// no record data; each client revalidates through its normal protected API
+// calls, which keeps private data private while avoiding manual refreshes.
+app.use((req, res, next) => {
+  const mutatingMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+  if (!mutatingMethods.has(req.method) || !req.path.startsWith("/api/")) {
+    return next();
+  }
+
+  const resource = req.path.split("/").filter(Boolean)[1];
+  res.once("finish", () => {
+    if (res.statusCode >= 200 && res.statusCode < 300 && resource) {
+      emitRealtimeUpdate({ resource, actorId: req.auth?.userId ?? null });
+    }
+  });
+  next();
+});
+
 // cron jobs
 const tempDir = path.join(process.cwd(), "tmp");
 cron.schedule("0 * * * *", () => {
@@ -130,8 +146,18 @@ app.use("/api/comments", commentRoutes);
 app.use("/health", healthRoutes);
 
 if (process.env.NODE_ENV === "production") {
-  app.use(express.static(frontendDistPath));
+  app.use(express.static(frontendDistPath, {
+    setHeaders: (res, filePath) => {
+      const filename = path.basename(filePath);
+      if (filename === "index.html" || filename === "sw.js" || filename === "registerSW.js") {
+        res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      }
+    },
+  }));
   app.get("*", (req, res) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.sendFile(path.join(frontendDistPath, "index.html"));
   });
 }

@@ -33,61 +33,23 @@ export const AnimatedBackground = memo(function AnimatedBackground() {
               patternUnits="userSpaceOnUse"
               patternTransform="rotate(15)"
             >
-              <motion.path
+              <path
                 d="M 0,50 C 40,20 60,80 100,50 C 140,20 160,80 200,50"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="1.5"
-                animate={{
-                  d: [
-                    "M 0,50 C 40,20 60,80 100,50 C 140,20 160,80 200,50",
-                    "M 0,50 C 40,80 60,20 100,50 C 140,80 160,20 200,50",
-                    "M 0,50 C 40,20 60,80 100,50 C 140,20 160,80 200,50",
-                  ],
-                }}
-                transition={{
-                  duration: 10,
-                  ease: "easeInOut",
-                  repeat: Infinity,
-                }}
               />
-              <motion.path
+              <path
                 d="M 0,150 C 40,120 60,180 100,150 C 140,120 160,180 200,150"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="1.5"
-                animate={{
-                  d: [
-                    "M 0,150 C 40,120 60,180 100,150 C 140,120 160,180 200,150",
-                    "M 0,150 C 40,180 60,120 100,150 C 140,180 160,120 200,150",
-                    "M 0,150 C 40,120 60,180 100,150 C 140,120 160,180 200,150",
-                  ],
-                }}
-                transition={{
-                  duration: 10,
-                  ease: "easeInOut",
-                  repeat: Infinity,
-                  delay: 0.5,
-                }}
               />
-              <motion.path
+              <path
                 d="M 0,100 C 40,70 60,130 100,100 C 140,70 160,130 200,100"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="1.5"
-                animate={{
-                  d: [
-                    "M 0,100 C 40,70 60,130 100,100 C 140,70 160,130 200,100",
-                    "M 0,100 C 40,130 60,70 100,100 C 140,130 160,70 200,100",
-                    "M 0,100 C 40,70 60,130 100,100 C 140,70 160,130 200,100",
-                  ],
-                }}
-                transition={{
-                  duration: 10,
-                  ease: "easeInOut",
-                  repeat: Infinity,
-                  delay: 1,
-                }}
               />
             </pattern>
           </defs>

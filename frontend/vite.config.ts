@@ -12,7 +12,10 @@ export default defineConfig({
 		// A deployment can replace hashed lazy chunks (ChatPage included). Claim
 		// open clients and clear obsolete runtime entries immediately so users do
 		// not keep an old shell that points at files which no longer exist.
-		injectRegister: "auto",
+		// Registration is handled in src/registerServiceWorker.ts so every open
+		// client checks for a deployment promptly instead of waiting for the next
+		// navigation or browser update cycle.
+		injectRegister: false,
 		workbox: {
 			globPatterns: ["**/*.{js,css,html,ico,png,svg,jpg,jpeg,webp}"],
 			cleanupOutdatedCaches: true,

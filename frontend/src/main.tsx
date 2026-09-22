@@ -6,6 +6,7 @@ import { ClerkProvider } from "@clerk/clerk-react";
 import { BrowserRouter } from "react-router-dom";
 import AuthProvider from "./providers/AuthProvider.tsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { registerServiceWorker } from "./registerServiceWorker.ts";
 
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
@@ -21,6 +22,8 @@ const queryClient = new QueryClient({
 		},
 	},
 });
+
+registerServiceWorker();
 
 createRoot(document.getElementById("root")!).render(
 	<StrictMode>

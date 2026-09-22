@@ -181,6 +181,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
     setCurrentSong: (song) => {
       if (!song) {
+        reportActivity("");
         set({
           currentSong: null,
           isPlaying: false,
@@ -218,7 +219,15 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
       }
     },
 
-    setIsPlaying: (isPlaying) => set({ isPlaying }),
+    setIsPlaying: (isPlaying) => {
+      const currentSong = get().currentSong;
+      if (isPlaying && currentSong) {
+        reportActivity(`Playing ${currentSong.title} by ${currentSong.artist}`);
+      } else if (!isPlaying) {
+        reportActivity("");
+      }
+      set({ isPlaying });
+    },
 
     togglePlay: () => {
       const { currentSong, queue } = get();
@@ -226,7 +235,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
         moveTo(0);
         return;
       }
-      set((state) => ({ isPlaying: !state.isPlaying }));
+      get().setIsPlaying(!get().isPlaying);
     },
 
     playNext: async () => {

@@ -47,6 +47,17 @@ export const emitLikedArtistsUpdate = (userId, artists) => {
   if (socketServer) emitToUser(socketServer, userId, "liked_artists_updated", artists);
 };
 
+// Realtime updates carry metadata only. Clients always re-fetch through the
+// existing authenticated HTTP endpoints, so a socket event can never expose
+// another user's private data.
+export const emitRealtimeUpdate = ({ resource, actorId = null }) => {
+  socketServer?.emit("data_updated", {
+    resource,
+    actorId,
+    changedAt: Date.now(),
+  });
+};
+
 let socketServer = null;
 let presenceReset = Promise.resolve();
 let hasResetStalePresence = false;

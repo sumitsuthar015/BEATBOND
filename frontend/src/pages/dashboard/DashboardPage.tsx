@@ -338,9 +338,9 @@ const DashboardPage = () => {
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {recentlyPlayed.length > 0 ? recentlyPlayed.map((song) => (
+                {recentlyPlayed.length > 0 ? recentlyPlayed.map((song, index) => (
                   <div
-                    key={song._id}
+                    key={`${song._id}-${song.playedAt}-${index}`}
                     className="flex items-center gap-3 p-2 rounded-lg hover:bg-secondary/80 transition-all duration-200 cursor-pointer group active:scale-[0.98]"
                     onClick={() => handlePlaySong(song)}
                   >
@@ -382,9 +382,9 @@ const DashboardPage = () => {
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {topLikedSongs.length > 0 ? topLikedSongs.map((song) => (
+                {topLikedSongs.length > 0 ? topLikedSongs.map((song, index) => (
                   <div
-                    key={song._id}
+                    key={`${song._id}-${index}`}
                     className="flex items-center gap-3 p-2 rounded-lg hover:bg-secondary/80 transition-all duration-200 cursor-pointer group active:scale-[0.98]"
                     onClick={() => handlePlaySong(song)}
                   >
