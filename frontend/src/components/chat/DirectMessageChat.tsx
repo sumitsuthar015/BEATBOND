@@ -400,6 +400,7 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
   const [isSending, setIsSending] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const hasScrolledToLatestRef = useRef(false);
   const { ref: topRef, inView: isTopVisible } = useInView();
   const processedMessagesRef = useRef(new Set<string>());
   const pendingMessageRef = useRef<{ tempId: string; content: string } | null>(null);
@@ -421,6 +422,7 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
     const savedNickname = localStorage.getItem(`beatbond:nickname:${userId}`) || "";
     setNickname(savedNickname);
     setNicknameDraft(savedNickname);
+    hasScrolledToLatestRef.current = false;
   }, [userId]);
 
   const {
@@ -535,7 +537,11 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
   }, []);
 
   useEffect(() => {
-    if (!isLoadingMessages && messages?.pages?.[0]?.messages) {
+    // Only the first page load should position the conversation at its newest
+    // message. Loading an older page while the user scrolls up must not pull
+    // them back to the bottom.
+    if (!hasScrolledToLatestRef.current && !isLoadingMessages && messages?.pages?.[0]?.messages) {
+      hasScrolledToLatestRef.current = true;
       requestAnimationFrame(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
       });
@@ -929,7 +935,10 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
     );
   }
 
-  const allMessages = messages?.pages.flatMap((page) => page.messages) || [];
+  // Page 1 contains the newest batch, while each later page contains older
+  // messages. Render those older pages first so the latest message always
+  // stays at the bottom of the conversation.
+  const allMessages = [...(messages?.pages ?? [])].reverse().flatMap((page) => page.messages);
   const isSocketConnected = Boolean(socket?.connected);
   // `onlineUsers` is the server's live Socket.IO snapshot. API profile data
   // can only describe a past connection and must not keep a user "online".
