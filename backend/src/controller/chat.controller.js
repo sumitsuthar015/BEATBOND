@@ -4,7 +4,14 @@ dotenv.config();
 
 let groq = null;
 let isGroqAvailable = false;
-const GROQ_CHAT_MODEL = process.env.GROQ_CHAT_MODEL || 'llama-3.3-70b-versatile';
+// Groq retires models regularly (mixtral and llama-3.3-70b are gone). The
+// configured model is tried first; if Groq reports it missing, the next one
+// is used so the assistant keeps working until the setting is updated.
+const GROQ_CHAT_MODELS = [...new Set([
+  process.env.GROQ_CHAT_MODEL,
+  'openai/gpt-oss-120b',
+  'qwen/qwen3.8-27b',
+].filter(Boolean))];
 
 // Initialize Groq
 const initializeGroq = async () => {
@@ -94,23 +101,32 @@ export const chatWithAI = async (req, res) => {
     console.log('📤 Sending request to Groq API...');
     console.log('Messages count:', messages.length);
 
-    // Create chat completion
-    const completion = await groq.chat.completions.create({
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...messages.map(msg => ({
-          role: msg.role,
-          content: msg.content
-        }))
-      ],
-      // mixtral-8x7b-32768 was retired by Groq. Keep this configurable but
-      // default to the supported model already used by the mood service.
-      model: GROQ_CHAT_MODEL,
-      temperature: 0.7,
-      max_tokens: 500,
-      top_p: 0.8,
-      stream: false,
-    });
+    const chatMessages = [
+      { role: 'system', content: systemPrompt },
+      ...messages.map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }))
+    ];
+
+    let completion;
+    for (const model of GROQ_CHAT_MODELS) {
+      try {
+        completion = await groq.chat.completions.create({
+          messages: chatMessages,
+          model,
+          temperature: 0.7,
+          max_tokens: 500,
+          top_p: 0.8,
+          stream: false,
+        });
+        break;
+      } catch (error) {
+        const modelMissing = error.status === 404 || error.error?.error?.code === 'model_not_found';
+        if (!modelMissing || model === GROQ_CHAT_MODELS.at(-1)) throw error;
+        console.warn(`⚠️ Groq model ${model} unavailable, trying next model`);
+      }
+    }
 
     console.log('✅ Received response from Groq API');
 

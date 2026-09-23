@@ -14,7 +14,8 @@
     "build:backend": "cd backend && npm install",
     "dev:frontend": "cd frontend && npm run dev",
     "dev:backend": "cd backend && npm run dev",
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\""
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "test": "npm --prefix backend test && npm --prefix frontend test"
   },
   "engines": {
     "node": ">=20.0.0 <23.0.0"
