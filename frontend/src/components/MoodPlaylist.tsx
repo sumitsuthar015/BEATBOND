@@ -29,6 +29,13 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { TherapyAIChat } from "./TherapyAIChat";
+import { detectCurrentMood, type MoodDetection } from "@/lib/moodDetection";
+
+const confidenceLabel: Record<MoodDetection["confidence"], string> = {
+  high: "Confident",
+  medium: "Good guess",
+  low: "Just a guess",
+};
 
 type Song = AppSong;
 
@@ -80,7 +87,9 @@ const MoodPlaylist = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(true);
   const [isExpanded, setIsExpanded] = useState(true);
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
+  const [detection, setDetection] = useState<MoodDetection | null>(null);
   const { currentSong, isPlaying, playAlbum, togglePlay } = usePlayerStore();
+  const detectedMood = detection ? moods.find((mood) => mood.id === detection.mood) : undefined;
 
   // FIX: ref instead of relying on a plain mount-time setTimeout so the
   // "Analyzing Your Mood" splash only ever plays once per page load,
@@ -88,6 +97,9 @@ const MoodPlaylist = () => {
   const hasPlayedSplashRef = useRef(false);
 
   useEffect(() => {
+    // The "Analyzing your mood" step is real: it reads recent listening, what
+    // is playing now and the time of day (see lib/moodDetection.ts).
+    setDetection(detectCurrentMood(usePlayerStore.getState().currentSong));
     if (hasPlayedSplashRef.current) {
       setIsAnalyzing(false);
       return;
@@ -350,6 +362,49 @@ const MoodPlaylist = () => {
                     </div>
                   </motion.div>
 
+                  {!selectedMood && detection && detectedMood && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.4 }}
+                      className={cn(
+                        "mx-2 mb-4 md:mb-6 rounded-xl md:rounded-2xl p-4 md:p-5 bg-gradient-to-br text-white relative overflow-hidden",
+                        detectedMood.color
+                      )}
+                    >
+                      <div className="absolute inset-0 bg-black/30" />
+                      <div className="relative flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div className="min-w-0">
+                          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-white/80">
+                            <Sparkles className="h-3.5 w-3.5" />
+                            Detected for you
+                            <span className="ml-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] normal-case tracking-normal">
+                              {confidenceLabel[detection.confidence]}
+                            </span>
+                          </p>
+                          <h3 className="mt-1 text-xl md:text-2xl font-bold">
+                            You seem to be in a {detectedMood.label.toLowerCase()} mood
+                          </h3>
+                          <ul className="mt-1.5 space-y-0.5 text-sm text-white/85">
+                            {detection.reasons.slice(0, 2).map((reason) => (
+                              <li key={reason}>• {reason}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <Button
+                          onClick={() => handleMoodSelect(detection.mood)}
+                          className="shrink-0 rounded-full bg-white text-black hover:bg-white/90"
+                        >
+                          <Play className="h-4 w-4 fill-current" />
+                          Play {detectedMood.label.toLowerCase()} mix
+                        </Button>
+                      </div>
+                    </motion.div>
+                  )}
+                  {!selectedMood && detection && (
+                    <p className="mx-2 mb-2 text-xs text-muted-foreground md:text-sm">Not quite right? Pick a mood yourself:</p>
+                  )}
+
                   <div
                     className={cn(
                       "grid gap-2 md:gap-6 px-2",
@@ -389,6 +444,11 @@ const MoodPlaylist = () => {
                             )}
                           >
                             <div className="absolute inset-0 bg-gradient-to-br from-black/50 to-transparent opacity-20" />
+                            {!selectedMood && detection?.mood === mood.id && (
+                              <span className="absolute right-2 top-2 z-10 rounded-full bg-white/25 px-2 py-0.5 text-[10px] font-semibold text-white md:right-3 md:top-3 md:text-xs">
+                                Detected
+                              </span>
+                            )}
                             <div className="relative z-10">
                               <div
                                 className={cn(
