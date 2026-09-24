@@ -1,20 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { fetchLyricsForSong } from "@/lib/lyrics";
+import { fetchLyricsForSong, toLines } from "@/lib/lyrics";
 import { usePlayerStore } from "@/stores/usePlayerStore";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-type LyricLine = { text: string; time?: number };
-
-const timestampPattern = /\[(\d{1,2}):(\d{2}(?:\.\d{1,3})?)\]/g;
-
-const toLines = (text: string, hasTiming: boolean): LyricLine[] =>
-  text.split("\n").flatMap((rawLine) => {
-    const times = [...rawLine.matchAll(timestampPattern)].map((match) => Number(match[1]) * 60 + Number(match[2]));
-    const line = hasTiming ? rawLine.replace(timestampPattern, "").trim() : rawLine.trim();
-    if (!line) return [];
-    return hasTiming && times.length ? times.map((time) => ({ text: line, time })) : [{ text: line }];
-  });
 
 interface LyricsPanelProps {
   className?: string;
@@ -68,17 +56,14 @@ export const LyricsPanel = ({ className, showHeader = true }: LyricsPanelProps) 
 
   const lines = useMemo(() => toLines(lyrics, hasTiming), [lyrics, hasTiming]);
   const activeIndex = useMemo(() => {
-    if (!lines.length) return -1;
-    if (hasTiming) {
-      for (let index = lines.length - 1; index >= 0; index -= 1) {
-        if ((lines[index].time ?? Infinity) <= currentTime) return index;
-      }
-      return 0;
+    // Without timestamps any highlight is a guess that rarely matches the
+    // singing, so unsynced lyrics are shown as plain text instead.
+    if (!hasTiming || !lines.length) return -1;
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      if ((lines[index].time ?? Infinity) <= currentTime) return index;
     }
-    // Plain lyrics have no timestamps; move the focus gradually as playback progresses.
-    const duration = song?.duration || 0;
-    return duration ? Math.min(lines.length - 1, Math.floor((currentTime / duration) * lines.length)) : 0;
-  }, [currentTime, hasTiming, lines, song?.duration]);
+    return -1;
+  }, [currentTime, hasTiming, lines]);
 
   // Keep the current line in view in every LyricsPanel instance (desktop
   // sidebar and mobile now-playing). Users no longer need to chase lyrics.
@@ -112,6 +97,9 @@ export const LyricsPanel = ({ className, showHeader = true }: LyricsPanelProps) 
           </div>
         ) : (
           <div className="space-y-3 pb-4">
+            {!hasTiming && lines.length > 0 && (
+              <p className="text-xs text-zinc-400">These lyrics aren't time-synced, so they won't follow the song.</p>
+            )}
             {lines.map((line, index) => (
               <p
                 key={`${line.text}-${index}`}

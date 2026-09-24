@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { AnimatedBackground } from "@/components/ui/animated-background";
 import MobileNav from "./components/MobileNav";
 import { LyricsPanel } from "./components/LyricsPanel";
+import OfflineBanner from "@/components/OfflineBanner";
 
 const MainLayout = () => {
   const location = useLocation();
@@ -48,6 +49,7 @@ const MainLayout = () => {
     // so no page, lyrics card, or friends panel can render underneath it.
     <div className={`flex h-dvh min-h-0 flex-col ${isChatPage ? "pb-16 md:pb-0" : "pb-24 md:pb-[88px]"}`}>
       <AnimatedBackground />
+      <OfflineBanner />
       <ResizablePanelGroup
         direction="horizontal"
         className="z-10 flex min-h-0 flex-1 gap-2 p-2"

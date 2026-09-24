@@ -1,221 +1,257 @@
 import type { Song } from "@/types";
-import { SAAVN_API_BASE } from "@/lib/saavn";
+import { axiosInstance } from "@/lib/axios";
 
 export type LyricsResult = {
   text: string;
   synced: boolean;
 };
 
-type LyricsCandidate = {
-  plainLyrics?: unknown;
-  syncedLyrics?: unknown;
-  lyrics?: unknown;
-  lyricsId?: unknown;
-  lyrics_id?: unknown;
+type LrcLibTrack = {
   trackName?: unknown;
   artistName?: unknown;
   duration?: unknown;
+  plainLyrics?: unknown;
+  syncedLyrics?: unknown;
 };
 
-type LyricsOvhSuggestion = {
-  title?: unknown;
-  duration?: unknown;
-  artist?: { name?: unknown };
+type LyricsOvhResponse = { lyrics?: unknown };
+
+export type LyricLine = { text: string; time?: number };
+
+const timestampPattern = /\[(\d{1,2}):(\d{2}(?:\.\d{1,3})?)\]/g;
+
+/** Splits lyrics into display lines; synced lyrics keep their start time in seconds. */
+export const toLines = (text: string, hasTiming: boolean): LyricLine[] => {
+  const lines = text.split("\n").flatMap((rawLine): LyricLine[] => {
+    const times = [...rawLine.matchAll(timestampPattern)].map((match) => Number(match[1]) * 60 + Number(match[2]));
+    const line = rawLine.replace(timestampPattern, "").trim();
+    if (!line) return [];
+    return hasTiming && times.length ? times.map((time) => ({ text: line, time })) : [{ text: line }];
+  });
+  // A repeated chorus is often written once with several timestamps, so the
+  // expanded lines must be put back in time order before they can be followed.
+  return hasTiming ? lines.sort((a, b) => (a.time ?? 0) - (b.time ?? 0)) : lines;
 };
+
+/** The words only, for views that don't follow playback. */
+export const lyricsAsPlainText = (result: LyricsResult) =>
+  toLines(result.text, result.synced).map((line) => line.text).join("\n");
+
+/** Lower is better. Synced lyrics that belong to this exact recording win. */
+const RANK = {
+  exactSynced: 0,
+  matchedSynced: 1,
+  jioSaavn: 2,
+  exactPlain: 3,
+  matchedPlain: 4,
+  lyricsOvh: 5,
+} as const;
+
+type Candidate = LyricsResult & { rank: number };
 
 const cache = new Map<string, Promise<LyricsResult>>();
 
-const asText = (value: unknown) => typeof value === "string" ? value.trim() : "";
-const lyricText = (value: unknown) => asText(value)
-  .replace(/<br\s*\/?>/gi, "\n")
-  .replace(/<[^>]*>/g, "")
-  .trim();
-const normalise = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-const firstArtist = (artist: string) => artist.split(/,|&| feat\.? | ft\.? /i)[0]?.trim() || artist;
-const cleanTitle = (title: string) => title
-  .replace(/\s*\([^)]*\)|\s*\[[^\]]*\]/g, "")
-  .replace(/\s+-\s+(?:remaster(?:ed)?|radio edit|version|mix).*$/i, "")
-  .trim();
+const asText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+const lyricText = (value: unknown) =>
+  asText(value)
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&")
+    .replace(/&#39;/g, "'")
+    .trim();
+const stripTimestamps = (text: string) =>
+  text
+    .split("\n")
+    .map((line) => line.replace(/\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]/g, "").trim())
+    .join("\n")
+    .trim();
 
-const resultFrom = (candidate: LyricsCandidate | null | undefined): LyricsResult | null => {
-  const synced = lyricText(candidate?.syncedLyrics);
-  const plain = lyricText(candidate?.plainLyrics) || lyricText(candidate?.lyrics);
-  return synced ? { text: synced, synced: true } : plain ? { text: plain, synced: false } : null;
-};
+export const normalise = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/&quot;|&amp;/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
 
-const fetchJson = async (url: string, timeoutMs = 5_500) => {
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, { signal: controller.signal });
-    return response.ok ? response.json() : null;
-  } catch {
-    // A public lyrics provider timing out must not reject a whole batch of
-    // candidate requests. Returning null lets the remaining providers win.
-    return null;
-  } finally {
-    window.clearTimeout(timeout);
-  }
-};
+/** "Channa Mereya (From "Ae Dil Hai Mushkil")" -> "Channa Mereya". */
+export const cleanTitle = (title: string) =>
+  title
+    .replace(/&quot;/g, '"')
+    .replace(/\s*\([^)]*\)|\s*\[[^\]]*\]/g, "")
+    .replace(/\s+-\s+(?:remaster(?:ed)?|radio edit|version|mix|from|acoustic|lofi|slowed).*$/i, "")
+    .trim();
 
-const firstAvailable = async <T,>(lookups: Array<() => Promise<T | null>>): Promise<T | null> =>
-  new Promise((resolve) => {
-    let pending = lookups.length;
-    for (const lookup of lookups) {
-      void lookup().then((result) => {
-        if (result) {
-          resolve(result);
-          return;
-        }
-        pending -= 1;
-        if (pending === 0) resolve(null);
-      }).catch(() => {
-        pending -= 1;
-        if (pending === 0) resolve(null);
-      });
-    }
+export const songArtists = (artist: string) =>
+  artist.split(/,|&| feat\.? | ft\.? | x /i).map((name) => name.trim()).filter(Boolean);
+
+/**
+ * Decides whether a lyrics-provider track is the song that is playing.
+ * Returns "timed" when its timestamps can be trusted, "plain" when it is the
+ * right song but a different cut (timings would drift), or null to reject it.
+ */
+export const matchLyricsTrack = (
+  song: Pick<Song, "title" | "artist" | "duration">,
+  track: { trackName?: unknown; artistName?: unknown; duration?: unknown }
+): "timed" | "plain" | null => {
+  const wantedTitle = normalise(cleanTitle(song.title));
+  const trackTitle = normalise(cleanTitle(asText(track.trackName)));
+  if (!wantedTitle || !trackTitle) return null;
+  // Providers sometimes store "Artist - Title" or "Title - Artist"; accept the
+  // track when every word of the wanted title appears in its title.
+  const trackWords = new Set(trackTitle.split(" "));
+  if (!wantedTitle.split(" ").every((word) => trackWords.has(word))) return null;
+
+  const trackArtist = normalise(`${asText(track.artistName)} ${asText(track.trackName)}`);
+  const sharesArtist = songArtists(song.artist).some((name) => {
+    const artist = normalise(name);
+    return artist.length > 1 && trackArtist.includes(artist);
   });
+  if (!sharesArtist) return null;
 
-const getSaavnLyrics = async (song: Song): Promise<LyricsResult | null> => {
+  const trackDuration = Number(track.duration);
+  if (!song.duration || !Number.isFinite(trackDuration) || trackDuration <= 0) return "plain";
+  const drift = Math.abs(trackDuration - song.duration);
+  if (drift > 15) return null;
+  return drift <= 3 ? "timed" : "plain";
+};
+
+const fetchJson = async <T,>(url: string, timeoutMs = 4_000): Promise<T | null> => {
   try {
-    let item: LyricsCandidate | null = null;
-    let lyricsId = asText(song.lyricsId);
-
-    // Try backend endpoint first if song._id exists
-    if (song._id) {
-      const lyricsQuery = lyricsId ? `?lyricsId=${encodeURIComponent(lyricsId)}` : "";
-      const backendPayload = await fetchJson(`${SAAVN_API_BASE}/lyrics/${encodeURIComponent(song._id)}${lyricsQuery}`, 6_000);
-      if (backendPayload?.status === "SUCCESS" && backendPayload?.data?.lyrics) {
-        return resultFrom({ lyrics: backendPayload.data.lyrics });
-      }
-
-      const payload = await fetchJson(`${SAAVN_API_BASE}/songs/${encodeURIComponent(song._id)}`, 4_000);
-      const data = payload?.data ?? payload;
-      item = Array.isArray(data) ? data[0] : data;
-      const includedLyrics = resultFrom(item);
-      if (includedLyrics) return includedLyrics;
-      lyricsId = asText(item?.lyricsId) || asText(item?.lyrics_id) || lyricsId;
-    }
-
-    if (lyricsId) {
-      const nativeLyrics = await fetchJson(
-        `https://www.jiosaavn.com/api.php?__call=lyrics.getLyrics&lyrics_id=${encodeURIComponent(lyricsId)}&ctx=web6dot0&api_version=4&_format=json&_marker=0`,
-        3_000
-      );
-      const parsedNative = resultFrom(nativeLyrics?.data ?? nativeLyrics);
-      if (parsedNative) return parsedNative;
-    }
-
-    if (song._id) {
-      const directPidLyrics = await fetchJson(
-        `https://www.jiosaavn.com/api.php?__call=lyrics.getLyrics&pids=${encodeURIComponent(song._id)}&_format=json`,
-        3_000
-      );
-      const parsedPid = resultFrom(directPidLyrics?.data ?? directPidLyrics);
-      if (parsedPid) return parsedPid;
-    }
-
-    return null;
+    const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    return response.ok ? ((await response.json()) as T) : null;
   } catch {
+    // A slow or failing provider must never block the others.
     return null;
   }
 };
 
-const getLrcLibLyrics = async (song: Song): Promise<LyricsResult | null> => {
-  try {
-    const titles = [...new Set([song.title, cleanTitle(song.title)].filter(Boolean))];
-    const artists = [...new Set([song.artist, firstArtist(song.artist)].filter(Boolean))];
-
-    // Run metadata variants together.
-    const exactRequests = titles.flatMap((title) => artists.map((artist) => {
-      const request = new URL("https://lrclib.net/api/get");
-      request.searchParams.set("artist_name", artist);
-      request.searchParams.set("track_name", title);
-      if (song.duration) request.searchParams.set("duration", String(Math.round(song.duration)));
-      return fetchJson(request.toString(), 3_000).then(resultFrom);
-    }));
-    const exactResults = await Promise.all(exactRequests);
-    const exact = exactResults.find((result): result is LyricsResult => Boolean(result));
-    if (exact) return exact;
-
-    const searches = await Promise.all(
-      [...new Set([
-        ...titles.map((title) => `${title} ${song.artist}`),
-        ...titles,
-      ])].map((query) => fetchJson(`https://lrclib.net/api/search?q=${encodeURIComponent(query)}`, 3_000))
-    );
-    const search = searches.flat().filter((item): item is LyricsCandidate => Boolean(item));
-    if (!search.length) return null;
-
-    const title = normalise(cleanTitle(song.title));
-    const artist = normalise(firstArtist(song.artist));
-    const best = search
-      .map((item: LyricsCandidate) => {
-        const candidate = resultFrom(item);
-        if (!candidate) return null;
-        let score = normalise(asText(item.trackName)) === title ? 4 : 0;
-        score += normalise(asText(item.artistName)).includes(artist) ? 2 : 0;
-        if (song.duration && Number.isFinite(Number(item.duration))) {
-          score -= Math.min(Math.abs(Number(item.duration) - song.duration) / 30, 2);
-        }
-        return { candidate, score };
-      })
-      .filter(Boolean)
-      .sort((left, right) => right!.score - left!.score)[0];
-    return best?.candidate ?? null;
-  } catch {
-    return null;
-  }
+const fromTrack = (track: LrcLibTrack | null, syncedRank: number, plainRank: number, timed: boolean): Candidate | null => {
+  if (!track) return null;
+  const synced = lyricText(track.syncedLyrics);
+  if (synced && timed) return { text: synced, synced: true, rank: syncedRank };
+  const plain = lyricText(track.plainLyrics) || (synced ? stripTimestamps(synced) : "");
+  return plain ? { text: plain, synced: false, rank: plainRank } : null;
 };
 
-const getLyricsOvh = async (song: Song): Promise<LyricsResult | null> => {
-  const artists = [song.artist, firstArtist(song.artist)];
-  const titles = [song.title, cleanTitle(song.title)];
-
-  const directRequests = [...new Set(artists)].filter(Boolean).flatMap((artist) =>
-    [...new Set(titles)].filter(Boolean).map((title) =>
-      fetchJson(`https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`, 3_000)
-        .then(resultFrom)
-        .catch(() => null)
-    )
+/** LRCLIB's exact lookup matches title, artist and length (within ~2s). */
+const lrcLibExact = async (song: Song): Promise<Candidate | null> => {
+  const titles = [...new Set([song.title, cleanTitle(song.title)].filter(Boolean))];
+  const artists = [...new Set([song.artist, ...songArtists(song.artist)].filter(Boolean))].slice(0, 4);
+  const lookups = titles.flatMap((title) =>
+    artists.map((artist) => {
+      const url = new URL("https://lrclib.net/api/get");
+      url.searchParams.set("artist_name", artist);
+      url.searchParams.set("track_name", title);
+      if (song.duration) url.searchParams.set("duration", String(Math.round(song.duration)));
+      return fetchJson<LrcLibTrack>(url.toString());
+    })
   );
-  const directResults = await Promise.all(directRequests);
-  const direct = directResults.find((result): result is LyricsResult => Boolean(result));
-  if (direct) return direct;
+  const tracks = await Promise.all(lookups);
+  const candidates = tracks
+    .map((track) => fromTrack(track, RANK.exactSynced, RANK.exactPlain, true))
+    .filter((candidate): candidate is Candidate => Boolean(candidate));
+  return candidates.sort((a, b) => a.rank - b.rank)[0] ?? null;
+};
 
+/** LRCLIB search, accepted only when the result really is this song. */
+const lrcLibSearch = async (song: Song): Promise<Candidate | null> => {
+  const title = cleanTitle(song.title);
+  const queries = [...new Set([`${title} ${songArtists(song.artist)[0] || ""}`.trim(), title])];
+  const results = await Promise.all(
+    queries.map((query) => fetchJson<LrcLibTrack[]>(`https://lrclib.net/api/search?q=${encodeURIComponent(query)}`))
+  );
+  const candidates = results
+    .flatMap((list) => (Array.isArray(list) ? list : []))
+    .map((track) => {
+      const match = matchLyricsTrack(song, track);
+      return match ? fromTrack(track, RANK.matchedSynced, RANK.matchedPlain, match === "timed") : null;
+    })
+    .filter((candidate): candidate is Candidate => Boolean(candidate));
+  return candidates.sort((a, b) => a.rank - b.rank)[0] ?? null;
+};
+
+/** JioSaavn's own lyrics, fetched by the backend (browsers can't call JioSaavn). */
+const jioSaavn = async (song: Song): Promise<Candidate | null> => {
+  if (!song._id) return null;
   try {
-    const suggestions = await fetchJson(
-      `https://api.lyrics.ovh/suggest/${encodeURIComponent(cleanTitle(song.title))}`,
-      3_000
-    );
-    const expectedTitle = normalise(cleanTitle(song.title));
-    const matches = Array.isArray(suggestions?.data)
-      ? suggestions.data
-        .filter((item: LyricsOvhSuggestion) => {
-          const titleMatches = normalise(asText(item.title)) === expectedTitle;
-          const duration = Number(item.duration);
-          const durationMatches = !song.duration || !Number.isFinite(duration)
-            || Math.abs(duration - song.duration) <= 20;
-          return titleMatches && durationMatches && asText(item.artist?.name);
-        })
-        .slice(0, 5) as LyricsOvhSuggestion[]
-      : [];
-
-    const suggested = await Promise.all(matches.map((match) => fetchJson(
-      `https://api.lyrics.ovh/v1/${encodeURIComponent(asText(match.artist?.name))}/${encodeURIComponent(asText(match.title))}`,
-      3_000
-    ).then(resultFrom)));
-    return suggested.find((result): result is LyricsResult => Boolean(result)) ?? null;
+    const { data } = await axiosInstance.get(`/saavn/lyrics/${encodeURIComponent(song._id)}`, {
+      params: song.lyricsId ? { lyricsId: song.lyricsId } : undefined,
+      timeout: 6_000,
+    });
+    const text = data?.status === "SUCCESS" ? lyricText(data?.data?.lyrics) : "";
+    return text ? { text, synced: false, rank: RANK.jioSaavn } : null;
   } catch {
-    // Regular attempts above remain the primary path.
+    return null;
   }
+};
 
-  return null;
+/** lyrics.ovh only answers exact artist + title pairs, so it is safe but plain. */
+const lyricsOvh = async (song: Song): Promise<Candidate | null> => {
+  const title = cleanTitle(song.title);
+  const lookups = [...new Set(songArtists(song.artist).slice(0, 2))].map((artist) =>
+    fetchJson<LyricsOvhResponse>(`https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`)
+  );
+  const text = (await Promise.all(lookups)).map((result) => lyricText(result?.lyrics)).find(Boolean);
+  return text ? { text, synced: false, rank: RANK.lyricsOvh } : null;
 };
 
 /**
- * Retrieves lyrics for local uploads, Saavn songs, and external catalog songs.
- * Timed lyrics are preferred; plain lyrics still receive progressive highlighting.
+ * Runs every provider at once but answers with the best-ranked result: it
+ * returns early only when nothing better can still arrive. Previously the
+ * fastest provider won, so a song could show unsynced or wrong lyrics.
+ */
+type Provider = { bestRank: number; run: () => Promise<Candidate | null> };
+
+export const bestOf = (providers: Provider[]): Promise<Candidate | null> =>
+  new Promise((resolve) => {
+    let best: Candidate | null = null;
+    const settled = providers.map(() => false);
+    // The best rank any still-running provider could produce.
+    const bestStillPossible = () =>
+      Math.min(...providers.map((provider, index) => (settled[index] ? Infinity : provider.bestRank)));
+    providers.forEach((provider, index) => {
+      provider
+        .run()
+        .catch(() => null)
+        .then((candidate) => {
+          settled[index] = true;
+          if (candidate && (!best || candidate.rank < best.rank)) best = candidate;
+          if (settled.every(Boolean) || (best && best.rank <= bestStillPossible())) resolve(best);
+        });
+    });
+  });
+
+// Lyrics of downloaded songs are kept on the device so they work offline too.
+const SAVED_LYRICS_PREFIX = "beatbond-offline-lyrics:";
+
+const readSavedLyrics = (songId: string): LyricsResult | null => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(`${SAVED_LYRICS_PREFIX}${songId}`) || "null");
+    return saved && typeof saved.text === "string" ? { text: saved.text, synced: Boolean(saved.synced) } : null;
+  } catch {
+    return null;
+  }
+};
+
+export const saveLyricsForOffline = async (song: Song) => {
+  try {
+    const lyrics = await fetchLyricsForSong(song);
+    localStorage.setItem(`${SAVED_LYRICS_PREFIX}${song._id}`, JSON.stringify(lyrics));
+  } catch {
+    // Not every song has lyrics; the download itself still succeeds.
+  }
+};
+
+export const removeSavedLyrics = (songId: string) => {
+  try { localStorage.removeItem(`${SAVED_LYRICS_PREFIX}${songId}`); } catch { /* Storage unavailable. */ }
+};
+
+/**
+ * Retrieves lyrics for local uploads, JioSaavn songs, and external catalog songs.
+ * Time-synced lyrics for this exact recording are preferred.
  */
 export const fetchLyricsForSong = (song: Song): Promise<LyricsResult> => {
   const key = `${song._id}:${song.title}:${song.artist}`;
@@ -226,16 +262,19 @@ export const fetchLyricsForSong = (song: Song): Promise<LyricsResult> => {
     const embedded = asText(song.lyrics);
     if (embedded) return { text: embedded, synced: /\[\d{1,2}:\d{2}/.test(embedded) };
 
-    // Start all providers together. Previously Saavn could consume its full
-    // timeout before LRCLIB or Lyrics.ovh were even contacted, causing a very
-    // noticeable delay despite another provider already having the text.
-    const lyrics = await firstAvailable([
-      () => getSaavnLyrics(song),
-      () => getLrcLibLyrics(song),
-      () => getLyricsOvh(song),
+    const saved = readSavedLyrics(song._id);
+    if (saved) return saved;
+    // Every provider is online; say so at once instead of waiting on timeouts.
+    if (!navigator.onLine) throw new Error("Lyrics need an internet connection for songs you haven't downloaded.");
+
+    const best = await bestOf([
+      { bestRank: RANK.exactSynced, run: () => lrcLibExact(song) },
+      { bestRank: RANK.matchedSynced, run: () => lrcLibSearch(song) },
+      { bestRank: RANK.jioSaavn, run: () => jioSaavn(song) },
+      { bestRank: RANK.lyricsOvh, run: () => lyricsOvh(song) },
     ]);
-    if (!lyrics) throw new Error("Lyrics are not available for this song yet.");
-    return lyrics;
+    if (!best) throw new Error("Lyrics are not available for this song yet.");
+    return { text: best.text, synced: best.synced };
   })().catch((error) => {
     cache.delete(key);
     throw error;

@@ -9,6 +9,8 @@ import { Music } from "lucide-react";
 import { useEffect, useState } from "react";
 import { setActiveListener } from "@/lib/listeningHistory";
 
+const AUTH_WAIT_MS = 8_000;
+
 const updateApiToken = (token: string | null) => {
 	if (token) axiosInstance.defaults.headers.common["Authorization"] = `Bearer ${token}`;
 	else delete axiosInstance.defaults.headers.common["Authorization"];
@@ -48,11 +50,24 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 	}, [queryClient, socket, userId]);
 
 	useEffect(() => {
-		setActiveListener(userId || null);
+		// undefined means Clerk hasn't loaded (e.g. offline); only null is a sign-out.
+		if (userId !== undefined) setActiveListener(userId);
 		setAuthTokenProvider(getToken);
 		const initAuth = async () => {
+			// Offline, Clerk's script can't load and getToken() never settles, which
+			// kept the whole app on this loading screen. Open it so downloaded songs
+			// can play; sign-in picks up again on the next online visit.
+			if (!navigator.onLine) {
+				setLoading(false);
+				return;
+			}
 			try {
-				const token = await getToken();
+				// A slow network must not hold the app hostage either. If Clerk loads
+				// later, userId changes and this effect runs again with a real token.
+				const token = await Promise.race([
+					getToken(),
+					new Promise<null>((resolve) => window.setTimeout(() => resolve(null), AUTH_WAIT_MS)),
+				]);
 				updateApiToken(token);
 				if (token) {
 					// Run admin check asynchronously so app load is not blocked

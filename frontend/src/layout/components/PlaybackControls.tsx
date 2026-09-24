@@ -47,7 +47,7 @@ import { Label } from "@/components/ui/label";
 import { SongDetailsModal } from "@/components/SongDetailsModal";
 import { LyricsPanel } from "./LyricsPanel";
 import { downloadSongForOffline } from "@/lib/offlineDownloads";
-import { fetchLyricsForSong } from "@/lib/lyrics";
+import { fetchLyricsForSong, lyricsAsPlainText } from "@/lib/lyrics";
 
 const formatTime = (seconds: number) => {
   const minutes = Math.floor(seconds / 60);
@@ -119,7 +119,8 @@ const LyricsModal = ({
 
     try {
       const result = await fetchLyricsForSong(song);
-      setLyrics(result.text);
+      // Synced lyrics carry [mm:ss] timestamps; this popup shows the words only.
+      setLyrics(lyricsAsPlainText(result));
     } catch (err) {
       console.error("Lyrics fetch error:", err);
       setError(err instanceof Error ? err.message : "Unable to load lyrics. Please try again.");
@@ -185,7 +186,7 @@ const LyricsModal = ({
                 ))}
               </div>
               <div className="pt-4 border-t border-zinc-800">
-                <p className="text-xs text-zinc-500">Lyrics provided by LRCLIB or lyrics.ovh</p>
+                <p className="text-xs text-zinc-500">Lyrics provided by LRCLIB, JioSaavn or lyrics.ovh</p>
               </div>
             </div>
           )}

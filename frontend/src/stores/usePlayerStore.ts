@@ -4,6 +4,7 @@ import { useChatStore } from "./useChatStore";
 import { recordListeningEvent } from "@/lib/listeningHistory";
 import { fetchRecommendations, rankRecommendations, recordPlaybackOutcome } from "@/lib/recommendations";
 import { isVerifiedValidSong } from "@/lib/songUtils";
+import { isDownloaded } from "@/lib/offlineDownloads";
 import toast from "react-hot-toast";
 
 export type RepeatMode = "off" | "one" | "all";
@@ -63,6 +64,9 @@ const uniqueSongs = (songs: Song[]) => {
   });
 };
 
+// Offline, only downloaded songs can actually play, so auto-play skips the rest.
+const playableNow = (song: Song) => navigator.onLine || isDownloaded(song._id);
+
 const selectNext = (
   state: Pick<PlayerStore, "queue" | "currentIndex" | "isShuffle" | "repeatMode" | "playedSongs">
 ): number | null => {
@@ -72,12 +76,14 @@ const selectNext = (
     const played = new Set(playedSongs.map(songIdentity));
     const candidates = queue
       .map((_, index) => index)
-      .filter((index) => index !== currentIndex && !played.has(songIdentity(queue[index])));
+      .filter((index) => index !== currentIndex && !played.has(songIdentity(queue[index])) && playableNow(queue[index]));
     return candidates.length
       ? candidates[Math.floor(Math.random() * candidates.length)]
       : null;
   }
-  if (currentIndex + 1 < queue.length) return currentIndex + 1;
+  for (let index = currentIndex + 1; index < queue.length; index += 1) {
+    if (playableNow(queue[index])) return index;
+  }
   // Auto-play never loops an exhausted queue. It fetches a fresh API batch
   // instead, so a listening session keeps moving to unique tracks.
   return null;
@@ -302,7 +308,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
     autoQueueRelatedOrTrending: async (): Promise<boolean> => {
       const { currentSong, queue, playedSongs } = get();
-      if (!currentSong) return false;
+      // New suggestions need the internet; offline the queue plays downloads only.
+      if (!currentSong || !navigator.onLine) return false;
 
       let relatedSongs: Song[] = [];
       const primaryArtist = currentSong?.artist?.split(/,|&| feat\.? /i)[0]?.trim();

@@ -1,5 +1,7 @@
 import { usePlayerStore } from "@/stores/usePlayerStore";
+import { getOfflineAudioUrl, isDownloaded } from "@/lib/offlineDownloads";
 import { useEffect, useMemo, useRef, useState } from "react";
+import toast from "react-hot-toast";
 
 const AudioPlayer = () => {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -16,17 +18,48 @@ const AudioPlayer = () => {
   const setIsPlaying = usePlayerStore((state) => state.setIsPlaying);
   const setProgress = usePlayerStore((state) => state.setProgress);
   const setDuration = usePlayerStore((state) => state.setDuration);
-  const [sourceIndex, setSourceIndex] = useState(0);
+  // Which fallback stream the current track is on. It is keyed to the track so
+  // a new song always starts from its best stream in the very first render;
+  // resetting it in an effect let the previous song's fallback index leak into
+  // one render, which started a load that the reset then aborted.
+  const trackKey = `${currentSong?._id ?? ""}:${playNonce}`;
+  const [fallback, setFallback] = useState({ trackKey, index: 0 });
+  const sourceIndex = fallback.trackKey === trackKey ? fallback.index : 0;
+
+  // Downloaded songs play from the saved copy (so they work offline and save
+  // data). This is decided once per track: downloading the song that is already
+  // playing must not swap its source mid-song.
+  const songId = currentSong?._id;
+  const networkUrl = currentSong?.audioUrl;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const startsDownloaded = useMemo(() => isDownloaded(songId), [trackKey]);
+  const [offline, setOffline] = useState<{ trackKey: string; url: string | null }>({ trackKey: "", url: null });
+  useEffect(() => {
+    if (!startsDownloaded || !songId) return;
+    let cancelled = false;
+    let created: string | null = null;
+    void getOfflineAudioUrl({ _id: songId, audioUrl: networkUrl ?? "" }).then((url) => {
+      created = url;
+      if (cancelled) {
+        if (url) URL.revokeObjectURL(url);
+        return;
+      }
+      setOffline({ trackKey, url });
+    });
+    return () => {
+      cancelled = true;
+      if (created) URL.revokeObjectURL(created);
+    };
+  }, [trackKey, startsDownloaded, songId, networkUrl]);
+  const offlineUrl = startsDownloaded && offline.trackKey === trackKey ? offline.url : null;
+  const waitingForSavedCopy = startsDownloaded && offline.trackKey !== trackKey;
+
   const sources = useMemo(() => {
     if (!currentSong?.audioUrl) return [];
-    return [currentSong.audioUrl, ...(currentSong.audioFallbackUrls || [])]
-      .filter((value, index, list) => Boolean(value) && list.indexOf(value) === index);
-  }, [currentSong]);
-  const source = sources[sourceIndex] || null;
-
-  useEffect(() => {
-    setSourceIndex(0);
-  }, [currentSong?._id, playNonce]);
+    return [offlineUrl, currentSong.audioUrl, ...(currentSong.audioFallbackUrls || [])]
+      .filter((value, index, list): value is string => Boolean(value) && list.indexOf(value) === index);
+  }, [currentSong, offlineUrl]);
+  const source = waitingForSavedCopy ? null : sources[sourceIndex] || null;
 
   // The audio element is the single owner of media state. Never swap a live
   // source for a cached blob: doing so resets playback on mobile browsers.
@@ -53,8 +86,12 @@ const AudioPlayer = () => {
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch((err) => {
-          // If browser blocked play (e.g. autoplay restriction), retry play once user interacts or handle cleanly
-          console.warn("Playback error:", err);
+          // Only a blocked autoplay means "stopped". A stream that fails to
+          // load (NotSupportedError) is retried by onError with the next
+          // quality, and switching streams aborts the old attempt (AbortError);
+          // treating those as a stop was why the next song never started.
+          if (err?.name !== "NotAllowedError") return;
+          console.warn("Playback blocked by the browser:", err);
           setIsPlaying(false);
         });
       }
@@ -126,7 +163,13 @@ const AudioPlayer = () => {
         // unavailable in a region. Try the supplied lower-quality stream
         // before reporting playback as stopped.
         if (sourceIndex + 1 < sources.length) {
-          setSourceIndex((index) => index + 1);
+          setFallback({ trackKey, index: sourceIndex + 1 });
+          return;
+        }
+        // Offline, skipping ahead would just fail through the whole queue.
+        if (!navigator.onLine) {
+          toast.error("You're offline. Only downloaded songs can play right now.", { id: "offline-playback" });
+          setIsPlaying(false);
           return;
         }
         if (usePlayerStore.getState().isPlaying && source) void handleTrackEnded();
