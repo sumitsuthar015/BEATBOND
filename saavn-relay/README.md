@@ -9,12 +9,19 @@ small relay. It runs as a free Vercel function in **Mumbai (`bom1`)**, so JioSaa
 Indian IP. The relay only forwards to `https://www.jiosaavn.com/api.php`, and only for requests
 that carry the secret key.
 
+## Current deployment
+
+- Vercel project: `beatbond-saavn-relay` (region `bom1`), live at https://beatbond-saavn-relay.vercel.app
+- The backend checks the relay every 5 minutes. If the relay is down or rejects the key, the
+  backend calls JioSaavn directly, so search keeps working (with the smaller catalogue).
+
 ## Deploy (about 5 minutes, free)
 
 1. **Create a secret key.** Run this and copy the output:
    ```
    node -e "console.log(crypto.randomUUID())"
    ```
+   Keep it private: put it only in the Vercel and Render settings, never in the repo.
 2. **Create the Vercel project.** In [vercel.com](https://vercel.com), go to **Add New → Project**
    and import the BeatBond GitHub repo. Then set:
    - **Root Directory:** `saavn-relay`

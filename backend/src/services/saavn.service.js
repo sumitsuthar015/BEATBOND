@@ -5,16 +5,61 @@ import CryptoJS from "crypto-js";
 // JioSaavn tailors its catalogue to the caller's country, and outside India it
 // hides many licensed originals (e.g. international hits). When the backend is
 // hosted abroad, set SAAVN_API_BASE to a relay running in India (see
-// saavn-relay/README.md) so every provider call leaves from an Indian IP.
-const SAAVN_API_BASE = (process.env.SAAVN_API_BASE || "https://www.jiosaavn.com").replace(/\/+$/, "");
-const SAAVN_API_URL = `${SAAVN_API_BASE}/api.php`;
-const SAAVN_HEADERS = process.env.SAAVN_RELAY_KEY ? { "x-relay-key": process.env.SAAVN_RELAY_KEY } : {};
-if (process.env.SAAVN_API_BASE) {
-  setFetchConfig({ baseUrl: SAAVN_API_BASE, defaultHeaders: SAAVN_HEADERS });
+// saavn-relay/README.md) so provider calls leave from an Indian IP.
+const DIRECT_API_BASE = "https://www.jiosaavn.com";
+const SAAVN_API_URL = `${DIRECT_API_BASE}/api.php`;
+const RELAY_API_BASE = (process.env.SAAVN_API_BASE || "").replace(/\/+$/, "");
+const RELAY_HEADERS = { "x-relay-key": process.env.SAAVN_RELAY_KEY || "" };
+const RELAY_CHECK_MS = 5 * 60 * 1000;
+
+// Calls start direct and move to the relay only once it answers, and move back
+// if it fails, so a broken or over-quota relay can never take search down.
+let providerRoute = { viaRelay: false, base: DIRECT_API_BASE, headers: {} };
+
+const routeProviderCalls = (viaRelay) => {
+  if (viaRelay !== providerRoute.viaRelay) {
+    console.log(viaRelay ? "JioSaavn relay is up; routing provider calls through it" : "JioSaavn relay unavailable; calling JioSaavn directly");
+  }
+  providerRoute = viaRelay
+    ? { viaRelay, base: RELAY_API_BASE, headers: RELAY_HEADERS }
+    : { viaRelay, base: DIRECT_API_BASE, headers: {} };
+  setFetchConfig({ baseUrl: providerRoute.base, defaultHeaders: providerRoute.headers });
+};
+
+const checkRelay = async () => {
+  try {
+    const response = await fetch(`${RELAY_API_BASE}/api.php?__call=autocomplete.get&_format=json&_marker=0&ctx=web6dot0&query=arijit`, {
+      headers: RELAY_HEADERS,
+      signal: AbortSignal.timeout(8000),
+    });
+    routeProviderCalls(response.ok);
+  } catch {
+    routeProviderCalls(false);
+  }
+};
+
+if (RELAY_API_BASE) {
+  void checkRelay();
+  setInterval(checkRelay, RELAY_CHECK_MS).unref();
 }
 
-const saavnFetch = (url, init = {}) =>
-  fetch(url, { ...init, headers: { ...SAAVN_HEADERS, ...(init.headers || {}) } });
+// Every direct provider call goes through here. URLs are written against
+// jiosaavn.com and rewritten to the relay while it is healthy.
+const saavnFetch = async (url, init = {}) => {
+  const route = providerRoute;
+  if (!route.viaRelay) return fetch(url, init);
+  try {
+    const response = await fetch(url.replace(DIRECT_API_BASE, route.base), {
+      ...init,
+      headers: { ...route.headers, ...(init.headers || {}) },
+    });
+    if (response.ok) return response;
+  } catch {
+    // Fall through to a direct call below.
+  }
+  routeProviderCalls(false);
+  return fetch(url, init);
+};
 
 const streamCache = new Map();
 const CACHE_TTL_MS = 60 * 60 * 1000;
