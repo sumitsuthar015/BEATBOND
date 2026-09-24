@@ -9,12 +9,15 @@ import {
 	DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { axiosInstance } from "@/lib/axios";
 import { useMusicStore } from "@/stores/useMusicStore";
-import { Plus, Upload } from "lucide-react";
-import { useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { FileAudio, ImagePlus, Loader2, Plus } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
+import { formatDuration } from "../format";
 
 interface NewSong {
 	title: string;
@@ -23,186 +26,215 @@ interface NewSong {
 	duration: string;
 }
 
+const emptySong: NewSong = { title: "", artist: "", album: "", duration: "0" };
+
+/** Reads the track length from the file itself so the admin doesn't have to type it. */
+const readAudioDuration = (file: File) =>
+	new Promise<number>((resolve) => {
+		const url = URL.createObjectURL(file);
+		const audio = new Audio();
+		const finish = (seconds: number) => {
+			URL.revokeObjectURL(url);
+			resolve(seconds);
+		};
+		audio.preload = "metadata";
+		audio.onloadedmetadata = () => finish(Number.isFinite(audio.duration) ? Math.round(audio.duration) : 0);
+		audio.onerror = () => finish(0);
+		audio.src = url;
+	});
+
+const titleFromFileName = (name: string) =>
+	name
+		.replace(/\.[^.]+$/, "")
+		.replace(/[_-]+/g, " ")
+		.trim();
+
 const AddSongDialog = () => {
-	const { albums } = useMusicStore();
+	const { albums, fetchSongs, fetchAlbums } = useMusicStore();
+	const queryClient = useQueryClient();
 	const [songDialogOpen, setSongDialogOpen] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
-
-	const [newSong, setNewSong] = useState<NewSong>({
-		title: "",
-		artist: "",
-		album: "",
-		duration: "0",
-	});
-
-	const [files, setFiles] = useState<{ audio: File | null; image: File | null }>({
-		audio: null,
-		image: null,
-	});
+	const [newSong, setNewSong] = useState<NewSong>(emptySong);
+	const [files, setFiles] = useState<{ audio: File | null; image: File | null }>({ audio: null, image: null });
 
 	const audioInputRef = useRef<HTMLInputElement>(null);
 	const imageInputRef = useRef<HTMLInputElement>(null);
 
+	const imagePreview = useMemo(() => (files.image ? URL.createObjectURL(files.image) : null), [files.image]);
+	useEffect(() => () => {
+		if (imagePreview) URL.revokeObjectURL(imagePreview);
+	}, [imagePreview]);
+
+	// Built-in sample albums aren't stored in the database, so songs can't be attached to them.
+	const realAlbums = albums.filter((album) => !album._id.startsWith("fallback-"));
+	const canSubmit = Boolean(files.audio && files.image && newSong.title.trim() && newSong.artist.trim());
+
+	const handleAudioSelect = async (file: File | undefined) => {
+		if (!file) return;
+		setFiles((prev) => ({ ...prev, audio: file }));
+		const seconds = await readAudioDuration(file);
+		setNewSong((prev) => ({
+			...prev,
+			title: prev.title || titleFromFileName(file.name),
+			duration: seconds ? String(seconds) : prev.duration,
+		}));
+	};
+
+	const reset = () => {
+		setNewSong(emptySong);
+		setFiles({ audio: null, image: null });
+	};
+
 	const handleSubmit = async () => {
+		if (!files.audio || !files.image) {
+			toast.error("Please upload both audio and image files");
+			return;
+		}
+
 		setIsLoading(true);
-
 		try {
-			if (!files.audio || !files.image) {
-				return toast.error("Please upload both audio and image files");
-			}
-
 			const formData = new FormData();
-
-			formData.append("title", newSong.title);
-			formData.append("artist", newSong.artist);
+			formData.append("title", newSong.title.trim());
+			formData.append("artist", newSong.artist.trim());
 			formData.append("duration", newSong.duration);
 			if (newSong.album && newSong.album !== "none") {
 				formData.append("albumId", newSong.album);
 			}
-
 			formData.append("audioFile", files.audio);
 			formData.append("imageFile", files.image);
 
 			await axiosInstance.post("/admin/songs", formData, {
-				headers: {
-					"Content-Type": "multipart/form-data",
-				},
+				headers: { "Content-Type": "multipart/form-data" },
 			});
 
-			setNewSong({
-				title: "",
-				artist: "",
-				album: "",
-				duration: "0",
-			});
-
-			setFiles({
-				audio: null,
-				image: null,
-			});
+			reset();
+			setSongDialogOpen(false);
 			toast.success("Song added successfully");
+			fetchSongs();
+			fetchAlbums();
+			queryClient.invalidateQueries({ queryKey: ["admin", "overview"] });
 		} catch (error: any) {
-			toast.error("Failed to add song: " + error.message);
+			toast.error("Failed to add song: " + (error.response?.data?.message || error.message));
 		} finally {
 			setIsLoading(false);
 		}
 	};
 
 	return (
-		<Dialog open={songDialogOpen} onOpenChange={setSongDialogOpen}>
+		<Dialog open={songDialogOpen} onOpenChange={(open) => !isLoading && setSongDialogOpen(open)}>
 			<DialogTrigger asChild>
-				<Button className='bg-violet-500 hover:bg-violet-600 text-white'>
-					<Plus className='mr-2 h-4 w-4' />
-					Add Song
+				<Button className='shrink-0 bg-emerald-600 text-white hover:bg-emerald-700'>
+					<Plus className='size-4' />
+					Add song
 				</Button>
 			</DialogTrigger>
 
-			<DialogContent className='bg-zinc-900 border-zinc-700 max-h-[80vh] overflow-auto'>
+			<DialogContent className='max-h-[85vh] overflow-auto'>
 				<DialogHeader>
-					<DialogTitle>Add New Song</DialogTitle>
-					<DialogDescription>Add a new song to your music library</DialogDescription>
+					<DialogTitle>Add new song</DialogTitle>
+					<DialogDescription>Upload a track to the BeatBond catalogue</DialogDescription>
 				</DialogHeader>
 
-				<div className='space-y-4 py-4'>
+				<div className='space-y-4 py-2'>
 					<input
 						type='file'
 						accept='audio/*'
 						ref={audioInputRef}
 						hidden
-						onChange={(e) => setFiles((prev) => ({ ...prev, audio: e.target.files![0] }))}
+						onChange={(e) => handleAudioSelect(e.target.files?.[0])}
 					/>
-
 					<input
 						type='file'
-						ref={imageInputRef}
-						className='hidden'
 						accept='image/*'
-						onChange={(e) => setFiles((prev) => ({ ...prev, image: e.target.files![0] }))}
+						ref={imageInputRef}
+						hidden
+						onChange={(e) => {
+							const file = e.target.files?.[0];
+							if (file) setFiles((prev) => ({ ...prev, image: file }));
+						}}
 					/>
 
-					{/* image upload area */}
-					<div
-						className='flex items-center justify-center p-6 border-2 border-dashed border-zinc-700 rounded-lg cursor-pointer'
-						onClick={() => imageInputRef.current?.click()}
-					>
-						<div className='text-center'>
-							{files.image ? (
-								<div className='space-y-2'>
-									<div className='text-sm text-emerald-500'>Image selected:</div>
-									<div className='text-xs text-zinc-400'>{files.image.name.slice(0, 20)}</div>
-								</div>
+					<div className='grid grid-cols-[112px_1fr] gap-4'>
+						<button
+							type='button'
+							onClick={() => imageInputRef.current?.click()}
+							className='group relative flex aspect-square items-center justify-center overflow-hidden rounded-lg border-2 border-dashed transition-colors hover:border-emerald-500'
+							aria-label={files.image ? "Change artwork" : "Upload artwork"}
+						>
+							{imagePreview ? (
+								<img src={imagePreview} alt='' className='size-full object-cover' />
 							) : (
-								<>
-									<div className='p-3 bg-zinc-800 rounded-full inline-block mb-2'>
-										<Upload className='h-6 w-6 text-zinc-400' />
-									</div>
-									<div className='text-sm text-zinc-400 mb-2'>Upload artwork</div>
-									<Button variant='outline' size='sm' className='text-xs'>
-										Choose File
-									</Button>
-								</>
+								<span className='flex flex-col items-center gap-1 text-xs text-muted-foreground'>
+									<ImagePlus className='size-6' />
+									Artwork
+								</span>
 							)}
-						</div>
-					</div>
+						</button>
 
-					{/* Audio upload */}
-					<div className='space-y-2'>
-						<label className='text-sm font-medium'>Audio File</label>
-						<div className='flex items-center gap-2'>
-							<Button variant='outline' onClick={() => audioInputRef.current?.click()} className='w-full'>
-								{files.audio ? files.audio.name.slice(0, 20) : "Choose Audio File"}
+						<div className='space-y-2'>
+							<Label>Audio file</Label>
+							<Button
+								type='button'
+								variant='outline'
+								onClick={() => audioInputRef.current?.click()}
+								className='w-full justify-start overflow-hidden'
+							>
+								<FileAudio className='size-4 shrink-0' />
+								<span className='truncate'>{files.audio ? files.audio.name : "Choose audio file"}</span>
 							</Button>
+							<p className='text-xs text-muted-foreground'>
+								{files.audio && Number(newSong.duration) > 0
+									? `Length detected: ${formatDuration(Number(newSong.duration))}`
+									: "MP3, M4A or WAV. Length is detected automatically."}
+							</p>
 						</div>
 					</div>
 
-					{/* other fields */}
 					<div className='space-y-2'>
-						<label className='text-sm font-medium'>Title</label>
+						<Label htmlFor='song-title'>Title</Label>
 						<Input
+							id='song-title'
 							value={newSong.title}
 							onChange={(e) => setNewSong({ ...newSong, title: e.target.value })}
-							className='bg-zinc-800 border-zinc-700'
 						/>
 					</div>
 
 					<div className='space-y-2'>
-						<label className='text-sm font-medium'>Artist</label>
+						<Label htmlFor='song-artist'>Artist</Label>
 						<Input
+							id='song-artist'
 							value={newSong.artist}
 							onChange={(e) => setNewSong({ ...newSong, artist: e.target.value })}
-							className='bg-zinc-800 border-zinc-700'
 						/>
 					</div>
 
-					<div className='space-y-2'>
-						<label className='text-sm font-medium'>Duration (seconds)</label>
-						<Input
-							type='number'
-							min='0'
-							value={newSong.duration}
-							onChange={(e) => setNewSong({ ...newSong, duration: e.target.value || "0" })}
-							className='bg-zinc-800 border-zinc-700'
-						/>
-					</div>
-
-					<div className='space-y-2'>
-						<label className='text-sm font-medium'>Album (Optional)</label>
-						<Select
-							value={newSong.album}
-							onValueChange={(value) => setNewSong({ ...newSong, album: value })}
-						>
-							<SelectTrigger className='bg-zinc-800 border-zinc-700'>
-								<SelectValue placeholder='Select album' />
-							</SelectTrigger>
-							<SelectContent className='bg-zinc-800 border-zinc-700'>
-								<SelectItem value='none'>No Album (Single)</SelectItem>
-								{albums.map((album) => (
-									<SelectItem key={album._id} value={album._id}>
-										{album.title}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
+					<div className='grid grid-cols-2 gap-4'>
+						<div className='space-y-2'>
+							<Label htmlFor='song-duration'>Duration (seconds)</Label>
+							<Input
+								id='song-duration'
+								type='number'
+								min='0'
+								value={newSong.duration}
+								onChange={(e) => setNewSong({ ...newSong, duration: e.target.value || "0" })}
+							/>
+						</div>
+						<div className='space-y-2'>
+							<Label>Album (optional)</Label>
+							<Select value={newSong.album} onValueChange={(value) => setNewSong({ ...newSong, album: value })}>
+								<SelectTrigger>
+									<SelectValue placeholder='Select album' />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value='none'>No album (single)</SelectItem>
+									{realAlbums.map((album) => (
+										<SelectItem key={album._id} value={album._id}>
+											{album.title}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
 					</div>
 				</div>
 
@@ -210,12 +242,18 @@ const AddSongDialog = () => {
 					<Button variant='outline' onClick={() => setSongDialogOpen(false)} disabled={isLoading}>
 						Cancel
 					</Button>
-					<Button onClick={handleSubmit} disabled={isLoading}>
-						{isLoading ? "Uploading..." : "Add Song"}
+					<Button
+						onClick={handleSubmit}
+						disabled={isLoading || !canSubmit}
+						className='bg-emerald-600 text-white hover:bg-emerald-700'
+					>
+						{isLoading && <Loader2 className='size-4 animate-spin' />}
+						{isLoading ? "Uploading..." : "Add song"}
 					</Button>
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
 	);
 };
+
 export default AddSongDialog;

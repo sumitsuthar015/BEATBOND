@@ -82,6 +82,7 @@ const SearchPage = () => {
     setSearchQuery,
     searchSongs,
     clearSearch,
+    clearResults,
     filters,
     setFilters,
     suggestions,
@@ -170,7 +171,11 @@ const SearchPage = () => {
   // Search effect
   useEffect(() => {
     if (!query.trim()) {
-      clearSearch();
+      // Clear results only, never the typed text. On first load the debounced
+      // value is still "" while `?q=` has just been copied into the store, so
+      // clearing the query here wiped every search opened from a URL (refresh,
+      // back button, "search this song" links).
+      clearResults();
       clearSuggestions();
       return;
     }
@@ -182,7 +187,7 @@ const SearchPage = () => {
       localStorage.setItem(recentKey, JSON.stringify(next));
       return next;
     });
-  }, [query, searchSongs, clearSearch, clearSuggestions, getSuggestions]);
+  }, [query, searchSongs, clearResults, clearSuggestions, getSuggestions]);
 
   const show = (section: Filter) => filter === "all" || filter === section;
   const chooseSearch = (value: string) => { setSearchQuery(value); setUrlSearchParams({ q: value }); inputRef.current?.focus(); };

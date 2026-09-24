@@ -1,0 +1,6 @@
+{
+	"name": "beatbond-saavn-relay",
+	"private": true,
+	"type": "module",
+	"description": "Forwards BeatBond's JioSaavn API calls from India (Vercel, Mumbai region)."
+}

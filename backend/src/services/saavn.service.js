@@ -1,5 +1,20 @@
 
-import { Song, Album, Artist, fetchFromSaavn } from "@saavn-labs/sdk";
+import { Song, Album, Artist, fetchFromSaavn, setFetchConfig } from "@saavn-labs/sdk";
+import CryptoJS from "crypto-js";
+
+// JioSaavn tailors its catalogue to the caller's country, and outside India it
+// hides many licensed originals (e.g. international hits). When the backend is
+// hosted abroad, set SAAVN_API_BASE to a relay running in India (see
+// saavn-relay/README.md) so every provider call leaves from an Indian IP.
+const SAAVN_API_BASE = (process.env.SAAVN_API_BASE || "https://www.jiosaavn.com").replace(/\/+$/, "");
+const SAAVN_API_URL = `${SAAVN_API_BASE}/api.php`;
+const SAAVN_HEADERS = process.env.SAAVN_RELAY_KEY ? { "x-relay-key": process.env.SAAVN_RELAY_KEY } : {};
+if (process.env.SAAVN_API_BASE) {
+  setFetchConfig({ baseUrl: SAAVN_API_BASE, defaultHeaders: SAAVN_HEADERS });
+}
+
+const saavnFetch = (url, init = {}) =>
+  fetch(url, { ...init, headers: { ...SAAVN_HEADERS, ...(init.headers || {}) } });
 
 const streamCache = new Map();
 const CACHE_TTL_MS = 60 * 60 * 1000;
@@ -174,7 +189,7 @@ const searchJioSaavnWebSongs = async (query, limit) => {
       n: String(Math.min(Math.max(Number(limit) || 20, 1), 50)),
       q: query,
     });
-    const response = await fetch(`https://www.jiosaavn.com/api.php?${params}`, {
+    const response = await saavnFetch(`${SAAVN_API_URL}?${params}`, {
       headers: { Accept: "application/json", "User-Agent": "BeatBond/1.0" },
     });
     if (!response.ok) return [];
@@ -210,12 +225,65 @@ const searchJioSaavnWebSongs = async (query, limit) => {
   }
 };
 
+// JioSaavn's web player decrypts `encrypted_media_url` with this fixed DES key.
+// Doing the same locally gives the CDN link without a network round trip per
+// song; generating auth tokens for ~50 results took 1.5-9s per search.
+const MEDIA_URL_KEY = CryptoJS.enc.Utf8.parse("38346591");
+
+export const decryptMediaUrl = (encUrl) => {
+  if (!encUrl || typeof encUrl !== "string") return "";
+  try {
+    const url = CryptoJS.DES.decrypt(
+      { ciphertext: CryptoJS.enc.Base64.parse(encUrl) },
+      MEDIA_URL_KEY,
+      { mode: CryptoJS.mode.ECB }
+    ).toString(CryptoJS.enc.Utf8);
+    return /^https:\/\/\S+\.(mp4|mp3)$/.test(url) ? url.replace(/^https:\/\/(web|preview)\./, "https://aac.") : "";
+  } catch {
+    return "";
+  }
+};
+
+const streamVariants = (url, query = "") => [
+  { quality: "320kbps", url: url.replace("_96.mp4", "_320.mp4").replace("_96.mp3", "_320.mp3") + query },
+  { quality: "160kbps", url: url.replace("_96.mp4", "_160.mp4").replace("_96.mp3", "_160.mp3") + query },
+  { quality: "96kbps", url: url + query },
+];
+
+// Decrypted links only help while the CDN serves them without a token. Probe
+// one occasionally and fall back to auth tokens automatically if it stops.
+const DIRECT_LINK_RECHECK_MS = 30 * 60 * 1000;
+const DIRECT_LINK_RETRY_MS = 5 * 60 * 1000;
+let directLinkProbe = { ok: null, checkedAt: 0, pending: null };
+
+const directLinksPlayable = (sampleUrl) => {
+  const { ok, checkedAt, pending } = directLinkProbe;
+  if (pending) return pending;
+  if (ok !== null && Date.now() - checkedAt < (ok ? DIRECT_LINK_RECHECK_MS : DIRECT_LINK_RETRY_MS)) return ok;
+  const probe = fetch(sampleUrl, { headers: { Range: "bytes=0-1" }, signal: AbortSignal.timeout(4000) })
+    .then((response) => response.ok)
+    .catch(() => false)
+    .then((playable) => {
+      directLinkProbe = { ok: playable, checkedAt: Date.now(), pending: null };
+      return playable;
+    });
+  directLinkProbe = { ...directLinkProbe, pending: probe };
+  return probe;
+};
+
 async function resolveFullStreamUrls(encUrl) {
   if (!encUrl || typeof encUrl !== "string") return [];
 
   const cached = streamCache.get(encUrl);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.urls;
+  }
+
+  const direct = decryptMediaUrl(encUrl);
+  if (direct && (await directLinksPlayable(streamVariants(direct)[0].url))) {
+    const urls = streamVariants(direct);
+    streamCache.set(encUrl, { expiresAt: Date.now() + CACHE_TTL_MS, urls });
+    return urls;
   }
 
   try {
@@ -231,14 +299,8 @@ async function resolveFullStreamUrls(encUrl) {
     const baseUrl = parts[0].replace(/^https:\/\/(web|preview)\./, "https://aac.");
     const query = parts[1] ? `?${parts[1]}` : "";
 
-    const u320 = baseUrl.replace("_96.mp4", "_320.mp4").replace("_96.mp3", "_320.mp3") + query;
-    const u160 = baseUrl.replace("_96.mp4", "_160.mp4").replace("_96.mp3", "_160.mp3") + query;
-
-    const urls = [
-      { quality: "320kbps", url: u320 },
-      { quality: "160kbps", url: u160 },
-      { quality: "96kbps", url: rawUrl },
-    ];
+    const [u320, u160] = streamVariants(baseUrl, query);
+    const urls = [u320, u160, { quality: "96kbps", url: rawUrl }];
 
     streamCache.set(encUrl, { expiresAt: Date.now() + CACHE_TTL_MS, urls });
     return urls;
@@ -466,18 +528,39 @@ export const mapArtist = (artist) => {
   };
 };
 
+const hasStreamSource = (song) => Boolean(
+  song?.media?.encryptedUrl || song?.encrypted_media_url || song?.media?.encrypted_media_url ||
+  song?.downloadUrl?.length || song?.media?.previewUrl || song?.media_preview_url
+);
+
+// The SDK and web searches mostly return the same songs. Keep one entry per
+// id, in first-seen order, preferring whichever copy has a playable stream.
+export const uniqueSongsById = (songs) => {
+  const byId = new Map();
+  for (const song of songs) {
+    const id = String(song?.id || "");
+    if (!id) continue;
+    const existing = byId.get(id);
+    if (!existing || (!hasStreamSource(existing) && hasStreamSource(song))) byId.set(id, song);
+  }
+  return [...byId.values()];
+};
+
 export async function searchSongs(query, limit = 50, page = 1) {
   const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 50);
   const safePage = Math.max(Number(page) || 1, 1);
   return cachedSearch(`songs:p${safePage}`, query, safeLimit, async (normalized) => {
     try {
       const providerLimit = Math.min(safeLimit * safePage, 50);
-      const res = await Song.search({ query: normalized, limit: providerLimit });
-      const sdkResults = res.results || [];
       // Always merge the web catalogue: the SDK can return a non-empty but
       // incomplete list (for example a remix) while missing the official song.
-      const webResults = await searchJioSaavnWebSongs(normalized, providerLimit);
-      const sourceResults = [...sdkResults, ...webResults];
+      // Both lookups are independent, so run them side by side.
+      const [sdkResponse, webResults] = await Promise.all([
+        Song.search({ query: normalized, limit: providerLimit }).catch(() => ({ results: [] })),
+        searchJioSaavnWebSongs(normalized, providerLimit),
+      ]);
+      const sdkResults = sdkResponse?.results || [];
+      const sourceResults = uniqueSongsById([...sdkResults, ...webResults]);
       const results = (await Promise.all(sourceResults.map(mapSongWithFullAudio))).filter((song) => song?.id);
       // Some SDK results contain metadata but no playable stream, while the
       // web catalogue does. Retry against it before giving up on the query.
@@ -549,8 +632,8 @@ export async function getAlbumDetails(albumId) {
     return { status: "SUCCESS", data: mapped };
   } catch {
     try {
-      const res = await fetch(
-        `https://www.jiosaavn.com/api.php?__call=content.getAlbumDetails&_format=json&albumid=${albumId}`
+      const res = await saavnFetch(
+        `${SAAVN_API_URL}?__call=content.getAlbumDetails&_format=json&albumid=${albumId}`
       );
       if (!res.ok) throw new Error("Raw album fetch failed");
       const rawData = await res.json();
@@ -564,8 +647,8 @@ export async function getAlbumDetails(albumId) {
 
 export async function getArtistDetails(artistId) {
   try {
-    const res = await fetch(
-      `https://www.jiosaavn.com/api.php?__call=artist.getArtistPageDetails&_format=json&artistId=${artistId}`
+    const res = await saavnFetch(
+      `${SAAVN_API_URL}?__call=artist.getArtistPageDetails&_format=json&artistId=${artistId}`
     );
     if (!res.ok) throw new Error("Raw artist fetch failed");
     const data = await res.json();
@@ -593,8 +676,8 @@ export async function getArtistDetails(artistId) {
 
     if (!rawSongs.length && mapped.name) {
       const primaryName = mapped.name.split(/,|&/)[0].trim();
-      const searchRes = await fetch(
-        `https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&p=1&n=15&q=${encodeURIComponent(primaryName)}`
+      const searchRes = await saavnFetch(
+        `${SAAVN_API_URL}?__call=search.getResults&_format=json&p=1&n=15&q=${encodeURIComponent(primaryName)}`
       );
       if (searchRes.ok) {
         const searchData = await searchRes.json();
@@ -611,8 +694,8 @@ export async function getArtistDetails(artistId) {
     // credited tracks without adding unrelated search results.
     if (mappedSongs.length < 15 && mapped.name) {
       try {
-        const searchRes = await fetch(
-          `https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&p=1&n=50&q=${encodeURIComponent(mapped.name)}`
+        const searchRes = await saavnFetch(
+          `${SAAVN_API_URL}?__call=search.getResults&_format=json&p=1&n=50&q=${encodeURIComponent(mapped.name)}`
         );
         if (searchRes.ok) {
           const searchData = await searchRes.json();
@@ -641,8 +724,8 @@ export async function getArtistDetails(artistId) {
 
     if (!rawAlbums.length && artistId) {
       try {
-        const albumsRes = await fetch(
-          `https://www.jiosaavn.com/api.php?__call=artist.getArtistAlbums&_format=json&artistId=${artistId}&n=20&p=1`
+        const albumsRes = await saavnFetch(
+          `${SAAVN_API_URL}?__call=artist.getArtistAlbums&_format=json&artistId=${artistId}&n=20&p=1`
         );
         if (albumsRes.ok) {
           const albumsData = await albumsRes.json();
@@ -664,8 +747,8 @@ export async function getArtistDetails(artistId) {
     if (!rawAlbums.length && mapped.name) {
       try {
         const primaryName = mapped.name.split(/,|&/)[0].trim();
-        const searchAlbumsRes = await fetch(
-          `https://www.jiosaavn.com/api.php?__call=search.getAlbumResults&_format=json&q=${encodeURIComponent(primaryName)}&n=20`
+        const searchAlbumsRes = await saavnFetch(
+          `${SAAVN_API_URL}?__call=search.getAlbumResults&_format=json&q=${encodeURIComponent(primaryName)}&n=20`
         );
         if (searchAlbumsRes.ok) {
           const searchData = await searchAlbumsRes.json();
@@ -710,8 +793,8 @@ export async function getSongLyrics(songId, lyricsId) {
   try {
     let targetLyricsId = lyricsId;
     if (!targetLyricsId && songId) {
-      const detailsRes = await fetch(
-        `https://www.jiosaavn.com/api.php?__call=song.getDetails&pids=${songId}&_format=json`
+      const detailsRes = await saavnFetch(
+        `${SAAVN_API_URL}?__call=song.getDetails&pids=${songId}&_format=json`
       );
       if (detailsRes.ok) {
         const detailsData = await detailsRes.json();
@@ -723,8 +806,8 @@ export async function getSongLyrics(songId, lyricsId) {
     const queryId = targetLyricsId || songId;
     if (!queryId) return { status: "FAILED", data: null };
 
-    const res = await fetch(
-      `https://www.jiosaavn.com/api.php?__call=lyrics.getLyrics&lyrics_id=${queryId}&ctx=web6dot0&api_version=4&_format=json&_marker=0`
+    const res = await saavnFetch(
+      `${SAAVN_API_URL}?__call=lyrics.getLyrics&lyrics_id=${queryId}&ctx=web6dot0&api_version=4&_format=json&_marker=0`
     );
     if (res.ok) {
       const data = await res.json();
@@ -734,8 +817,8 @@ export async function getSongLyrics(songId, lyricsId) {
     }
 
     // Fallback try with pids
-    const resPid = await fetch(
-      `https://www.jiosaavn.com/api.php?__call=lyrics.getLyrics&pids=${queryId}&_format=json`
+    const resPid = await saavnFetch(
+      `${SAAVN_API_URL}?__call=lyrics.getLyrics&pids=${queryId}&_format=json`
     );
     if (resPid.ok) {
       const dataPid = await resPid.json();

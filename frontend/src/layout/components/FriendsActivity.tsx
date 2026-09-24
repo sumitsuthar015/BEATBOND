@@ -26,6 +26,10 @@ interface FriendsActivityProps {
   onToggleFloat?: () => void;
 }
 
+// A shared empty list keeps `friends` referentially stable while signed out;
+// a fresh `[]` default re-ran the nickname effect on every render forever.
+const NO_FRIENDS: Friend[] = [];
+
 export const FriendsActivity = ({
   isMobile = false,
   isFloating = false,
@@ -39,7 +43,7 @@ export const FriendsActivity = ({
   const userActivities = useChatStore((state) => state.userActivities);
 
   const {
-    data: friends = [],
+    data: friends = NO_FRIENDS,
     isLoading,
     error,
   } = useQuery<Friend[]>({

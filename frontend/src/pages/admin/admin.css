@@ -1,0 +1,20 @@
+/*
+ * Chart colours for the admin dashboard. Each mode has its own validated steps
+ * (checked against the light and dark card surfaces), so charts stay readable
+ * in both themes.
+ */
+.admin-viz {
+	--viz-accent: #059669;
+	--viz-accent-wash: rgba(5, 150, 105, 0.1);
+	--viz-track: #e7f5ef;
+	--viz-grid: #ececec;
+	--viz-axis: #8a8a8a;
+}
+
+.dark .admin-viz {
+	--viz-accent: #0ca678;
+	--viz-accent-wash: rgba(12, 166, 120, 0.12);
+	--viz-track: #10261e;
+	--viz-grid: #222222;
+	--viz-axis: #8a8a8a;
+}

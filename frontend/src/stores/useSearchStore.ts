@@ -343,6 +343,8 @@ interface SearchStore {
   searchSongs: (query: string) => Promise<void>;
   getSuggestions: (query: string) => Promise<void>;
   clearSearch: () => void;
+  /** Clears results but keeps the typed query (see SearchPage's search effect). */
+  clearResults: () => void;
   clearSuggestions: () => void;
   loadSearchHistory: () => Promise<void>;
   addToSearchHistory: (entry: SearchHistoryEntry) => Promise<void>;
@@ -616,8 +618,20 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
     });
   },
 
+  clearResults: () => {
+    latestSearchRequest += 1;
+    set({
+      searchResults: [],
+      artistResults: [],
+      albumResults: [],
+      playlistResults: [],
+      isLoading: false,
+      error: null
+    });
+  },
+
   clearSuggestions: () => {
-    set({ 
+    set({
       suggestions: {
         songs: [],
         artists: [],
