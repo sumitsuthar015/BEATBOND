@@ -24,5 +24,7 @@ const listeningActivitySchema = new mongoose.Schema(
 
 listeningActivitySchema.index({ userId: 1, playedAt: -1 });
 listeningActivitySchema.index({ userId: 1, songId: 1, playedAt: -1 });
+// "Who else played this song?" lookups for collaborative recommendations.
+listeningActivitySchema.index({ songId: 1, playedAt: -1 });
 
 export const ListeningActivity = mongoose.model("ListeningActivity", listeningActivitySchema);

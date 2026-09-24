@@ -47,3 +47,42 @@ describe("rankRecommendations", () => {
     expect(ranked.map((item) => item._id)).toEqual(["d"]);
   });
 });
+
+describe("rankRecommendations with listening history", () => {
+  const daysAgo = (days: number) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const withHistory = (history: Array<Song & { playedAt: string }>) => {
+    const store: Record<string, string> = {
+      "beatbond:active-listener": "u1",
+      "beatbond:listening-history:u1": JSON.stringify(history),
+    };
+    vi.stubGlobal("localStorage", { getItem: (k: string) => store[k] ?? null, setItem: () => undefined });
+  };
+
+  it("keeps songs heard before out while there are enough new ones", () => {
+    withHistory([{ ...song("old", "Old Favourite", "Arijit Singh"), playedAt: daysAgo(3) }]);
+    const current = song("c", "Kesariya", "Arijit Singh");
+    const ranked = rankRecommendations(
+      current,
+      [song("old", "Old Favourite", "Arijit Singh"), song("n1", "New 1", "Arijit Singh"), song("n2", "New 2", "Pritam"), song("n3", "New 3", "Pritam")],
+      [],
+    );
+
+    expect(ranked.map((item) => item._id)).toEqual(["n1", "n2", "n3"]);
+  });
+
+  it("brings older plays back after the new ones instead of stopping auto-play", () => {
+    withHistory([
+      { ...song("old", "Old Favourite", "Arijit Singh"), playedAt: daysAgo(3) },
+      { ...song("today", "Played Today", "Arijit Singh"), playedAt: daysAgo(0.1) },
+    ]);
+    const current = song("c", "Kesariya", "Arijit Singh");
+    const ranked = rankRecommendations(
+      current,
+      [song("old", "Old Favourite", "Arijit Singh"), song("today", "Played Today", "Arijit Singh"), song("n1", "New 1", "Pritam")],
+      [],
+    );
+
+    // Songs from today are still never repeated.
+    expect(ranked.map((item) => item._id)).toEqual(["n1", "old"]);
+  });
+});

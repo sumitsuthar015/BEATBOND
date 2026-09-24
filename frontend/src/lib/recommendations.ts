@@ -7,7 +7,7 @@ const normalise = (value?: string) => String(value || "").trim().toLowerCase();
 const artistTokens = (song: Song) => normalise(song.artist).split(/,|&| feat\.? | ft\.? /i).map((item) => item.trim()).filter(Boolean);
 const key = (song: Song) => `${normalise(song.title)}|${normalise(song.artist)}`;
 
-type PlaybackSignal = { songId: string; listenedSeconds: number; duration: number; completed: boolean; skipped: boolean; at: string };
+export type PlaybackSignal = { songId: string; listenedSeconds: number; duration: number; completed: boolean; skipped: boolean; at: string };
 const signalKey = (userId: string) => `beatbond:playback-signals:${userId}`;
 
 export const recordPlaybackOutcome = (song: Song, listenedSeconds: number, duration: number) => {
@@ -34,7 +34,7 @@ export const recordPlaybackOutcome = (song: Song, listenedSeconds: number, durat
   }
 };
 
-const getSignals = (userId: string): PlaybackSignal[] => {
+export const getSignals = (userId: string): PlaybackSignal[] => {
   try { return JSON.parse(localStorage.getItem(signalKey(userId)) || "[]"); } catch { return []; }
 };
 
@@ -64,9 +64,15 @@ export const rankRecommendations = (current: Song, candidates: Song[], queued: S
   const signals = userId ? getSignals(userId) : [];
   // IDs can differ across catalogue/API responses for the same release, so
   // block both the provider ID and normalized title + artist identity.
-  // Keep the whole retained listening history out of auto-play suggestions.
-  const excluded = new Set([...queued, ...history].map((song) => song._id));
-  const recentKeys = new Set([...queued, ...history].map(key));
+  // This session's songs and anything heard in the last day are never repeated.
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  const recentHistory = history.filter((song) => new Date(song.playedAt).getTime() >= dayAgo);
+  const excluded = new Set([...queued, ...recentHistory].map((song) => song._id));
+  const recentKeys = new Set([...queued, ...recentHistory].map(key));
+  // Older plays are held back too, unless that would leave auto-play with
+  // nothing to play: heavy listeners of one artist used to hit a dead end.
+  const heardIds = new Set(history.map((song) => song._id));
+  const heardKeys = new Set(history.map(key));
   const currentArtists = new Set(artistTokens(current));
   const currentLanguage = normalise(current.language || current.genre);
   const preferredArtists = new Map<string, number>();
@@ -74,7 +80,7 @@ export const rankRecommendations = (current: Song, candidates: Song[], queued: S
   const positiveIds = new Set(signals.filter((signal) => signal.completed).map((signal) => signal.songId));
   const skippedIds = new Set(signals.filter((signal) => signal.skipped).map((signal) => signal.songId));
 
-  return [...new Map(candidates.filter(isVerifiedValidSong).map((song) => [song._id, song])).values()]
+  const ranked = [...new Map(candidates.filter(isVerifiedValidSong).map((song) => [song._id, song])).values()]
     .filter((song) => !excluded.has(song._id) && !recentKeys.has(key(song)))
     .map((song) => {
       const artists = artistTokens(song);
@@ -85,8 +91,13 @@ export const rankRecommendations = (current: Song, candidates: Song[], queued: S
       score += artists.reduce((total, artist) => total + (preferredArtists.get(artist) || 0) * 10, 0);
       if (positiveIds.has(song._id)) score += 30;
       if (skippedIds.has(song._id)) score -= 200;
-      return { song, score };
+      return { song, score, heard: heardIds.has(song._id) || heardKeys.has(key(song)) };
     })
-    .sort((left, right) => right.score - left.score || left.song.title.localeCompare(right.song.title))
-    .map(({ song }) => song);
+    .sort((left, right) => right.score - left.score || left.song.title.localeCompare(right.song.title));
+
+  const fresh = ranked.filter((item) => !item.heard);
+  const pool = fresh.length >= MIN_FRESH_SUGGESTIONS ? fresh : [...fresh, ...ranked.filter((item) => item.heard)];
+  return pool.map(({ song }) => song);
 };
+
+const MIN_FRESH_SUGGESTIONS = 3;

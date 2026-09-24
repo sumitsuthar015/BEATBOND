@@ -619,6 +619,19 @@ export async function searchSongs(query, limit = 50, page = 1) {
   });
 }
 
+/** Fresh, playable copies of known songs (stored stream links can go stale). */
+export async function getSongsByIds(songIds) {
+  const ids = [...new Set((songIds || []).map(String).filter(Boolean))].slice(0, 20);
+  if (!ids.length) return [];
+  try {
+    const res = await Song.getById({ songIds: ids });
+    const songs = await Promise.all((res?.results || res?.songs || []).map(mapSongWithFullAudio));
+    return songs.filter((song) => song?.id && song.downloadUrl?.length);
+  } catch {
+    return [];
+  }
+}
+
 export async function searchArtists(query, limit = 10) {
   return cachedSearch("artists", query, limit, async (normalized) => {
     try {
