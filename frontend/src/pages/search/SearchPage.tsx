@@ -7,11 +7,7 @@ import {
   Search,
   TrendingUp,
   X,
-  Filter,
   Mic,
-  Bookmark,
-  BookmarkPlus,
-  Bell,
   Trash2,
   History,
   Sparkles
@@ -22,23 +18,11 @@ import { useUser } from "@clerk/clerk-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from "@/components/ui/select";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger
-} from "@/components/ui/popover";
-import { Label } from "@/components/ui/label";
 import PlayButton from "@/pages/home/components/PlayButton";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useSearchStore } from "@/stores/useSearchStore";
 import { cn } from "@/lib/utils";
+import type { Song } from "@/types";
 
 // Type declaration for SpeechRecognition
 interface SpeechRecognition extends EventTarget {
@@ -60,6 +44,25 @@ const readRecents = () => {
   try { return JSON.parse(localStorage.getItem(recentKey) || "[]") as string[]; } catch { return []; }
 };
 
+const formatSongLength = (duration: number) => `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, "0")}`;
+
+/** One song in the results, used by the top-songs list and the full Songs tab. */
+const SongRow = ({ song }: { song: Song }) => (
+  <div className="group flex min-h-16 items-center gap-3 py-2 px-1 hover:bg-secondary/40 rounded-xl transition-colors">
+    <div className="relative shrink-0">
+      <img src={song.imageUrl} alt={`${song.title} cover`} loading="lazy" className="size-12 rounded-lg object-cover" />
+      <PlayButton song={song} size="small" />
+    </div>
+    <div className="min-w-0 flex-1">
+      <p className="truncate text-sm font-semibold">{song.title}</p>
+      <p className="truncate text-xs text-muted-foreground">{song.artist}</p>
+    </div>
+    {song.explicit && <span className="shrink-0 px-2 py-0.5 text-xs bg-destructive/10 text-destructive rounded">E</span>}
+    <span className="shrink-0 pr-1 text-xs tabular-nums text-muted-foreground">{formatSongLength(song.duration)}</span>
+    <SongOptionsMenu song={song} />
+  </div>
+);
+
 const SearchPage = () => {
   const { user } = useUser();
   const navigate = useNavigate();
@@ -67,7 +70,6 @@ const SearchPage = () => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [recentSearches, setRecentSearches] = useState<string[]>(readRecents);
-  const [showFilters, setShowFilters] = useState(false);
   const [voiceActive, setVoiceActive] = useState(false);
   const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
 
@@ -83,18 +85,10 @@ const SearchPage = () => {
     searchSongs,
     clearSearch,
     clearResults,
-    filters,
-    setFilters,
     suggestions,
     getSuggestions,
     clearSuggestions,
     loadSearchHistory,
-    savedSearches,
-    loadSavedSearches,
-    createSavedSearch,
-    deleteSavedSearch,
-    filterOptions,
-    loadFilterOptions,
   } = useSearchStore();
 
   const query = useDebounce(searchQuery, 300);
@@ -164,9 +158,7 @@ const SearchPage = () => {
   // Load data on mount
   useEffect(() => {
     loadSearchHistory();
-    loadSavedSearches();
-    loadFilterOptions();
-  }, [loadSearchHistory, loadSavedSearches, loadFilterOptions]);
+  }, [loadSearchHistory]);
 
   // Search effect
   useEffect(() => {
@@ -191,27 +183,7 @@ const SearchPage = () => {
 
   const show = (section: Filter) => filter === "all" || filter === section;
   const chooseSearch = (value: string) => { setSearchQuery(value); setUrlSearchParams({ q: value }); inputRef.current?.focus(); };
-  const formatDuration = (duration: number) => `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, "0")}`;
   const clearRecents = () => { localStorage.removeItem(recentKey); setRecentSearches([]); };
-
-  const handleSaveSearch = async () => {
-    if (!searchQuery.trim()) return;
-    const name = prompt("Enter a name for this search:", searchQuery);
-    if (name) {
-      try {
-        await createSavedSearch(name, searchQuery, filters, false);
-        alert("Search saved successfully!");
-      } catch {
-        alert("Failed to save search");
-      }
-    }
-  };
-
-  const handleDeleteSavedSearch = async (id: string) => {
-    if (confirm("Delete this saved search?")) {
-      await deleteSavedSearch(id);
-    }
-  };
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-gradient-to-b from-background via-background to-secondary/20">
@@ -302,135 +274,6 @@ const SearchPage = () => {
                 />
               </div>
 
-              {/* Filter button — shown on ALL screen sizes (was hidden on mobile before) */}
-              <Popover open={showFilters} onOpenChange={setShowFilters}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-12 w-12 shrink-0 rounded-2xl sm:rounded-full"
-                    aria-label="Filters"
-                  >
-                    <Filter className="size-5" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-80 p-4" side="bottom" align="end">
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-semibold">Filters</h3>
-                      <Button variant="ghost" size="sm" onClick={() => setFilters({})}>Clear all</Button>
-                    </div>
-
-                    <div>
-                      <Label className="text-sm font-medium">Genre</Label>
-                      <Select value={filters.genre || ""} onValueChange={(v) => setFilters({ ...filters, genre: v || undefined })}>
-                        <SelectTrigger className="mt-1"><SelectValue placeholder="All genres" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="">All genres</SelectItem>
-                          {filterOptions.genres.map((g) => <SelectItem key={g} value={g}>{g}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div>
-                      <Label className="text-sm font-medium">Language</Label>
-                      <Select value={filters.language || ""} onValueChange={(v) => setFilters({ ...filters, language: v || undefined })}>
-                        <SelectTrigger className="mt-1"><SelectValue placeholder="All languages" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="">All languages</SelectItem>
-                          {filterOptions.languages.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div>
-                      <Label className="text-sm font-medium">Mood</Label>
-                      <Select value={filters.mood || ""} onValueChange={(v) => setFilters({ ...filters, mood: v || undefined })}>
-                        <SelectTrigger className="mt-1"><SelectValue placeholder="All moods" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="">All moods</SelectItem>
-                          {filterOptions.moods.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div>
-                      <Label className="text-sm font-medium">Year</Label>
-                      <Select value={filters.year?.toString() || ""} onValueChange={(v) => setFilters({ ...filters, year: v ? Number(v) : undefined })}>
-                        <SelectTrigger className="mt-1"><SelectValue placeholder="All years" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="">All years</SelectItem>
-                          {filterOptions.years.map((y) => <SelectItem key={y} value={y.toString()}>{y}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div>
-                      <Label className="text-sm font-medium">Explicit Content</Label>
-                      <Select
-                        value={filters.explicit?.toString() || ""}
-                        onValueChange={(v) => setFilters({ ...filters, explicit: v === "true" ? true : v === "false" ? false : undefined })}
-                      >
-                        <SelectTrigger className="mt-1"><SelectValue placeholder="All" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="">All</SelectItem>
-                          <SelectItem value="true">Explicit only</SelectItem>
-                          <SelectItem value="false">Clean only</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div>
-                      <Label className="text-sm font-medium">Sort By</Label>
-                      <Select value={filters.sortBy || "relevance"} onValueChange={(v) => setFilters({ ...filters, sortBy: v as any })}>
-                        <SelectTrigger className="mt-1"><SelectValue placeholder="Relevance" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="relevance">Relevance</SelectItem>
-                          <SelectItem value="popularity">Popularity</SelectItem>
-                          <SelectItem value="newest">Newest</SelectItem>
-                          <SelectItem value="oldest">Oldest</SelectItem>
-                          <SelectItem value="duration-asc">Duration: Short to Long</SelectItem>
-                          <SelectItem value="duration-desc">Duration: Long to Short</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div>
-                      <Label className="text-sm font-medium">Duration Range</Label>
-                      <div className="mt-1 flex items-center gap-2">
-                        <input
-                          type="number"
-                          placeholder="Min (sec)"
-                          value={filters.minDuration || ""}
-                          onChange={(e) => setFilters({ ...filters, minDuration: e.target.value ? Number(e.target.value) : undefined })}
-                          className="flex-1 h-8 px-2 text-sm border border-border rounded bg-background"
-                        />
-                        <span className="text-muted-foreground">-</span>
-                        <input
-                          type="number"
-                          placeholder="Max (sec)"
-                          value={filters.maxDuration || ""}
-                          onChange={(e) => setFilters({ ...filters, maxDuration: e.target.value ? Number(e.target.value) : undefined })}
-                          className="flex-1 h-8 px-2 text-sm border border-border rounded bg-background"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </PopoverContent>
-              </Popover>
-
-              {/* Save Search button — shown on ALL screen sizes (was hidden on mobile before) */}
-              {searchQuery && (
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-12 w-12 shrink-0 rounded-2xl sm:rounded-full"
-                  onClick={handleSaveSearch}
-                  aria-label="Save search"
-                >
-                  <BookmarkPlus className="size-5" />
-                </Button>
-              )}
             </div>
 
             {/* Filter tabs (all / songs / artists / albums / playlists) */}
@@ -555,40 +398,6 @@ const SearchPage = () => {
                 </div>
               </div>
             )}
-            {/* Saved Searches Dropdown */}
-            {savedSearches.length > 0 && !searchQuery && (
-              <div className="mt-2 absolute z-50 w-full max-w-3xl mx-auto animate-in fade-in-0 zoom-in-95">
-                <div className="rounded-2xl border border-border/70 bg-card p-2 shadow-lg">
-                  <p className="px-3 py-2 text-xs font-semibold text-primary uppercase tracking-wider flex items-center gap-2">
-                    <Bookmark className="size-4" />
-                    Saved Searches
-                  </p>
-                  {savedSearches.map((saved: any) => (
-                    <div key={saved._id} className="px-2">
-                      <button
-                        onClick={() => chooseSearch(saved.query)}
-                        className="w-full flex items-center gap-3 px-3 py-2 text-left rounded-xl hover:bg-secondary/50 transition-colors"
-                      >
-                        <Bookmark className="size-4 text-primary" />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">{saved.name}</p>
-                          <p className="truncate text-xs text-muted-foreground">"{saved.query}" · {saved.filters?.genre || "All genres"}</p>
-                        </div>
-                        {saved.notifyOnNewResults && <Bell className="size-4 text-primary" />}
-                      </button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="w-full justify-end pr-2 -mt-1"
-                        onClick={(e) => { e.stopPropagation(); handleDeleteSavedSearch(saved._id); }}
-                      >
-                        <Trash2 className="size-4 text-muted-foreground hover:text-destructive" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </header>
@@ -618,39 +427,6 @@ const SearchPage = () => {
                       >
                         <Clock3 className="size-4 text-muted-foreground" />
                         {item}
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              {savedSearches.length > 0 && (
-                <section aria-labelledby="saved-heading">
-                  <div className="mb-3 flex items-center gap-2">
-                    <Bookmark className="size-5 text-primary" />
-                    <h2 id="saved-heading" className="text-lg font-bold">Saved Searches</h2>
-                  </div>
-                  <div className="grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 lg:grid-cols-3">
-                    {savedSearches.map((saved: any) => (
-                      <button
-                        key={saved._id}
-                        onClick={() => chooseSearch(saved.query)}
-                        className="group min-h-24 rounded-2xl border border-border/70 bg-card p-3 text-left shadow-sm transition-transform hover:-translate-y-0.5 hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        <div className="flex items-center gap-2 mb-2">
-                          <Bookmark className="size-4 text-primary" />
-                          <span className="text-xs font-semibold text-primary">{saved.name}</span>
-                        </div>
-                        <p className="line-clamp-1 text-sm font-medium truncate">"{saved.query}"</p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {saved.filters?.genre || "All genres"} · {saved.filters?.language || "All languages"}
-                        </p>
-                        {saved.notifyOnNewResults && (
-                          <div className="mt-2 flex items-center gap-1 text-xs text-primary">
-                            <Bell className="size-3" />
-                            <span>Notifications on</span>
-                          </div>
-                        )}
                       </button>
                     ))}
                   </div>
@@ -749,24 +525,27 @@ const SearchPage = () => {
                       <h3 className="mb-3 text-lg font-bold">Songs</h3>
                       <div className="divide-y divide-border/60 rounded-2xl border border-border/70 bg-card px-2">
                         {songs.slice(0, 4).map((song) => (
-                          <div key={song._id} className="group flex min-h-16 items-center gap-3 py-2 px-1 hover:bg-secondary/40 rounded-xl transition-colors">
-                            <div className="relative shrink-0">
-                              <img src={song.imageUrl} alt={`${song.title} cover`} loading="lazy" className="size-12 rounded-lg object-cover" />
-                              <PlayButton song={song} size="small" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-semibold">{song.title}</p>
-                              <p className="truncate text-xs text-muted-foreground">{song.artist}</p>
-                            </div>
-                            {song.explicit && <span className="shrink-0 px-2 py-0.5 text-xs bg-destructive/10 text-destructive rounded">E</span>}
-                            <span className="shrink-0 pr-1 text-xs tabular-nums text-muted-foreground">{formatDuration(song.duration)}</span>
-                            <SongOptionsMenu song={song} />
-                          </div>
+                          <SongRow key={song._id} song={song} />
                         ))}
                       </div>
                     </div>
                   )}
                 </div>
+              )}
+
+              {filter === "songs" && (
+                <section>
+                  <h3 className="mb-3 text-lg font-bold">Songs <span className="text-sm font-normal text-muted-foreground">({songs.length})</span></h3>
+                  {songs.length > 0 ? (
+                    <div className="divide-y divide-border/60 rounded-2xl border border-border/70 bg-card px-2">
+                      {songs.map((song) => <SongRow key={song._id} song={song} />)}
+                    </div>
+                  ) : (
+                    <p className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+                      "No songs found for this search."
+                    </p>
+                  )}
+                </section>
               )}
 
               {show("artists") && displayedArtists.length > 0 && (
