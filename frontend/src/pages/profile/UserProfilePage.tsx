@@ -3,7 +3,6 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { axiosInstance } from "@/lib/axios";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import BackButton from "@/components/ui/BackButton";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useClerk, useUser } from "@clerk/clerk-react";
@@ -18,7 +17,6 @@ import {
   Settings,
   Share2,
   Loader2,
-  ArrowLeft,
   Lock,
   UserCheck,
   Clock,
@@ -262,12 +260,6 @@ const UserProfilePage = () => {
                 Try again
               </Button>
             )}
-            <BackButton
-              onClick={() => navigate('/users')}
-              variant="outline"
-              className="w-full"
-              label={<><ArrowLeft className="h-4 w-4 mr-2" />Back to Search</>}
-            />
           </div>
         </Card>
       </div>

@@ -29,7 +29,7 @@ const OfflineBanner = () => {
 
   if (!online) {
     return (
-      <div role="status" className="relative z-20 mx-2 mt-2 flex items-center gap-3 rounded-xl py-2 pl-14 pr-4 md:pl-16 border border-amber-500/30 bg-amber-500/15 text-sm">
+      <div role="status" className="relative z-20 mx-2 mt-2 flex items-center gap-3 rounded-xl px-4 py-2 border border-amber-500/30 bg-amber-500/15 text-sm">
         <WifiOff className="size-4 shrink-0 text-amber-500" aria-hidden />
         <p className="min-w-0 flex-1">
           <span className="font-semibold">You're offline.</span>{" "}
@@ -46,7 +46,7 @@ const OfflineBanner = () => {
   // Opened offline, sign-in never loaded; a reload brings everything back.
   if (wasOffline && !isLoaded) {
     return (
-      <div role="status" className="relative z-20 mx-2 mt-2 flex items-center gap-3 rounded-xl py-2 pl-14 pr-4 md:pl-16 border border-emerald-500/30 bg-emerald-500/15 text-sm">
+      <div role="status" className="relative z-20 mx-2 mt-2 flex items-center gap-3 rounded-xl px-4 py-2 border border-emerald-500/30 bg-emerald-500/15 text-sm">
         <p className="min-w-0 flex-1">
           <span className="font-semibold">You're back online.</span>{" "}
           <span className="text-muted-foreground">Reload to sign in and see everything again.</span>

@@ -186,7 +186,7 @@ const LyricsModal = ({
                 ))}
               </div>
               <div className="pt-4 border-t border-zinc-800">
-                <p className="text-xs text-zinc-500">Lyrics provided by LRCLIB, JioSaavn or lyrics.ovh</p>
+                <p className="text-xs text-zinc-500">Lyrics provided by LRCLIB or JioSaavn</p>
               </div>
             </div>
           )}

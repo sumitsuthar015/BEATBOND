@@ -11,7 +11,7 @@ import {
   Play,
   PartyPopper,
   Pause,
-  ArrowLeft,
+  X,
   Sparkles,
   MessageSquare,
 } from "lucide-react";
@@ -314,16 +314,6 @@ const MoodPlaylist = () => {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.3 }}
                   >
-                    {selectedMood && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={handleChangeMood}
-                        className="absolute left-2 md:left-4 h-9 w-9 rounded-full hover:bg-accent/50"
-                      >
-                        <ArrowLeft className="h-4 w-4 md:h-5 md:w-5" />
-                      </Button>
-                    )}
                     <div className="flex items-center justify-between w-full">
                       <div className="flex-1 flex justify-center">
                         <h2
@@ -331,8 +321,7 @@ const MoodPlaylist = () => {
                             "font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary/50 text-center",
                             !isExpanded
                               ? "text-lg md:text-2xl"
-                              : "text-xl md:text-4xl lg:text-5xl",
-                            selectedMood ? "md:ml-16" : ""
+                              : "text-xl md:text-4xl lg:text-5xl"
                           )}
                         >
                           {selectedMood
@@ -340,6 +329,11 @@ const MoodPlaylist = () => {
                             : "How are you feeling today?"}
                         </h2>
                       </div>
+                      {selectedMood && (
+                        <Button variant="outline" size="sm" onClick={handleChangeMood} className="ml-2 shrink-0 rounded-full">
+                          Change mood
+                        </Button>
+                      )}
                       {showAIButton && (
                         <motion.div
                           initial={{ opacity: 0, scale: 0.8 }}
@@ -675,8 +669,9 @@ const MoodPlaylist = () => {
                   variant="ghost"
                   size="icon"
                   onClick={() => setShowChat(false)}
+                  aria-label="Close AI assistant"
                 >
-                  <ArrowLeft className="w-4 h-4" />
+                  <X className="w-4 h-4" />
                 </Button>
               </div>
               <div className="p-4">

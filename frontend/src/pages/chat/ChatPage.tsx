@@ -174,7 +174,9 @@ const ChatPage = () => {
                 variant="ghost"
                 size="icon"
                 onClick={goBack}
-                className="absolute left-3 size-10 rounded-full"
+                // Phones show chat fullscreen without the bottom navigation, so
+                // this is their way out; desktop keeps the sidebar instead.
+                className="absolute left-3 size-10 rounded-full md:hidden"
                 aria-label="Go back"
               >
                 <ArrowLeft className="size-5" />

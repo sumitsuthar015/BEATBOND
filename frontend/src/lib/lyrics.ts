@@ -14,8 +14,6 @@ type LrcLibTrack = {
   syncedLyrics?: unknown;
 };
 
-type LyricsOvhResponse = { lyrics?: unknown };
-
 export type LyricLine = { text: string; time?: number };
 
 const timestampPattern = /\[(\d{1,2}):(\d{2}(?:\.\d{1,3})?)\]/g;
@@ -44,7 +42,6 @@ const RANK = {
   jioSaavn: 2,
   exactPlain: 3,
   matchedPlain: 4,
-  lyricsOvh: 5,
 } as const;
 
 type Candidate = LyricsResult & { rank: number };
@@ -118,7 +115,9 @@ export const matchLyricsTrack = (
   return drift <= 3 ? "timed" : "plain";
 };
 
-const fetchJson = async <T,>(url: string, timeoutMs = 4_000): Promise<T | null> => {
+// The first request to LRCLIB on a cold or mobile connection can take several
+// seconds; a shorter limit aborted it and the song showed no lyrics at all.
+const fetchJson = async <T,>(url: string, timeoutMs = 8_000): Promise<T | null> => {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
     return response.ok ? ((await response.json()) as T) : null;
@@ -136,21 +135,26 @@ const fromTrack = (track: LrcLibTrack | null, syncedRank: number, plainRank: num
   return plain ? { text: plain, synced: false, rank: plainRank } : null;
 };
 
-/** LRCLIB's exact lookup matches title, artist and length (within ~2s). */
+/**
+ * LRCLIB lookup by exact title and artist, keeping only the same recording
+ * (length within 3s, as /api/get allowed). It uses the search endpoint because
+ * that answers "not found" with an empty list, while /api/get answers with a
+ * 404 that browsers print as a console error on every song without lyrics.
+ */
 const lrcLibExact = async (song: Song): Promise<Candidate | null> => {
   const titles = [...new Set([song.title, cleanTitle(song.title)].filter(Boolean))];
-  const artists = [...new Set([song.artist, ...songArtists(song.artist)].filter(Boolean))].slice(0, 4);
+  const artists = [...new Set(songArtists(song.artist))].slice(0, 3);
   const lookups = titles.flatMap((title) =>
     artists.map((artist) => {
-      const url = new URL("https://lrclib.net/api/get");
-      url.searchParams.set("artist_name", artist);
+      const url = new URL("https://lrclib.net/api/search");
       url.searchParams.set("track_name", title);
-      if (song.duration) url.searchParams.set("duration", String(Math.round(song.duration)));
-      return fetchJson<LrcLibTrack>(url.toString());
+      url.searchParams.set("artist_name", artist);
+      return fetchJson<LrcLibTrack[]>(url.toString());
     })
   );
-  const tracks = await Promise.all(lookups);
+  const tracks = (await Promise.all(lookups)).flatMap((list) => (Array.isArray(list) ? list : []));
   const candidates = tracks
+    .filter((track) => matchLyricsTrack(song, track) === "timed")
     .map((track) => fromTrack(track, RANK.exactSynced, RANK.exactPlain, true))
     .filter((candidate): candidate is Candidate => Boolean(candidate));
   return candidates.sort((a, b) => a.rank - b.rank)[0] ?? null;
@@ -186,16 +190,6 @@ const jioSaavn = async (song: Song): Promise<Candidate | null> => {
   } catch {
     return null;
   }
-};
-
-/** lyrics.ovh only answers exact artist + title pairs, so it is safe but plain. */
-const lyricsOvh = async (song: Song): Promise<Candidate | null> => {
-  const title = cleanTitle(song.title);
-  const lookups = [...new Set(songArtists(song.artist).slice(0, 2))].map((artist) =>
-    fetchJson<LyricsOvhResponse>(`https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`)
-  );
-  const text = (await Promise.all(lookups)).map((result) => lyricText(result?.lyrics)).find(Boolean);
-  return text ? { text, synced: false, rank: RANK.lyricsOvh } : null;
 };
 
 /**
@@ -271,7 +265,6 @@ export const fetchLyricsForSong = (song: Song): Promise<LyricsResult> => {
       { bestRank: RANK.exactSynced, run: () => lrcLibExact(song) },
       { bestRank: RANK.matchedSynced, run: () => lrcLibSearch(song) },
       { bestRank: RANK.jioSaavn, run: () => jioSaavn(song) },
-      { bestRank: RANK.lyricsOvh, run: () => lyricsOvh(song) },
     ]);
     if (!best) throw new Error("Lyrics are not available for this song yet.");
     return { text: best.text, synced: best.synced };

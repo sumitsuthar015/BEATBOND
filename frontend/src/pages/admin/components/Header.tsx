@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { cn } from "@/lib/utils";
 import { UserButton, useUser } from "@clerk/clerk-react";
-import { ArrowLeft, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
 
 type HeaderProps = {
@@ -45,13 +45,6 @@ const Header = ({ onRefresh, isRefreshing, updatedAt }: HeaderProps) => {
 				<Button variant='outline' size='sm' onClick={onRefresh} disabled={isRefreshing}>
 					<RefreshCw className={cn("size-4", isRefreshing && "animate-spin")} />
 					Refresh
-				</Button>
-				<Button variant='outline' size='sm' asChild>
-					<Link to='/'>
-						<ArrowLeft className='size-4' />
-						<span className='hidden sm:inline'>Back to app</span>
-						<span className='sm:hidden'>App</span>
-					</Link>
 				</Button>
 				<ThemeToggle />
 				<UserButton />

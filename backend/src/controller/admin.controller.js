@@ -9,6 +9,7 @@ import { Playlist } from "../models/playlist.model.js";
 import cloudinary from "../lib/cloudinary.js";
 import { isDatabaseConnected } from "../lib/db.js";
 import { getOnlineUserIds, isUserOnline } from "../lib/socket.js";
+import { isAdminUser } from "../middleware/auth.middleware.js";
 
 // helper function for cloudinary uploads
 const uploadToCloudinary = async (file, isAudio = false) => {
@@ -144,7 +145,11 @@ export const deleteAlbum = async (req, res, next) => {
 };
 
 export const checkAdmin = async (req, res, next) => {
-	res.status(200).json({ admin: true });
+	try {
+		res.status(200).json({ admin: await isAdminUser(req.auth.userId) });
+	} catch (error) {
+		next(error);
+	}
 };
 
 // ---------------------------------------------------------------------------

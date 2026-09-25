@@ -34,7 +34,10 @@ export default defineConfig({
 				// ranged (206) requests that a cache-first rule can't store anyway,
 				// and a stream held open by the old worker blocked "Update now" until
 				// the song ended. Downloads play from their own cache (offlineDownloads.ts).
-				{ urlPattern: ({ request }) => request.destination === "image", handler: "StaleWhileRevalidate", options: { cacheName: "beatbond-images", expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 }, cacheableResponse: { statuses: [0, 200] } } },
+				// Plain <img> loads only (no-cors). The player also loads the cover in
+				// CORS mode to read its colours; handing that request a cached opaque
+				// copy is rejected by the browser, so the cover failed to load.
+				{ urlPattern: ({ request }) => request.destination === "image" && request.mode === "no-cors", handler: "StaleWhileRevalidate", options: { cacheName: "beatbond-images", expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 }, cacheableResponse: { statuses: [0, 200] } } },
 			],
 		},
 		includeAssets: ["favicon.ico", "apple-touch-icon.png", "pwa-192x192.png", "pwa-512x512.png"],
