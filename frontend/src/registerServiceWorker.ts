@@ -1,3 +1,5 @@
+import { usePlayerStore } from "@/stores/usePlayerStore";
+
 const UPDATE_CHECK_INTERVAL_MS = 60_000;
 
 // A new deployment installs and takes over in the background by itself
@@ -7,9 +9,12 @@ const UPDATE_CHECK_INTERVAL_MS = 60_000;
 // reloads in front of the listener or in the middle of a song.
 let newVersionActive = false;
 
-// The audio element is the truth: a phone call or unplugged headphones pause it
-// without going through the player store.
+// Music counts as playing if the player means to play (it stays "playing"
+// while it moves from a finished song to the next) or the audio element is
+// actually playing. Either one alone would restart the app between two songs
+// of a background listening session.
 const musicIsPlaying = () => {
+	if (usePlayerStore.getState().isPlaying) return true;
 	const audio = document.getElementById("global-audio-player") as HTMLAudioElement | null;
 	return Boolean(audio && !audio.paused && !audio.ended);
 };
@@ -36,9 +41,11 @@ export const registerServiceWorker = () => {
 		restartIfUnnoticed();
 	});
 	document.addEventListener("visibilitychange", restartIfUnnoticed);
+	usePlayerStore.subscribe((state, previous) => {
+		if (previous.isPlaying && !state.isPlaying) restartIfUnnoticed();
+	});
 	// Media events don't bubble, so listen in the capture phase for the player's.
 	document.addEventListener("pause", restartIfUnnoticed, true);
-	document.addEventListener("ended", restartIfUnnoticed, true);
 
 	navigator.serviceWorker
 		.register("/sw.js", { scope: "/", updateViaCache: "none" })
