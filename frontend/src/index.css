@@ -88,6 +88,11 @@
 	@media (max-width: 767px) {
 		body { font-size: 0.875rem; }
 	}
+	/* Installed app: no pull-to-refresh. Swiping down past the top restarted
+	   the app and stopped the music; updates come from the in-app prompt. */
+	@media (display-mode: standalone), (display-mode: window-controls-overlay) {
+		html, body { overscroll-behavior-y: none; }
+	}
 }
 
 /* Project-wide scrollbar styles */

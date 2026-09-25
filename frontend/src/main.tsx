@@ -7,6 +7,7 @@ import { BrowserRouter } from "react-router-dom";
 import AuthProvider from "./providers/AuthProvider.tsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { registerServiceWorker } from "./registerServiceWorker.ts";
+import { blockReloadInInstalledApp } from "./lib/installedApp.ts";
 
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
@@ -24,6 +25,7 @@ const queryClient = new QueryClient({
 });
 
 registerServiceWorker();
+blockReloadInInstalledApp();
 
 createRoot(document.getElementById("root")!).render(
 	<StrictMode>

@@ -1,5 +1,5 @@
 import { Route, Routes } from "react-router-dom";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import HomePage from "./pages/home/HomePage";
 import HomeCollectionPage from "./pages/home/HomeCollectionPage";
 import AuthCallbackPage from "./pages/auth-callback/AuthCallbackPage";
@@ -25,16 +25,38 @@ import PlaylistDetailPage from "./pages/playlists/PlaylistDetailPage";
 import LikedSongsPage from "./pages/playlists/LikedSongsPage";
 import RouteHistoryTracker from "./components/RouteHistoryTracker";
 
-const ChatPage = lazy(() => import("./pages/chat/ChatPage"));
-const AdminPage = lazy(() => import("./pages/admin/AdminPage"));
-const UserSearchPage = lazy(() => import("./pages/users/UserSearchPage"));
-const MoodPlaylist = lazy(() => import("./components/MoodPlaylist"));
-const DashboardPage = lazy(() => import("./pages/dashboard/DashboardPage"));
-const AvatarCreatorPage = lazy(() => import("./pages/avatar/AvatarCreatorPage"));
-const MapPage = lazy(() => import("./pages/map/MapPage"));
-const SettingsPage = lazy(() => import("./pages/settings/SettingsPage"));
+// After a deployment the open app keeps running its current version until it
+// can restart unnoticed (see registerServiceWorker.ts). The deployment removes
+// the old files, so every lazy page is loaded in the background up front and
+// the running version never has to fetch one of them later.
+const pageLoaders = {
+  chat: () => import("./pages/chat/ChatPage"),
+  admin: () => import("./pages/admin/AdminPage"),
+  userSearch: () => import("./pages/users/UserSearchPage"),
+  mood: () => import("./components/MoodPlaylist"),
+  dashboard: () => import("./pages/dashboard/DashboardPage"),
+  avatar: () => import("./pages/avatar/AvatarCreatorPage"),
+  map: () => import("./pages/map/MapPage"),
+  settings: () => import("./pages/settings/SettingsPage"),
+};
+const ChatPage = lazy(pageLoaders.chat);
+const AdminPage = lazy(pageLoaders.admin);
+const UserSearchPage = lazy(pageLoaders.userSearch);
+const MoodPlaylist = lazy(pageLoaders.mood);
+const DashboardPage = lazy(pageLoaders.dashboard);
+const AvatarCreatorPage = lazy(pageLoaders.avatar);
+const MapPage = lazy(pageLoaders.map);
+const SettingsPage = lazy(pageLoaders.settings);
+
+const preloadPages = () => {
+  if (!import.meta.env.PROD) return;
+  const whenIdle = window.requestIdleCallback ?? ((callback: () => void) => window.setTimeout(callback, 3000));
+  whenIdle(() => Object.values(pageLoaders).forEach((load) => void load().catch(() => undefined)));
+};
 
 function App() {
+  useEffect(preloadPages, []);
+
   return (
     <ThemeProvider defaultTheme="dark" storageKey="beatbond-theme">
       {/* The media element is deliberately outside route layouts. Navigation must
