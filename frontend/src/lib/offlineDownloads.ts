@@ -11,10 +11,16 @@ export type OfflineSong = Song & { downloadedAt: string };
 const read = (): OfflineSong[] => {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch { return []; }
 };
+const notifyChange = () => window.dispatchEvent(new Event("beatbond-downloads-changed"));
 const write = (songs: OfflineSong[]) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(songs));
-  window.dispatchEvent(new Event("beatbond-downloads-changed"));
+  notifyChange();
 };
+
+// Downloads in progress, so every button for a song shows "Downloading…" and
+// a second tap reuses the running download instead of saving it twice.
+const inProgress = new Map<string, Promise<void>>();
+export const isDownloading = (songId: string | undefined) => Boolean(songId) && inProgress.has(songId!);
 
 // Saved files are keyed by song id, not by their CDN link: stream links can
 // change between sessions, but a download must keep playing forever.
@@ -30,7 +36,19 @@ const isAudio = (response: Response) => {
   return response.ok && (type.startsWith("audio/") || type.startsWith("video/") || type === "application/octet-stream" || !type);
 };
 
-export const downloadSongForOffline = async (song: Song) => {
+export const downloadSongForOffline = (song: Song): Promise<void> => {
+  const running = inProgress.get(song._id);
+  if (running) return running;
+  const task = saveSong(song).finally(() => {
+    inProgress.delete(song._id);
+    notifyChange();
+  });
+  inProgress.set(song._id, task);
+  notifyChange();
+  return task;
+};
+
+const saveSong = async (song: Song) => {
   const sources = [song.audioUrl, ...(song.audioFallbackUrls || [])].filter(Boolean);
   if (!sources.length) throw new Error("This song has no downloadable audio source.");
 
@@ -72,6 +90,10 @@ export const removeDownloadedSong = async (song: Song) => {
   ]);
   removeSavedLyrics(song._id);
   write(read().filter((item) => item._id !== song._id));
+};
+
+export const removeAllDownloads = async () => {
+  for (const song of read()) await removeDownloadedSong(song);
 };
 
 const cachedResponse = async (songId: string, legacyUrl?: string) => {

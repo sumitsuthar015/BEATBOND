@@ -12,7 +12,7 @@ import {
 import { type Playlist, usePlaylistStore } from "@/stores/usePlaylistStore";
 import { usePlayerStore } from "@/stores/usePlayerStore";
 import { ShareToMessageDialog } from "@/components/ShareToMessageDialog";
-import { downloadSongForOffline, removeDownloadedSong } from "@/lib/offlineDownloads";
+import { downloadSongForOffline, isDownloaded, removeDownloadedSong } from "@/lib/offlineDownloads";
 import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
 import {
@@ -62,16 +62,31 @@ export const PlaylistCard = ({ playlist, className }: PlaylistCardProps) => {
   // Download handler
   const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    const isDownloaded = Boolean(playlist.downloadedAt);
+    const playlistDownloaded = Boolean(playlist.downloadedAt);
+    const toastId = `playlist-download-${playlist.id}`;
     try {
-      if (!isDownloaded) {
-        await Promise.all(playlist.songs.map(downloadSongForOffline));
-      } else {
-        await Promise.all(playlist.songs.map(removeDownloadedSong));
+      if (playlistDownloaded) {
+        for (const song of playlist.songs) await removeDownloadedSong(song);
+        await setPlaylistDownloaded(playlist.id, false);
+        toast.success(`Removed "${playlist.name}" from downloads`);
+        return;
       }
-      await setPlaylistDownloaded(playlist.id, !isDownloaded);
+      const total = playlist.songs.length;
+      let failed = 0;
+      for (const [index, song] of playlist.songs.entries()) {
+        toast.loading(`Downloading "${playlist.name}" · ${index + 1} of ${total}`, { id: toastId });
+        if (isDownloaded(song._id)) continue;
+        try {
+          await downloadSongForOffline(song);
+        } catch {
+          failed += 1;
+        }
+      }
+      await setPlaylistDownloaded(playlist.id, true);
+      if (failed) toast.error(`Saved ${total - failed} of ${total} songs. Try again for the rest.`, { id: toastId });
+      else toast.success(`"${playlist.name}" is ready to play offline`, { id: toastId });
     } catch (error: any) {
-      toast.error(error?.message || "Could not update playlist download");
+      toast.error(error?.message || "Could not update playlist download", { id: toastId });
     }
   };
 

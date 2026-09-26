@@ -3,8 +3,7 @@ import { Song } from "@/types";
 import { usePlayerStore } from "@/stores/usePlayerStore";
 import { useMusicStore } from "@/stores/useMusicStore";
 import { usePlaylistStore } from "@/stores/usePlaylistStore";
-import { downloadSongForOffline } from "@/lib/offlineDownloads";
-import toast from "react-hot-toast";
+import { useSongDownload } from "@/hooks/useOfflineDownloads";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,6 +31,8 @@ import {
   ListPlus,
   Heart,
   Download,
+  CircleCheck,
+  Loader2,
   Plus,
   Play,
   Share2,
@@ -68,7 +69,7 @@ export const SongOptionsMenu: React.FC<SongOptionsMenuProps> = ({
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
-  const [isDownloading, setIsDownloading] = useState(false);
+  const download = useSongDownload(song);
 
   const isLiked = Boolean(
     songs.find((s) => s._id === song._id)?.isLiked || song.isLiked
@@ -107,27 +108,9 @@ export const SongOptionsMenu: React.FC<SongOptionsMenuProps> = ({
     }
   };
 
-  const handleDownload = async (e: React.MouseEvent) => {
+  const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isDownloading) return;
-    if (!song.audioUrl) {
-      toast.error("No audio file available for this song");
-      return;
-    }
-
-    setIsDownloading(true);
-    const toastId = "song-download";
-    toast.loading(`Preparing download for "${song.title}"...`, { id: toastId });
-
-    try {
-      await downloadSongForOffline(song);
-      toast.success(`Saved "${song.title}" for offline play`, { id: toastId });
-    } catch (err) {
-      console.error("Download error:", err);
-      toast.error("Couldn't download this song", { id: toastId });
-    } finally {
-      setIsDownloading(false);
-    }
+    void download.toggle();
   };
 
   return (
@@ -223,14 +206,20 @@ export const SongOptionsMenu: React.FC<SongOptionsMenuProps> = ({
             {isLiked ? "Remove from Liked" : "Add to Liked Songs"}
           </DropdownMenuItem>
 
-          {/* Download */}
+          {/* Download: shows whether this song is already saved for offline */}
           <DropdownMenuItem
             onClick={handleDownload}
-            disabled={isDownloading}
+            disabled={download.downloading}
             className="flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 focus:bg-white/10 focus:text-white rounded-lg cursor-pointer"
           >
-            <Download className="size-4 text-blue-400" />
-            {isDownloading ? "Downloading..." : "Download"}
+            {download.downloading ? (
+              <Loader2 className="size-4 animate-spin text-blue-400" />
+            ) : download.downloaded ? (
+              <CircleCheck className="size-4 text-green-500" />
+            ) : (
+              <Download className="size-4 text-blue-400" />
+            )}
+            {download.downloading ? "Downloading…" : download.downloaded ? "Remove download" : "Download"}
           </DropdownMenuItem>
 
           {/* Share */}

@@ -40,6 +40,9 @@ export const getSignals = (userId: string): PlaybackSignal[] => {
 
 /** Fetches provider-backed recommendations through BeatBond's backend, never
  * exposing external-provider details to the player UI. */
+/** Forgets the skip and full-listen signals recommendations learn from. */
+export const clearSignals = (userId: string) => localStorage.removeItem(signalKey(userId));
+
 export const fetchRecommendations = async (song: Song, limit = 10): Promise<Song[]> => {
   const { data } = await axiosInstance.get(`/music/recommendations/${encodeURIComponent(song._id)}`, {
     params: {

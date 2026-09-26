@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useUser } from "@clerk/clerk-react";
-import { Check, ChevronLeft, ChevronRight, RotateCcw, Sparkles } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Check, ChevronLeft, ChevronRight, RotateCcw, Sparkles, UserRound } from "lucide-react";
 import { axiosInstance } from "@/lib/axios";
 import { avatarUrl, type AvatarConfig } from "@/lib/avatar";
 import { Button } from "@/components/ui/button";
+import { usePhotoActions } from "@/components/profile/usePhotoActions";
+import { useMyProfile } from "@/hooks/useMyProfile";
 import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
 
@@ -41,6 +44,13 @@ const AvatarCreatorPage = () => {
   const [sectionIndex, setSectionIndex] = useState(0);
   const [activeKey, setActiveKey] = useState("skinColor");
   const [saving, setSaving] = useState(false);
+  const queryClient = useQueryClient();
+  const { data: profile } = useMyProfile();
+  const { setAvatarAsPhoto, chooseSource } = usePhotoActions();
+  const avatarIsPhoto = profile?.photo?.source === "avatar";
+  // Starts as whatever the profile uses now; the choice applies when saving.
+  const [useAsPhotoChoice, setUseAsPhotoChoice] = useState<boolean | null>(null);
+  const useAsPhoto = useAsPhotoChoice ?? avatarIsPhoto;
 
   useEffect(() => {
     axiosInstance.get("/avatars/me").then(({ data }) => data && setConfig({ gender: data.gender, options: { ...defaultConfig.options, ...data.options } })).catch(() => undefined);
@@ -62,7 +72,22 @@ const AvatarCreatorPage = () => {
   });
   const save = async () => {
     setSaving(true);
-    try { await axiosInstance.put("/avatars/me", config); toast.success("Your Bitmoji-style avatar is saved"); }
+    try {
+      await axiosInstance.put("/avatars/me", config);
+      queryClient.setQueryData(["myAvatar"], config);
+      if (useAsPhoto) {
+        // Keeps the profile photo matching the avatar after every change.
+        const updated = await setAvatarAsPhoto(config, null);
+        toast.success(updated ? (avatarIsPhoto ? "Avatar and profile photo updated" : "Your avatar is now your profile photo") : "Avatar saved");
+      } else if (avatarIsPhoto) {
+        // Turned off: go back to the photo they had before.
+        const photo = profile?.photo;
+        await chooseSource(photo?.uploadedUrl ? "upload" : photo?.providerUrl ? "provider" : "none");
+      } else {
+        toast.success("Avatar saved");
+      }
+      setUseAsPhotoChoice(null);
+    }
     catch { toast.error("Could not save your avatar"); }
     finally { setSaving(false); }
   };
@@ -78,6 +103,19 @@ const AvatarCreatorPage = () => {
       <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(#fff_1px,transparent_1px)] [background-size:22px_22px]" />
       <div className="absolute left-4 top-4 flex gap-2"><button type="button" onClick={() => setConfig(defaultConfig)} className="grid size-9 place-items-center rounded-full bg-black/25 text-white backdrop-blur hover:bg-black/40" aria-label="Reset avatar"><RotateCcw className="size-4" /></button><span className="inline-flex items-center gap-1 rounded-full bg-black/25 px-3 text-xs font-medium text-white backdrop-blur"><Sparkles className="size-3.5 text-yellow-300" /> Live preview</span></div>
       <div className="relative h-[min(52vw,350px)] min-h-[225px] w-[min(52vw,350px)] min-w-[225px] overflow-hidden rounded-[2.25rem] border-4 border-white/80 bg-white/20 shadow-2xl"><img src={image} alt="Your avatar preview" className="h-full w-full object-cover" /></div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={useAsPhoto}
+        onClick={() => setUseAsPhotoChoice(!useAsPhoto)}
+        className={cn(
+          "absolute right-4 top-4 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold backdrop-blur transition-colors",
+          useAsPhoto ? "bg-primary text-primary-foreground" : "bg-black/25 text-white hover:bg-black/40",
+        )}
+      >
+        {useAsPhoto ? <Check className="size-3.5" /> : <UserRound className="size-3.5" />}
+        {useAsPhoto ? "Profile photo" : "Use as profile photo"}
+      </button>
       <div className="absolute bottom-4 rounded-full bg-black/25 px-3 py-1 text-xs font-medium text-white backdrop-blur">{config.gender === "female" ? "She / her" : "He / him"}</div>
     </section>
 

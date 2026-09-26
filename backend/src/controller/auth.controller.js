@@ -1,4 +1,5 @@
 import { User } from "../models/user.model.js";
+import { photoStateOf, photoUpdate } from "../services/profile.service.js";
 
 export const authCallback = async (req, res) => {
 	try {
@@ -19,6 +20,8 @@ export const authCallback = async (req, res) => {
 				username: generatedUsername,
 				fullName: `${first_name || ''} ${last_name || ''}`.trim(),
 				imageUrl: image_url || '',
+				photoSource: 'provider',
+				providerImageUrl: image_url || '',
 				// Presence is set exclusively by an authenticated Socket.IO connection.
 				isOnline: false
 			};
@@ -33,8 +36,13 @@ export const authCallback = async (req, res) => {
 			// Update existing user's information
 			try {
 				user.email = email_addresses || user.email;
-				user.fullName = `${first_name || ''} ${last_name || ''}`.trim() || user.fullName;
-				user.imageUrl = image_url || user.imageUrl;
+				// The name and photo edited in BeatBond win over the sign-in
+				// account's; only fill them in when they're missing.
+				user.fullName = user.fullName || `${first_name || ''} ${last_name || ''}`.trim();
+				// Keep the Google photo up to date, but only show it if it's the
+				// picture this person chose.
+				const photo = photoStateOf(user);
+				user.set(photoUpdate({ ...photo, providerImageUrl: image_url || photo.providerImageUrl }));
 				// Do not mark a user online during an HTTP auth callback: they may have
 				// closed the browser or failed to establish a socket connection.
 				await user.save();

@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Download, Heart, Library, ListMusic, Music2 } from "lucide-react";
+import { Heart, Library, Music2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useUser } from "@clerk/clerk-react";
 import { useMusicStore } from "@/stores/useMusicStore";
 import { usePlaylistStore } from "@/stores/usePlaylistStore";
 import { useSavedAlbumsStore } from "@/stores/useSavedAlbumsStore";
 import { useOfflineDownloads } from "@/hooks/useOfflineDownloads";
+import { DownloadsCover } from "@/components/DownloadsCover";
 import { fetchSavedArtists, LIKED_ARTISTS_UPDATED_EVENT, savedArtistsFromSocket, type SavedArtist } from "@/lib/savedArtists";
 import { useChatStore } from "@/stores/useChatStore";
 
@@ -44,7 +45,7 @@ const LibraryPage = () => {
           <div className="mb-3 flex items-center gap-2"><Library className="size-5 text-primary" /><h2 className="text-xl font-bold">Your playlists</h2></div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             <button onClick={() => navigate("/downloads")} className="min-w-0 rounded-2xl border bg-card p-2.5 text-left transition-colors hover:bg-secondary/50">
-              <div className="relative grid aspect-square place-items-center overflow-hidden rounded-xl bg-gradient-to-br from-primary/70 via-primary/25 to-secondary"><Download className="size-10 text-primary-foreground" /><span className="absolute bottom-2 right-2 grid size-9 place-items-center rounded-full bg-background/90 text-primary"><ListMusic className="size-4" /></span></div>
+              <DownloadsCover songs={downloads} className="aspect-square w-full rounded-xl" />
               <p className="mt-2 truncate text-sm font-semibold">Downloads</p><p className="text-xs text-muted-foreground">{downloads.length} {downloads.length === 1 ? "song" : "songs"}</p>
             </button>
             {playlists.filter((playlist) => !playlist.downloadedAt).map((playlist) => <PlaylistCard key={playlist.id} playlist={playlist} />)}

@@ -5,6 +5,7 @@ import { recordListeningEvent } from "@/lib/listeningHistory";
 import { fetchRecommendations, rankRecommendations, recordPlaybackOutcome } from "@/lib/recommendations";
 import { isVerifiedValidSong } from "@/lib/songUtils";
 import { isDownloaded } from "@/lib/offlineDownloads";
+import { usePreferencesStore } from "./usePreferencesStore";
 import toast from "react-hot-toast";
 
 export type RepeatMode = "off" | "one" | "all";
@@ -309,7 +310,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
     autoQueueRelatedOrTrending: async (): Promise<boolean> => {
       const { currentSong, queue, playedSongs } = get();
       // New suggestions need the internet; offline the queue plays downloads only.
-      if (!currentSong || !navigator.onLine) return false;
+      // With autoplay turned off in settings, playback stops when the queue ends.
+      if (!currentSong || !navigator.onLine || !usePreferencesStore.getState().autoplay) return false;
 
       let relatedSongs: Song[] = [];
       const primaryArtist = currentSong?.artist?.split(/,|&| feat\.? /i)[0]?.trim();

@@ -2,7 +2,8 @@ import { FriendRequest } from "../models/friendRequest.model.js";
 import { User } from "../models/user.model.js";
 import { Notification } from "../models/notification.model.js";
 import { Message } from "../models/message.model.js";
-import { isUserOnline } from "../lib/socket.js";
+import { isUserOnline, refreshActivityAudience } from "../lib/socket.js";
+import { canSeePresence } from "../services/chat.service.js";
 
 export const sendFriendRequest = async (req, res, next) => {
   try {
@@ -25,6 +26,10 @@ export const sendFriendRequest = async (req, res, next) => {
 
     const sender = await User.findOne({ clerkId: senderId });
     const senderName = sender?.fullName || 'Someone';
+
+    if (receiver.blockedUsers?.includes(senderId) || sender?.blockedUsers?.includes(receiverId)) {
+      return res.status(403).json({ error: "You can't send a friend request to this user" });
+    }
 
     // Check if request already exists
     const existingRequest = await FriendRequest.findOne({
@@ -186,41 +191,49 @@ export const getFriends = async (req, res, next) => {
       ),
     ])];
 
-    const friends = await User.find({
-      clerkId: { $in: friendIds }
-    }).select('clerkId fullName username imageUrl email isOnline lastSeen');
+    // Public profile fields only (never emails). Online status and last seen
+    // follow both people's "show online status" choice.
+    const [friends, viewer] = await Promise.all([
+      User.find({ clerkId: { $in: friendIds } }).select("clerkId fullName username imageUrl lastSeen showActivityStatus").lean(),
+      User.findOne({ clerkId: viewerId }).select("clerkId showActivityStatus mutedChats").lean(),
+    ]);
+    const present = ({ showActivityStatus, lastSeen, ...friend }) => {
+      const shown = canSeePresence({ clerkId: friend.clerkId, showActivityStatus }, viewer ?? { clerkId: viewerId });
+      return { ...friend, isOnline: shown && isUserOnline(friend.clerkId), lastSeen: shown ? lastSeen : undefined };
+    };
 
     // A public profile's connections should not expose the viewer's private
     // message previews or unread counts.
     if (userId !== viewerId) {
-      return res.status(200).json(friends.map((friend) => ({
-        ...friend.toObject(),
-        isOnline: isUserOnline(friend.clerkId),
-      })));
+      return res.status(200).json(friends.map(present));
     }
 
     const [latestMessages, unreadMessages] = await Promise.all([
       Message.aggregate([
-        { $match: { $or: [{ senderId: userId, receiverId: { $in: friendIds } }, { receiverId: userId, senderId: { $in: friendIds } }] } },
+        { $match: { $or: [{ senderId: userId, receiverId: { $in: friendIds } }, { receiverId: userId, senderId: { $in: friendIds } }], deletedFor: { $ne: userId } } },
         { $addFields: { conversationUserId: { $cond: [{ $eq: ["$senderId", userId] }, "$receiverId", "$senderId"] } } },
         { $sort: { createdAt: -1, _id: -1 } },
-        { $group: { _id: "$conversationUserId", content: { $first: "$content" }, createdAt: { $first: "$createdAt" } } },
+        { $group: { _id: "$conversationUserId", content: { $first: "$content" }, createdAt: { $first: "$createdAt" }, senderId: { $first: "$senderId" }, sharedTitle: { $first: "$sharedContent.title" } } },
       ]),
       Message.aggregate([
-        { $match: { receiverId: userId, senderId: { $in: friendIds }, status: { $ne: "read" } } },
+        { $match: { receiverId: userId, senderId: { $in: friendIds }, readAt: null, deletedFor: { $ne: userId } } },
         { $group: { _id: "$senderId", unreadCount: { $sum: 1 } } },
       ]),
     ]);
     const latestByFriend = new Map(latestMessages.map((message) => [message._id, message]));
     const unreadByFriend = new Map(unreadMessages.map((message) => [message._id, message.unreadCount]));
 
-    res.status(200).json(friends.map((friend) => ({
-      ...friend.toObject(),
-      isOnline: isUserOnline(friend.clerkId),
-      lastMessage: latestByFriend.get(friend.clerkId)?.content,
-      lastMessageTime: latestByFriend.get(friend.clerkId)?.createdAt,
-      unreadCount: unreadByFriend.get(friend.clerkId) ?? 0,
-    })).sort((a, b) => new Date(b.lastMessageTime || 0).getTime() - new Date(a.lastMessageTime || 0).getTime()));
+    res.status(200).json(friends.map((friend) => {
+      const latest = latestByFriend.get(friend.clerkId);
+      return {
+        ...present(friend),
+        lastMessage: latest?.content || (latest?.sharedTitle ? `🎵 ${latest.sharedTitle}` : undefined),
+        lastMessageTime: latest?.createdAt,
+        lastMessageFromMe: latest ? latest.senderId === userId : undefined,
+        unreadCount: unreadByFriend.get(friend.clerkId) ?? 0,
+        isMuted: Boolean(viewer?.mutedChats?.includes(friend.clerkId)),
+      };
+    }).sort((a, b) => new Date(b.lastMessageTime || 0).getTime() - new Date(a.lastMessageTime || 0).getTime()));
   } catch (error) {
     console.error("Get friends error:", error);
     next(error);
@@ -335,6 +348,8 @@ export const removeFriend = async (req, res, next) => {
       { clerkId: friendId },
       { $pull: { friends: userId } }
     );
+    // Friends-only listening stops reaching each other straight away.
+    await Promise.all([refreshActivityAudience(userId), refreshActivityAudience(friendId)]);
 
     res.status(200).json({ success: true, message: "Friend removed successfully" });
   } catch (error) {

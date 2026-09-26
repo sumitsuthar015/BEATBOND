@@ -12,6 +12,7 @@ import { beginBackNavigation } from "@/lib/routeHistory";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/useChatStore";
 import { useLocationStore } from "@/stores/useLocationStore";
+import { useMyPicture } from "@/hooks/useMyProfile";
 import { PersonCard, ShareCard } from "./components/MapCards";
 import PlaceSearch from "./components/PlaceSearch";
 import { circlePolygon, clusterElement, glide, personElement, personRenderKey, placeElement, renderCluster, renderPerson, renderSelf, selfElement } from "./mapMarkers";
@@ -65,6 +66,7 @@ const MapPage = () => {
   const fix = useLocationStore((state) => state.fix);
   const permission = useLocationStore((state) => state.permission);
   const isLocating = useLocationStore((state) => state.isLocating);
+  const myPicture = useMyPicture();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -251,7 +253,7 @@ const MapPage = () => {
     if (!map || !fix) return;
     const target = { lat: fix.lat, lng: fix.lng };
     if (!selfRef.current) {
-      selfRef.current = new mapboxgl.Marker({ element: selfElement(user?.imageUrl, user?.firstName ?? user?.fullName ?? "") })
+      selfRef.current = new mapboxgl.Marker({ element: selfElement(myPicture, user?.firstName ?? user?.fullName ?? "") })
         .setLngLat([fix.lng, fix.lat])
         .addTo(map);
     } else {
@@ -272,8 +274,8 @@ const MapPage = () => {
 
   useEffect(() => {
     const element = selfRef.current?.getElement();
-    if (element) renderSelf(element, user?.imageUrl, user?.firstName ?? user?.fullName ?? "");
-  }, [user?.imageUrl, user?.firstName, user?.fullName]);
+    if (element) renderSelf(element, myPicture, user?.firstName ?? user?.fullName ?? "");
+  }, [myPicture, user?.firstName, user?.fullName]);
 
   // ---- People ----
   const loadPeople = useCallback(async () => {

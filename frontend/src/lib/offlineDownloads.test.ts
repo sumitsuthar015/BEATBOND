@@ -3,7 +3,7 @@ import type { Song } from "@/types";
 
 vi.mock("@/lib/lyrics", () => ({ saveLyricsForOffline: vi.fn(async () => undefined), removeSavedLyrics: vi.fn() }));
 
-const { downloadSongForOffline, getDownloadedSongs, getOfflineAudioUrl, isDownloaded, removeDownloadedSong } =
+const { downloadSongForOffline, getDownloadedSongs, getOfflineAudioUrl, isDownloaded, isDownloading, removeAllDownloads, removeDownloadedSong } =
   await import("@/lib/offlineDownloads");
 
 const song: Song = {
@@ -89,5 +89,29 @@ describe("offline downloads", () => {
 
     expect(isDownloaded("tum-hi-ho")).toBe(false);
     expect(await getOfflineAudioUrl(song)).toBeNull();
+  });
+
+  it("a second tap while downloading reuses the running download", async () => {
+    setUpBrowser({ "https://cdn.test/tum_320.mp4": 3200 });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const first = downloadSongForOffline(song);
+    const second = downloadSongForOffline(song);
+    expect(second).toBe(first);
+    expect(isDownloading("tum-hi-ho")).toBe(true);
+    await first;
+
+    expect(isDownloading("tum-hi-ho")).toBe(false);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("removes every download at once", async () => {
+    setUpBrowser({ "https://cdn.test/tum_320.mp4": 3200, "https://cdn.test/other.mp4": 100 });
+    await downloadSongForOffline(song);
+    await downloadSongForOffline({ ...song, _id: "other", audioUrl: "https://cdn.test/other.mp4", audioFallbackUrls: [] });
+
+    await removeAllDownloads();
+
+    expect(getDownloadedSongs()).toEqual([]);
   });
 });

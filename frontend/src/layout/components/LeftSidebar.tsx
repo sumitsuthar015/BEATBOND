@@ -141,7 +141,7 @@ const LeftSidebar = ({ onNavigate }: LeftSidebarProps) => {
             >
               <Avatar className="size-10 border border-border">
                 <AvatarImage
-                  src={profile?.imageUrl || user?.imageUrl}
+                  src={profile ? profile.imageUrl : user?.imageUrl}
                   alt={profile?.fullName || user?.fullName || "Your profile"}
                 />
                 <AvatarFallback>{user?.firstName?.[0] || "U"}</AvatarFallback>

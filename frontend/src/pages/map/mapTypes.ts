@@ -1,4 +1,4 @@
-import { avatarUrl, type AvatarConfig } from "@/lib/avatar";
+import type { AvatarConfig } from "@/lib/avatar";
 
 export type LiveLocation = {
   userId: string;
@@ -34,13 +34,9 @@ export const isLiveNow = (person: LiveLocation, now: number) =>
 
 export const displayName = (person: LiveLocation) => person.user?.fullName?.trim() || person.user?.username || "BeatBond listener";
 
-// Only a saved/customized avatar replaces the normal profile photo. This
-// keeps profile photos visible for users who have never created an avatar.
-export const personImage = (person: LiveLocation) => {
-  const hasCustomAvatar = Boolean(person.avatar?.options && Object.keys(person.avatar.options).length > 0);
-  const profileImage = typeof person.user?.imageUrl === "string" ? person.user.imageUrl.trim() : "";
-  return hasCustomAvatar ? avatarUrl(person.avatar, person.userId) : profileImage || undefined;
-};
+// The picture each person chose for their profile (photo or avatar); none
+// shows their initial instead.
+export const personImage = (person: LiveLocation) => person.user?.imageUrl?.trim() || undefined;
 
 /** "Playing Song by Artist" → "Song by Artist". */
 export const nowPlaying = (activity: string | null | undefined) => activity?.replace(/^playing\s+/i, "").trim() || null;

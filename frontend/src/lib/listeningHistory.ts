@@ -17,6 +17,12 @@ export const readListeningHistory = (userId: string): ListeningEvent[] => {
   }
 };
 
+/** Forgets this device's copy of the history (the server copy is cleared separately). */
+export const clearLocalListeningHistory = (userId: string) => {
+  localStorage.removeItem(keyFor(userId));
+  window.dispatchEvent(new CustomEvent("beatbond:history-updated", { detail: userId }));
+};
+
 export const recordListeningEvent = (song: Song) => {
   const userId = localStorage.getItem("beatbond:active-listener");
   if (!userId || !song?._id) return;

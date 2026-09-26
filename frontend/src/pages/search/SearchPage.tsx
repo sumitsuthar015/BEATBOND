@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import PlayButton from "@/pages/home/components/PlayButton";
 import { useDebounce } from "@/hooks/useDebounce";
+import { useMyPicture } from "@/hooks/useMyProfile";
 import { useSearchStore } from "@/stores/useSearchStore";
 import { cn } from "@/lib/utils";
 import type { Song } from "@/types";
@@ -65,6 +66,7 @@ const SongRow = ({ song }: { song: Song }) => (
 
 const SearchPage = () => {
   const { user } = useUser();
+  const myPicture = useMyPicture();
   const navigate = useNavigate();
   const [urlSearchParams, setUrlSearchParams] = useSearchParams();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -202,7 +204,7 @@ const SearchPage = () => {
                 title="Profile"
               >
                 <Avatar className="size-8">
-                  <AvatarImage src={user?.imageUrl} alt={user?.fullName || "Profile"} />
+                  <AvatarImage src={myPicture} alt={user?.fullName || "Profile"} />
                   <AvatarFallback>{(user?.fullName || "U")[0]}</AvatarFallback>
                 </Avatar>
               </Link>

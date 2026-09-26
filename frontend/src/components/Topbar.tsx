@@ -248,7 +248,7 @@ const Topbar = ({ showInstall = false }: { showInstall?: boolean }) => {
               aria-label="My Profile"
             >
               <Avatar className="size-8 sm:size-9">
-                <AvatarImage src={profile?.imageUrl || user?.imageUrl} alt={profile?.fullName || user?.fullName || "Profile"} />
+                <AvatarImage src={profile ? profile.imageUrl : user?.imageUrl} alt={profile?.fullName || user?.fullName || "Profile"} />
                 <AvatarFallback>{(profile?.fullName || user?.fullName || "U")[0]}</AvatarFallback>
               </Avatar>
             </Link>

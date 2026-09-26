@@ -2,6 +2,8 @@ import { User } from "../models/user.model.js";
 import { UserLocation } from "../models/userLocation.model.js";
 import { Avatar } from "../models/avatar.model.js";
 import { emitLocationToFriends, isUserOnline } from "../lib/socket.js";
+import { canSeeLiveActivity } from "../services/privacy.service.js";
+import { canSeePresence } from "../services/chat.service.js";
 import {
   LAST_LOCATION_MAX_AGE_MS, areaNameFrom, createTtlCache, distanceMeters, isLiveLocation,
   parseAccuracy, parseNominatimResults, parsePhotonResults, roundCoordinate,
@@ -133,7 +135,7 @@ export const updateMyLocationVisibility = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
-const loadViewer = (viewerId) => User.findOne({ clerkId: viewerId }).select("friends blockedUsers").lean();
+const loadViewer = (viewerId) => User.findOne({ clerkId: viewerId }).select("clerkId friends blockedUsers showActivityStatus").lean();
 const lastLocationCutoff = () => new Date(Date.now() - LAST_LOCATION_MAX_AGE_MS);
 
 // Applies the visibility rules to raw location records. A viewer never sees
@@ -143,7 +145,7 @@ const presentLocations = async (viewerId, viewer, locations) => {
   const userIds = locations.map((location) => location.userId);
   if (!userIds.length) return [];
   const [users, avatars] = await Promise.all([
-    User.find({ clerkId: { $in: userIds } }).select("clerkId fullName username imageUrl currentActivity musicPrivacy blockedUsers").lean(),
+    User.find({ clerkId: { $in: userIds } }).select("clerkId fullName username imageUrl currentActivity friends blockedUsers musicPrivacy musicHiddenFrom showActivityStatus").lean(),
     Avatar.find({ userId: { $in: userIds } }).select("userId gender options").lean(),
   ]);
   const usersById = new Map(users.map((user) => [user.clerkId, user]));
@@ -158,7 +160,7 @@ const presentLocations = async (viewerId, viewer, locations) => {
     if (!user || user.blockedUsers?.includes(viewerId)) return [];
     const isFriend = friends.has(location.userId);
     if (location.visibility === "friends" && !isFriend) return [];
-    const canSeeActivity = user.musicPrivacy === "everyone" || (user.musicPrivacy === "friends" && isFriend);
+    const canSeeActivity = canSeeLiveActivity(user, viewerId);
     return [{
       userId: location.userId,
       latitude: location.latitude,
@@ -169,7 +171,7 @@ const presentLocations = async (viewerId, viewer, locations) => {
       // behind by a closed app shows as a last location instead.
       isLive: isLiveLocation(location, now),
       isFriend,
-      isOnline: isUserOnline(location.userId),
+      isOnline: canSeePresence(user, viewer ?? { clerkId: viewerId }) && isUserOnline(location.userId),
       avatar: avatarsByUserId.get(location.userId) || null,
       user: {
         fullName: user.fullName,
@@ -216,14 +218,17 @@ export const getFriendLocations = async (req, res, next) => {
     const friendIds = me?.friends ?? [];
     const [locations, friends, avatars] = await Promise.all([
       UserLocation.find({ userId: { $in: friendIds }, sharingEnabled: true }).lean(),
-      User.find({ clerkId: { $in: friendIds } }).select("clerkId fullName imageUrl lastSeen currentActivity musicPrivacy").lean(),
+      User.find({ clerkId: { $in: friendIds } }).select("clerkId fullName imageUrl lastSeen currentActivity friends blockedUsers musicPrivacy musicHiddenFrom").lean(),
       Avatar.find({ userId: { $in: friendIds } }).lean(),
     ]);
     const users = new Map(friends.map((friend) => [friend.clerkId, friend]));
     const avatarByUser = new Map(avatars.map((avatar) => [avatar.userId, avatar]));
     res.json(locations.map((location) => {
       const friend = users.get(location.userId);
-      const user = friend && { ...friend, currentActivity: friend.musicPrivacy === "none" ? null : friend.currentActivity };
+      const user = friend && {
+        clerkId: friend.clerkId, fullName: friend.fullName, imageUrl: friend.imageUrl, lastSeen: friend.lastSeen,
+        currentActivity: canSeeLiveActivity(friend, req.auth.userId) ? friend.currentActivity : null,
+      };
       return { ...location, user, avatar: avatarByUser.get(location.userId), isOnline: isUserOnline(location.userId) };
     }));
   } catch (error) { next(error); }

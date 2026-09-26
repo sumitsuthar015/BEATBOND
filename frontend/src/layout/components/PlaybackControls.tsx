@@ -19,6 +19,8 @@ import {
   Volume1,
   Plus,
   Download,
+  CircleCheck,
+  Loader2,
   ListVideo,
   ListMusic,
 } from "lucide-react";
@@ -33,7 +35,6 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { useCallback, useEffect, useState } from "react";
-import toast from "react-hot-toast";
 import { useMusicStore } from "@/stores/useMusicStore";
 import { usePlaylistStore } from "@/stores/usePlaylistStore";
 import {
@@ -46,7 +47,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SongDetailsModal } from "@/components/SongDetailsModal";
 import { LyricsPanel } from "./LyricsPanel";
-import { downloadSongForOffline } from "@/lib/offlineDownloads";
+import { useSongDownload } from "@/hooks/useOfflineDownloads";
 import { fetchLyricsForSong, lyricsAsPlainText } from "@/lib/lyrics";
 
 const formatTime = (seconds: number) => {
@@ -314,33 +315,16 @@ export const PlaybackControls = () => {
     void addSongToPlaylist(playlistId, currentSong);
   };
 
-  const [isDownloading, setIsDownloading] = useState(false);
-
-  const handleDownload = async () => {
-    if (!currentSong || isDownloading) return;
-
-    if (!currentSong.audioUrl) {
-      toast.error("No audio file available for this song");
-      return;
-    }
-
-    setIsDownloading(true);
-    const toastId = "song-download";
-    toast.loading("Preparing download...", { id: toastId });
-
-    try {
-      await downloadSongForOffline(currentSong);
-      toast.success("Saved to Library downloads", { id: toastId });
-    } catch (err) {
-      console.error("Download error:", err);
-      toast.error(
-        "Couldn't save this song for offline playback. The source may not allow downloads (CORS).",
-        { id: toastId }
-      );
-    } finally {
-      setIsDownloading(false);
-    }
-  };
+  // Shared with the song menus: shows saved / saving and toggles the download.
+  const download = useSongDownload(currentSong);
+  const isDownloading = download.downloading;
+  const handleDownload = () => void download.toggle();
+  const downloadLabel = download.downloading ? "Downloading…" : download.downloaded ? "Remove download" : "Download";
+  const downloadIcon = (className: string) => download.downloading
+    ? <Loader2 className={`${className} animate-spin`} />
+    : download.downloaded
+      ? <CircleCheck className={`${className} text-green-500`} />
+      : <Download className={className} />;
 
   if (!currentSong) {
     return (
@@ -400,8 +384,8 @@ export const PlaybackControls = () => {
                   disabled={isDownloading}
                   className="text-zinc-300 focus:text-white focus:bg-zinc-700 cursor-pointer"
                 >
-                  <Download className="w-4 h-4 mr-2" />
-                  {isDownloading ? "Downloading..." : "Download"}
+                  {downloadIcon("w-4 h-4 mr-2")}
+                  {downloadLabel}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => currentSong && addPlayNext(currentSong)}
@@ -623,9 +607,11 @@ export const PlaybackControls = () => {
                   handleDownload();
                 }}
                 disabled={isDownloading}
+                aria-label={downloadLabel}
+                title={downloadLabel}
                 className="text-zinc-400 hover:text-white transition-colors p-2 disabled:opacity-50"
               >
-                <Download className="w-4 h-4" />
+                {downloadIcon("w-4 h-4")}
               </button>
               <button
                 onClick={(e) => {
@@ -773,9 +759,10 @@ export const PlaybackControls = () => {
               onClick={handleDownload}
               disabled={isDownloading}
               className="text-zinc-400 hover:text-white transition-colors hover:scale-110 disabled:opacity-50"
-              title="Download"
+              title={downloadLabel}
+              aria-label={downloadLabel}
             >
-              <Download className="w-4 h-4" />
+              {downloadIcon("w-4 h-4")}
             </button>
 
             <DropdownMenu>
@@ -807,8 +794,8 @@ export const PlaybackControls = () => {
                   disabled={isDownloading}
                   className="text-zinc-300 focus:text-white focus:bg-zinc-700 cursor-pointer"
                 >
-                  <Download className="w-4 h-4 mr-2" />
-                  {isDownloading ? "Downloading..." : "Download"}
+                  {downloadIcon("w-4 h-4 mr-2")}
+                  {downloadLabel}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => currentSong && addPlayNext(currentSong)}

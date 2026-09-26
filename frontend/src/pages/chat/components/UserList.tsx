@@ -12,7 +12,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { AlertCircle, Search, UserMinus, Loader2, MessageCircle } from "lucide-react";
+import { AlertCircle, BellOff, Search, UserMinus, Loader2, MessageCircle } from "lucide-react";
 import { useState, useCallback, useEffect, memo } from "react";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -36,7 +36,9 @@ interface User {
   isOnline?: boolean;
   lastMessage?: string;
   lastMessageTime?: string;
+  lastMessageFromMe?: boolean;
   unreadCount?: number;
+  isMuted?: boolean;
 }
 
 interface UserListProps {
@@ -98,8 +100,9 @@ const UserItem = memo(
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-2">
-              <p className="font-medium truncate text-sm sm:text-base">
-                {nickname || user.fullName}
+              <p className="flex min-w-0 items-center gap-1.5 font-medium text-sm sm:text-base">
+                <span className="truncate">{nickname || user.fullName}</span>
+                {user.isMuted && <BellOff className="size-3.5 shrink-0 text-muted-foreground" aria-label="Muted" />}
               </p>
               {user.lastMessageTime && (
                 <span className="text-[10px] sm:text-xs text-muted-foreground flex-shrink-0">
@@ -109,6 +112,7 @@ const UserItem = memo(
             </div>
             {user.lastMessage && (
               <p className={cn("text-xs sm:text-sm truncate", user.unreadCount ? "font-medium text-foreground" : "text-muted-foreground")}>
+                {user.lastMessageFromMe && <span className="text-muted-foreground">You: </span>}
                 {user.lastMessage}
               </p>
             )}

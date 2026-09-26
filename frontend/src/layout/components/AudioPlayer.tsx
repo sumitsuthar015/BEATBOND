@@ -1,5 +1,7 @@
 import { usePlayerStore } from "@/stores/usePlayerStore";
 import { getOfflineAudioUrl, isDownloaded } from "@/lib/offlineDownloads";
+import { orderStreams } from "@/lib/streamQuality";
+import { usePreferencesStore } from "@/stores/usePreferencesStore";
 import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 
@@ -56,7 +58,10 @@ const AudioPlayer = () => {
 
   const sources = useMemo(() => {
     if (!currentSong?.audioUrl) return [];
-    return [offlineUrl, currentSong.audioUrl, ...(currentSong.audioFallbackUrls || [])]
+    // Streaming quality is read as a song starts, so changing it in settings
+    // never interrupts the song that is playing; it applies from the next one.
+    const network = orderStreams([currentSong.audioUrl, ...(currentSong.audioFallbackUrls || [])], usePreferencesStore.getState().streamQuality);
+    return [offlineUrl, ...network]
       .filter((value, index, list): value is string => Boolean(value) && list.indexOf(value) === index);
   }, [currentSong, offlineUrl]);
   const source = waitingForSavedCopy ? null : sources[sourceIndex] || null;

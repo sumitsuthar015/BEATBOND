@@ -40,7 +40,13 @@ const messageSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Message",
       default: null
-    }
+    },
+    // Set when the sender corrects the text (shown as "edited").
+    editedAt: { type: Date, default: null },
+    // One emoji per person.
+    reactions: [{ _id: false, userId: String, emoji: String }],
+    // People who deleted this message (or cleared the chat) only for themselves.
+    deletedFor: [{ type: String }],
   },
   { 
     timestamps: true 

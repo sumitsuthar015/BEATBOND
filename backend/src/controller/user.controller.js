@@ -3,9 +3,12 @@ import { Message } from "../models/message.model.js";
 import { ListeningActivity } from "../models/listeningActivity.model.js";
 import { FriendRequest } from "../models/friendRequest.model.js";
 import mongoose from "mongoose";
-import { isUserOnline } from "../lib/socket.js";
+import { emitToUsers, isUserOnline, refreshActivityAudience } from "../lib/socket.js";
+import { LISTENING_LEVELS, PRIVACY_FIELDS, canSeeListeningHistory, canSeeLiveActivity } from "../services/privacy.service.js";
+import { canSeePresence, statusForViewer } from "../services/chat.service.js";
 import cloudinary from "../lib/cloudinary.js";
 import fs from "fs/promises";
+import { PHOTO_SOURCES, escapeRegex, photoSourceAvailable, photoStateOf, photoUpdate, summarizeListening, validateProfileUpdate } from "../services/profile.service.js";
 
 export const saveListeningActivity = async (req, res, next) => {
 	try {
@@ -43,7 +46,11 @@ export const getListeningHistory = async (req, res, next) => {
 export const getAllUsers = async (req, res, next) => {
 	try {
 		const currentUserId = req.auth.userId;
-		const users = await User.find({ clerkId: { $ne: currentUserId } }).lean();
+		const me = await User.findOne({ clerkId: currentUserId }).select("blockedUsers").lean();
+		// Public profile fields only: never emails, activity, friends or blocks.
+		const users = await User.find({ clerkId: { $nin: [currentUserId, ...(me?.blockedUsers ?? [])] }, blockedUsers: { $ne: currentUserId } })
+			.select("clerkId fullName username imageUrl bio")
+			.lean();
 		res.status(200).json(users.map((user) => ({ ...user, isOnline: isUserOnline(user.clerkId) })));
 	} catch (error) {
 		next(error);
@@ -61,19 +68,19 @@ export const getMessages = async (req, res, next) => {
 		const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
 		const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
 
-		const totalMessages = await Message.countDocuments({
+		const conversation = {
 			$or: [
 				{ senderId: userId, receiverId: myId },
 				{ senderId: myId, receiverId: userId },
 			],
-		});
+			deletedFor: { $ne: myId },
+		};
+		const [totalMessages, viewer] = await Promise.all([
+			Message.countDocuments(conversation),
+			User.findOne({ clerkId: myId }).select("clerkId readReceipts").lean(),
+		]);
 
-		const messages = await Message.find({
-			$or: [
-				{ senderId: userId, receiverId: myId },
-				{ senderId: myId, receiverId: userId },
-			],
-		})
+		const messages = await Message.find(conversation)
 			.sort({ createdAt: -1 })
 			.skip((page - 1) * limit)
 			.limit(limit)
@@ -106,7 +113,7 @@ export const getMessages = async (req, res, next) => {
 		}
 
 		res.status(200).json({
-			messages: reversedMessages,
+			messages: reversedMessages.map((msg) => ({ ...msg, status: statusForViewer(msg, viewer ?? { clerkId: myId }), deletedFor: undefined })),
 			nextPage: hasNextPage ? page + 1 : undefined,
 			totalPages: Math.ceil(totalMessages / limit),
 		});
@@ -125,6 +132,7 @@ export const getSharedMessages = async (req, res, next) => {
 				{ senderId: userId, receiverId: myId },
 			],
 			"sharedContent.type": "song",
+			deletedFor: { $ne: myId },
 		}).sort({ createdAt: -1 }).lean();
 		res.status(200).json(messages);
 	} catch (error) {
@@ -136,13 +144,13 @@ export const clearConversation = async (req, res, next) => {
 	try {
 		const myId = req.auth.userId;
 		const { userId } = req.params;
-		const result = await Message.deleteMany({
+		const result = await Message.updateMany({
 			$or: [
 				{ senderId: myId, receiverId: userId },
 				{ senderId: userId, receiverId: myId },
 			],
-		});
-		res.status(200).json({ success: true, deletedCount: result.deletedCount });
+		}, { $addToSet: { deletedFor: myId } });
+		res.status(200).json({ success: true, clearedCount: result.modifiedCount });
 	} catch (error) {
 		next(error);
 	}
@@ -150,40 +158,34 @@ export const clearConversation = async (req, res, next) => {
 
 import { clerkClient } from "@clerk/express";
 
+// Adds people who signed up with Clerk but never reached the app's sign-in
+// callback. Existing accounts are left alone: their name, username and
+// photo are managed in BeatBond.
 export const syncClerkUsersToDatabase = async () => {
+	let clerkUsers = [];
 	try {
 		const clerkUsersResponse = await clerkClient.users.getUserList({ limit: 100 });
-		const clerkUsers = clerkUsersResponse?.data || (Array.isArray(clerkUsersResponse) ? clerkUsersResponse : []);
-		if (!clerkUsers.length) return;
-
-		for (const clerkUser of clerkUsers) {
-			const email = clerkUser.emailAddresses?.[0]?.emailAddress || "";
-			const username = clerkUser.username || (email ? email.split("@")[0] : `user_${clerkUser.id.slice(-6)}`);
-			const fullName = `${clerkUser.firstName || ""} ${clerkUser.lastName || ""}`.trim() || username;
-			const imageUrl = clerkUser.imageUrl || "";
-
-			await User.findOneAndUpdate(
-				{ clerkId: clerkUser.id },
-				{
-					$setOnInsert: {
-						clerkId: clerkUser.id,
-						email,
-						username,
-						fullName,
-						imageUrl,
-						isOnline: false,
-					},
-					$set: {
-						imageUrl,
-						fullName: fullName || username,
-						username,
-					}
-				},
-				{ upsert: true, new: true }
-			);
-		}
+		clerkUsers = clerkUsersResponse?.data || (Array.isArray(clerkUsersResponse) ? clerkUsersResponse : []);
 	} catch (error) {
 		console.error("Error syncing Clerk users to DB:", error.message);
+		return;
+	}
+
+	for (const clerkUser of clerkUsers) {
+		const email = clerkUser.emailAddresses?.[0]?.emailAddress || "";
+		const username = clerkUser.username || (email ? email.split("@")[0] : `user_${clerkUser.id.slice(-6)}`);
+		const fullName = `${clerkUser.firstName || ""} ${clerkUser.lastName || ""}`.trim() || username;
+		const imageUrl = clerkUser.imageUrl || "";
+		try {
+			await User.updateOne(
+				{ clerkId: clerkUser.id },
+				{ $setOnInsert: { clerkId: clerkUser.id, email, username, fullName, imageUrl, photoSource: "provider", providerImageUrl: imageUrl, isOnline: false } },
+				{ upsert: true },
+			);
+		} catch (error) {
+			// One account (e.g. a username already taken) must not stop the rest.
+			console.error(`Could not sync Clerk user ${clerkUser.id}:`, error.message);
+		}
 	}
 };
 
@@ -199,26 +201,28 @@ export const searchUsers = async (req, res, next) => {
 		await syncClerkUsersToDatabase();
 
 		const queryStr = q.trim();
+		const me = await User.findOne({ clerkId: currentUserId }).select("clerkId blockedUsers showActivityStatus").lean();
 		const escaped = queryStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 		const searchRegex = new RegExp(escaped, 'i');
 
 		const users = await User.find({
-			clerkId: { $ne: currentUserId },
+			clerkId: { $nin: [currentUserId, ...(me?.blockedUsers ?? [])] },
+			blockedUsers: { $ne: currentUserId },
 			$or: [
 				{ fullName: searchRegex },
 				{ username: searchRegex },
 				{ email: searchRegex }
 			]
 		})
-		.select('clerkId fullName username imageUrl bio isOnline friends')
+		.select('clerkId fullName username imageUrl bio friends showActivityStatus')
 		.limit(30)
 		.lean();
 
-		const formattedUsers = users.map((user) => ({
+		const formattedUsers = users.map(({ showActivityStatus, ...user }) => ({
 			...user,
 			fullName: user.fullName || user.username || "Beatbond User",
 			imageUrl: user.imageUrl || "/default-avatar.png",
-			isOnline: isUserOnline(user.clerkId),
+			isOnline: canSeePresence({ clerkId: user.clerkId, showActivityStatus }, me ?? { clerkId: currentUserId }) && isUserOnline(user.clerkId),
 			friendsCount: user.friends?.length || 0,
 		}));
 
@@ -239,9 +243,10 @@ export const getSuggestedUsers = async (req, res, next) => {
 		const friendIds = currentUser?.friends || [];
 
 		const suggestedUsers = await User.find({
-			clerkId: { $nin: [currentUserId, ...friendIds] },
+			clerkId: { $nin: [currentUserId, ...friendIds, ...(currentUser?.blockedUsers ?? [])] },
+			blockedUsers: { $ne: currentUserId },
 		})
-			.select('clerkId fullName username imageUrl bio isOnline friends')
+			.select('clerkId fullName username imageUrl bio friends showActivityStatus')
 			.limit(15)
 			.sort({ createdAt: -1 })
 			.lean();
@@ -257,7 +262,7 @@ export const getSuggestedUsers = async (req, res, next) => {
 				username: user.username,
 				imageUrl: user.imageUrl || "/default-avatar.png",
 				bio: user.bio || "",
-				isOnline: isUserOnline(user.clerkId),
+				isOnline: canSeePresence(user, currentUser ?? { clerkId: currentUserId }) && isUserOnline(user.clerkId),
 				mutualFriends,
 				friendsCount: user.friends?.length || 0,
 			};
@@ -273,73 +278,110 @@ export const getSuggestedUsers = async (req, res, next) => {
 export const updateUserProfile = async (req, res, next) => {
 	try {
 		const { clerkId } = req.params;
-		const currentUserId = req.auth.userId;
-
-		if (currentUserId !== clerkId) {
+		if (req.auth.userId !== clerkId) {
 			return res.status(403).json({ message: "You can only update your own profile" });
 		}
 
-		const { fullName, username, bio, imageUrl, email, location, website } = req.body;
+		const { updates, error } = validateProfileUpdate(req.body);
+		if (error) return res.status(400).json({ message: error });
 
-		const user = await User.findOne({ clerkId });
-		if (!user) {
-			return res.status(404).json({ message: "User not found" });
+		if (updates.username) {
+			const taken = await User.exists({ username: new RegExp("^" + escapeRegex(updates.username) + "$", "i"), clerkId: { $ne: clerkId } });
+			if (taken) return res.status(409).json({ message: "That username is already taken. Try another one." });
 		}
 
-		// Update user fields
-		if (fullName) user.fullName = fullName;
-		if (username) user.username = username;
-		if (bio !== undefined) user.bio = bio;
-		if (imageUrl) user.imageUrl = imageUrl;
-		if (email) user.email = email;
-		if (location !== undefined) user.location = location;
-		if (website !== undefined) user.website = website;
+		const user = await User.findOneAndUpdate({ clerkId }, updates, { new: true, runValidators: true });
+		if (!user) return res.status(404).json({ message: "User not found" });
 
-		await user.save();
-
-		res.status(200).json({
-			message: "Profile updated successfully",
-			user
-		});
+		res.status(200).json({ message: "Profile updated successfully", user });
 	} catch (error) {
 		next(error);
 	}
 };
 
+// Checks the uploaded "photo" file and stores it in Cloudinary. Sends the
+// error response itself and returns null when the upload can't go ahead.
+const storeUploadedImage = async (req, res, cloudinaryOptions) => {
+	const photo = req.files?.photo;
+	if (!photo || Array.isArray(photo)) { res.status(400).json({ message: "Choose a profile photo to upload." }); return null; }
+	if (!photo.mimetype?.startsWith("image/")) { res.status(400).json({ message: "Please upload an image file." }); return null; }
+	if (photo.size > 5 * 1024 * 1024) { res.status(400).json({ message: "Profile photos must be 5 MB or smaller." }); return null; }
+	if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+		res.status(503).json({ message: "Photo uploads are not configured yet." });
+		return null;
+	}
+	try {
+		const uploaded = await cloudinary.uploader.upload(photo.tempFilePath, { resource_type: "image", ...cloudinaryOptions });
+		return uploaded.secure_url;
+	} finally {
+		if (photo.tempFilePath) await fs.unlink(photo.tempFilePath).catch(() => undefined);
+	}
+};
+
+const handleCloudinaryError = (error, res) => {
+	if (error?.http_code === 401 || /invalid signature/i.test(error?.message || "")) {
+		res.status(503).json({ message: "Photo upload configuration is invalid. Update CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET with matching values from one Cloudinary account." });
+		return true;
+	}
+	return false;
+};
+
+const PHOTO_FIELDS = "imageUrl photoSource photoUrl providerImageUrl avatarImageUrl";
+const publicPhoto = (state) => ({ source: state.photoSource, uploadedUrl: state.photoUrl, providerUrl: state.providerImageUrl, avatarUrl: state.avatarImageUrl });
+
+/** Applies a change to someone's photo choice and saves the picture everyone sees. */
+const savePhotoChange = async (clerkId, change) => {
+	const user = await User.findOne({ clerkId }).select(PHOTO_FIELDS).lean();
+	if (!user) return null;
+	const update = photoUpdate({ ...photoStateOf(user), ...change });
+	await User.updateOne({ clerkId }, update);
+	return { imageUrl: update.imageUrl, photo: publicPhoto(update) };
+};
+
 export const uploadProfilePhoto = async (req, res, next) => {
 	try {
-		const photo = req.files?.photo;
-		if (!photo || Array.isArray(photo)) return res.status(400).json({ message: "Choose a profile photo to upload." });
-		if (!photo.mimetype?.startsWith("image/")) return res.status(400).json({ message: "Please upload an image file." });
-		if (photo.size > 5 * 1024 * 1024) return res.status(400).json({ message: "Profile photos must be 5 MB or smaller." });
-		if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
-			return res.status(503).json({ message: "Photo uploads are not configured yet." });
-		}
-
-		let uploaded;
-		try {
-			uploaded = await cloudinary.uploader.upload(photo.tempFilePath, {
-				folder: "beatbond/profile-photos",
-				resource_type: "image",
-				transformation: [{ width: 512, height: 512, crop: "fill", gravity: "face" }, { fetch_format: "auto", quality: "auto" }],
-			});
-		} finally {
-			if (photo.tempFilePath) await fs.unlink(photo.tempFilePath).catch(() => undefined);
-		}
-
-		const user = await User.findOneAndUpdate(
-			{ clerkId: req.auth.userId },
-			{ imageUrl: uploaded.secure_url },
-			{ new: true },
-		).select("imageUrl");
-		if (!user) return res.status(404).json({ message: "User not found" });
-		res.json({ imageUrl: user.imageUrl });
+		const url = await storeUploadedImage(req, res, {
+			folder: "beatbond/profile-photos",
+			transformation: [{ width: 512, height: 512, crop: "fill", gravity: "face" }, { fetch_format: "auto", quality: "auto" }],
+		});
+		if (!url) return;
+		const result = await savePhotoChange(req.auth.userId, { photoUrl: url, photoSource: "upload" });
+		if (!result) return res.status(404).json({ message: "User not found" });
+		res.json(result);
 	} catch (error) {
-		if (error?.http_code === 401 || /invalid signature/i.test(error?.message || "")) {
-			return res.status(503).json({ message: "Photo upload configuration is invalid. Update CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET with matching values from one Cloudinary account." });
-		}
-		next(error);
+		if (!handleCloudinaryError(error, res)) next(error);
 	}
+};
+
+// The app draws the avatar and uploads it as a picture, so it shows anywhere a
+// normal photo does. One picture per person, replaced when the avatar changes.
+export const uploadAvatarPhoto = async (req, res, next) => {
+	try {
+		const url = await storeUploadedImage(req, res, {
+			folder: "beatbond/avatar-photos",
+			public_id: req.auth.userId,
+			overwrite: true,
+			invalidate: true,
+			transformation: [{ width: 512, height: 512, crop: "fill" }, { fetch_format: "auto", quality: "auto" }],
+		});
+		if (!url) return;
+		const result = await savePhotoChange(req.auth.userId, { avatarImageUrl: url, photoSource: "avatar" });
+		if (!result) return res.status(404).json({ message: "User not found" });
+		res.json(result);
+	} catch (error) {
+		if (!handleCloudinaryError(error, res)) next(error);
+	}
+};
+
+export const setPhotoSource = async (req, res, next) => {
+	try {
+		const source = req.body?.source;
+		if (!PHOTO_SOURCES.includes(source)) return res.status(400).json({ message: "Choose provider, upload, avatar or none" });
+		const user = await User.findOne({ clerkId: req.auth.userId }).select(PHOTO_FIELDS).lean();
+		if (!user) return res.status(404).json({ message: "User not found" });
+		if (!photoSourceAvailable(photoStateOf(user), source)) return res.status(400).json({ message: "That picture isn't available yet." });
+		res.json(await savePhotoChange(req.auth.userId, { photoSource: source }));
+	} catch (error) { next(error); }
 };
 
 // ⭐ UPDATED - getUserProfile with privacy checks
@@ -360,17 +402,15 @@ export const getUserProfile = async (req, res, next) => {
 		
 		// Check if they are friends
 		const profileUserId = user.clerkId;
+		if (profileUserId !== currentUserId && user.blockedUsers?.includes(currentUserId)) {
+			return res.status(404).json({ message: "User not found" });
+		}
+		const isBlocked = currentUser?.blockedUsers?.includes(profileUserId) || false;
+		const presenceShown = !isBlocked && canSeePresence(user, currentUser ?? { clerkId: currentUserId });
 		const isFriend = currentUser?.friends?.includes(profileUserId) || false;
 		
 		// ⭐ NEW - Determine if viewer can see music activity
-		let canSeeMusicActivity = false;
-		if (profileUserId === currentUserId) {
-			canSeeMusicActivity = true; // Own profile
-		} else if (user.musicPrivacy === 'everyone') {
-			canSeeMusicActivity = true;
-		} else if (user.musicPrivacy === 'friends' && isFriend) {
-			canSeeMusicActivity = true;
-		}
+		const canSeeMusicActivity = !isBlocked && canSeeLiveActivity(user, currentUserId);
 
 		// Get mutual friends count
 		const mutualFriendsCount = currentUser?.friends?.filter(
@@ -416,10 +456,14 @@ export const getUserProfile = async (req, res, next) => {
 			conversationCount,
 			isFriend,
 			friendshipStatus: isFriend ? 'accepted' : 'none',
-			isOnline: isUserOnline(user.clerkId),
-			lastSeen: user.lastSeen,
+			isBlocked,
+			isOnline: presenceShown && isUserOnline(user.clerkId),
+			lastSeen: presenceShown ? user.lastSeen : undefined,
 			// ⭐ NEW FIELDS
-			musicPrivacy: user.musicPrivacy || 'friends',
+			...(profileUserId === currentUserId
+				? { musicPrivacy: user.musicPrivacy || "friends", historyPrivacy: user.historyPrivacy || "none", photo: publicPhoto(photoStateOf(user)),
+					chatSettings: { readReceipts: user.readReceipts !== false, showActivityStatus: user.showActivityStatus !== false, messageNotifications: user.messageNotifications !== false } }
+				: { listeningHiddenFromThem: currentUser?.musicHiddenFrom?.includes(profileUserId) || false }),
 			canSeeMusicActivity,
 			currentActivity: canSeeMusicActivity ? user.currentActivity : null
 		});
@@ -452,7 +496,7 @@ export const updateMusicPrivacy = async (req, res, next) => {
 			return res.status(404).json({ message: "User not found" });
 		}
 
-		console.log(`🔒 User ${userId} updated music privacy to: ${musicPrivacy}`);
+		await refreshActivityAudience(userId);
 
 		res.json({ 
 			message: "Music privacy updated successfully", 
@@ -470,16 +514,11 @@ export const markAllMessagesAsRead = async (req, res, next) => {
 		const myId = req.auth.userId; // Current user ID
 		const { userId } = req.params; // The sender's ID
 
+		const reader = await User.findOne({ clerkId: myId }).select("readReceipts").lean();
 		const result = await Message.updateMany(
-			{
-				senderId: userId,
-				receiverId: myId,
-				status: { $ne: 'read' }
-			},
-			{
-				status: 'read',
-				readAt: new Date()
-			}
+			{ senderId: userId, receiverId: myId, readAt: null },
+			// readAt drives unread badges; "read" ticks only when the reader shares receipts.
+			{ readAt: new Date(), ...(reader?.readReceipts !== false ? { status: "read" } : {}) }
 		);
 
 		console.log(`✅ Marked ${result.modifiedCount} messages as read from user ${userId}`);
@@ -496,35 +535,148 @@ export const markAllMessagesAsRead = async (req, res, next) => {
 };
 
 // NEW: Delete a specific message (soft delete or hard delete based on your needs)
+// "Delete for me" hides a message from your own chat. "Delete for everyone"
+// removes it for both people and is only for the sender.
 export const deleteMessage = async (req, res, next) => {
 	try {
 		const myId = req.auth.userId;
 		const { messageId } = req.params;
+		if (!mongoose.isValidObjectId(messageId)) return res.status(404).json({ message: "Message not found" });
 
-		// Find the message
 		const message = await Message.findById(messageId);
-
-		if (!message) {
+		if (!message || ![message.senderId, message.receiverId].includes(myId)) {
 			return res.status(404).json({ message: "Message not found" });
 		}
 
-		// Only allow sender to delete their own message
-		if (message.senderId !== myId) {
-			return res.status(403).json({ message: "You can only delete your own messages" });
+		// Older app versions sent no scope and meant "everyone" for their own messages.
+		const scope = req.query.scope === "me" || req.query.scope === "everyone"
+			? req.query.scope
+			: message.senderId === myId ? "everyone" : "me";
+
+		if (scope === "everyone") {
+			if (message.senderId !== myId) {
+				return res.status(403).json({ message: "You can only delete your own messages for everyone" });
+			}
+			await Message.deleteOne({ _id: messageId });
+			// The other person's open chat drops it straight away.
+			emitToUsers([message.senderId, message.receiverId], "messageDeleted", { messageId });
+		} else {
+			await Message.updateOne({ _id: messageId }, { $addToSet: { deletedFor: myId } });
 		}
 
-		// Hard delete (or you can implement soft delete by adding a 'deleted' field)
-		await Message.findByIdAndDelete(messageId);
-
-		console.log(`🗑️ Message ${messageId} deleted by user ${myId}`);
-
-		res.status(200).json({
-			message: 'Message deleted successfully',
-			messageId
-		});
-
+		res.status(200).json({ message: "Message deleted", messageId, scope });
 	} catch (error) {
 		console.error("Error deleting message:", error);
 		next(error);
 	}
+};
+
+// Top artists and recent songs for a profile, when its owner's listening
+// privacy lets this viewer see them.
+export const getProfileMusic = async (req, res, next) => {
+	try {
+		const viewerId = req.auth.userId;
+		const { userId } = req.params;
+		const owner = await User.findOne({ clerkId: userId }).select(PRIVACY_FIELDS).lean();
+		if (!owner || (userId !== viewerId && owner.blockedUsers?.includes(viewerId))) {
+			return res.status(404).json({ message: "User not found" });
+		}
+		if (!canSeeListeningHistory(owner, viewerId)) return res.json({ visible: false, topArtists: [], recent: [] });
+
+		const activities = await ListeningActivity.find({ userId })
+			.sort({ playedAt: -1 })
+			.limit(500)
+			.select("songId title artist imageUrl audioUrl albumId genre duration playedAt")
+			.lean();
+		res.json({ visible: true, ...summarizeListening(activities) });
+	} catch (error) { next(error); }
+};
+
+export const clearListeningHistory = async (req, res, next) => {
+	try {
+		await ListeningActivity.deleteMany({ userId: req.auth.userId });
+		res.status(204).end();
+	} catch (error) { next(error); }
+};
+
+export const getBlockedUsers = async (req, res, next) => {
+	try {
+		const me = await User.findOne({ clerkId: req.auth.userId }).select("blockedUsers").lean();
+		const users = await User.find({ clerkId: { $in: me?.blockedUsers ?? [] } })
+			.select("clerkId fullName username imageUrl")
+			.lean();
+		res.json(users);
+	} catch (error) { next(error); }
+};
+
+// Blocking ends the friendship and any pending request, and hides both
+// people from each other's search, profile, messages and live map.
+export const blockUser = async (req, res, next) => {
+	try {
+		const me = req.auth.userId;
+		const target = String(req.params.userId || "");
+		if (!target || target === me) return res.status(400).json({ message: "You can't block yourself" });
+		if (!(await User.exists({ clerkId: target }))) return res.status(404).json({ message: "User not found" });
+		await Promise.all([
+			User.updateOne({ clerkId: me }, { $addToSet: { blockedUsers: target }, $pull: { friends: target } }),
+			User.updateOne({ clerkId: target }, { $pull: { friends: me } }),
+			FriendRequest.deleteMany({ $or: [{ senderId: me, receiverId: target }, { senderId: target, receiverId: me }] }),
+		]);
+		await refreshActivityAudience(me);
+		res.json({ blocked: true });
+	} catch (error) { next(error); }
+};
+
+export const unblockUser = async (req, res, next) => {
+	try {
+		await User.updateOne({ clerkId: req.auth.userId }, { $pull: { blockedUsers: String(req.params.userId || "") } });
+		res.json({ blocked: false });
+	} catch (error) { next(error); }
+};
+
+// Who can see what you're playing now and your listening history.
+export const updatePrivacy = async (req, res, next) => {
+	try {
+		const updates = {};
+		for (const key of ["musicPrivacy", "historyPrivacy"]) {
+			if (req.body[key] === undefined) continue;
+			if (!LISTENING_LEVELS.includes(req.body[key])) return res.status(400).json({ message: "Use everyone, friends or none" });
+			updates[key] = req.body[key];
+		}
+		if (!Object.keys(updates).length) return res.status(400).json({ message: "Nothing to update" });
+		const user = await User.findOneAndUpdate({ clerkId: req.auth.userId }, updates, { new: true }).select("musicPrivacy historyPrivacy").lean();
+		if (!user) return res.status(404).json({ message: "User not found" });
+		if (updates.musicPrivacy) await refreshActivityAudience(req.auth.userId);
+		res.json({ musicPrivacy: user.musicPrivacy, historyPrivacy: user.historyPrivacy });
+	} catch (error) { next(error); }
+};
+
+// People who never see your listening, whatever the settings above say.
+export const getHiddenListeners = async (req, res, next) => {
+	try {
+		const me = await User.findOne({ clerkId: req.auth.userId }).select("musicHiddenFrom").lean();
+		const users = await User.find({ clerkId: { $in: me?.musicHiddenFrom ?? [] } })
+			.select("clerkId fullName username imageUrl")
+			.lean();
+		res.json(users);
+	} catch (error) { next(error); }
+};
+
+export const hideListeningFrom = async (req, res, next) => {
+	try {
+		const target = String(req.params.userId || "");
+		if (!target || target === req.auth.userId) return res.status(400).json({ message: "Choose someone else" });
+		if (!(await User.exists({ clerkId: target }))) return res.status(404).json({ message: "User not found" });
+		await User.updateOne({ clerkId: req.auth.userId }, { $addToSet: { musicHiddenFrom: target } });
+		await refreshActivityAudience(req.auth.userId);
+		res.json({ hidden: true });
+	} catch (error) { next(error); }
+};
+
+export const showListeningTo = async (req, res, next) => {
+	try {
+		await User.updateOne({ clerkId: req.auth.userId }, { $pull: { musicHiddenFrom: String(req.params.userId || "") } });
+		await refreshActivityAudience(req.auth.userId);
+		res.json({ hidden: false });
+	} catch (error) { next(error); }
 };

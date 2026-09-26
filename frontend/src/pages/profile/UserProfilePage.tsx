@@ -1,15 +1,23 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { axiosInstance } from "@/lib/axios";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useClerk, useUser } from "@clerk/clerk-react";
 import { toast } from "react-hot-toast";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { motion } from "framer-motion";
 import FriendRequestButton from "@/components/friends/FriendRequestButton";
+import ProfileDetails from "@/components/profile/ProfileDetails";
+import ProfileMusic from "@/components/profile/ProfileMusic";
+import { blockedUsersQueryKey } from "@/components/profile/profileQueries";
 import { useChatStore } from "@/stores/useChatStore";
 import { ShareToMessageDialog } from "@/components/ShareToMessageDialog";
 import {
@@ -24,6 +32,11 @@ import {
   LogOut,
   Disc3,
   Copy,
+  MoreHorizontal,
+  UserX,
+  Ban,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 interface UserProfile {
@@ -46,6 +59,9 @@ interface UserProfile {
   lastSeen?: string;
   currentActivity?: string | null;
   canSeeMusicActivity?: boolean;
+  isBlocked?: boolean;
+  /** Whether you hid your own listening from this person. */
+  listeningHiddenFromThem?: boolean;
 }
 
 
@@ -69,9 +85,11 @@ const UserProfilePage = () => {
   const navigate = useNavigate();
   const { user } = useUser();
   const { signOut } = useClerk();
+  const queryClient = useQueryClient();
   const socket = useChatStore((state) => state.socket);
   const ownCurrentActivity = useChatStore((state) => state.currentActivity);
   const [profileActivity, setProfileActivity] = useState<string | null | undefined>(undefined);
+  const [confirmBlock, setConfirmBlock] = useState(false);
 
   const isOwnProfile = user?.id === userId;
 
@@ -210,6 +228,28 @@ const UserProfilePage = () => {
     }
   }, []);
 
+  const blockMutation = useMutation({
+    mutationFn: (block: boolean) => (block ? axiosInstance.post(`/users/block/${userId}`) : axiosInstance.delete(`/users/block/${userId}`)),
+    onSuccess: (_, block) => {
+      // Blocking also ends the friendship, so friend lists and chat refresh too.
+      for (const queryKey of [["userProfile", userId], blockedUsersQueryKey, ["friends"], ["userFriends", userId], ["friendshipStatus", userId], ["profileMusic", userId]]) {
+        void queryClient.invalidateQueries({ queryKey });
+      }
+      toast.success(block ? "Blocked. They can no longer reach you." : "Unblocked");
+    },
+    onError: () => toast.error("Something went wrong. Please try again."),
+  });
+
+  const hideListeningMutation = useMutation({
+    mutationFn: (hide: boolean) => (hide ? axiosInstance.put(`/users/music-hidden/${userId}`) : axiosInstance.delete(`/users/music-hidden/${userId}`)),
+    onSuccess: (_, hide) => {
+      void queryClient.invalidateQueries({ queryKey: ["userProfile", userId] });
+      void queryClient.invalidateQueries({ queryKey: ["hiddenListeners"] });
+      toast.success(hide ? "They won't see your listening anymore" : "Your listening follows your privacy settings again");
+    },
+    onError: () => toast.error("Something went wrong. Please try again."),
+  });
+
   const getRelativeTime = useCallback((dateString?: string) => {
     if (!dateString) return "Recently";
     try {
@@ -317,8 +357,10 @@ const UserProfilePage = () => {
                   </Badge>
                 )}
               </div>
-              <p className="text-zinc-400 text-sm mb-2">@{profile.username} · Music profile</p>
-              
+              <p className="text-zinc-400 text-sm mb-2">@{profile.username}</p>
+              {profile.bio && !profile.isBlocked && <p className="mb-3 max-w-2xl whitespace-pre-line text-sm leading-relaxed text-zinc-300">{profile.bio}</p>}
+              {!profile.isBlocked && <div className="mb-2"><ProfileDetails location={profile.location} website={profile.website} joinedDate={profile.joinedDate} /></div>}
+
               {!isOwnProfile && (
                 <div className="text-xs text-zinc-500">
                   {profile.isOnline ? (
@@ -337,7 +379,12 @@ const UserProfilePage = () => {
             </div>
 
             <div className="flex shrink-0 flex-wrap gap-2">
-              {!isOwnProfile ? (
+              {!isOwnProfile && profile.isBlocked ? (
+                <Button variant="outline" className="h-10 rounded-xl border-white/10 bg-white/5 hover:bg-white/10" disabled={blockMutation.isPending} onClick={() => blockMutation.mutate(false)}>
+                  <UserX className="h-4 w-4" />
+                  Unblock
+                </Button>
+              ) : !isOwnProfile ? (
                 <>
                   <div className="relative group">
                     <Button
@@ -379,7 +426,24 @@ const UserProfilePage = () => {
                 </>
               )}
               
-              <Button variant="ghost" size="icon" className="size-10 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10" aria-label="Copy profile link" onClick={() => void handleCopyProfileLink()}><Copy className="size-4" /></Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="size-10 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10" aria-label="More options"><MoreHorizontal className="size-4" /></Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onSelect={() => void handleCopyProfileLink()}><Copy className="size-4" />Copy profile link</DropdownMenuItem>
+                  {!isOwnProfile && !profile.isBlocked && (
+                    <>
+                      <DropdownMenuItem onSelect={() => hideListeningMutation.mutate(!profile.listeningHiddenFromThem)}>
+                        {profile.listeningHiddenFromThem ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
+                        {profile.listeningHiddenFromThem ? "Show my listening" : "Hide my listening"}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onSelect={() => setConfirmBlock(true)} className="text-destructive focus:text-destructive"><Ban className="size-4" />Block {profile.fullName.split(" ")[0]}</DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
               <ShareToMessageDialog message={`Check out ${profile.fullName}'s profile on BeatBond:\n${window.location.href}`} trigger={<Button variant="ghost" size="icon" className="size-10 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10" aria-label="Share profile in a message"><Share2 className="size-4" /></Button>} />
             </div>
           </div>
@@ -402,7 +466,20 @@ const UserProfilePage = () => {
               <p className="text-xl font-bold text-primary">{profile.friendsCount ?? friends.length}</p>
               <p className="text-xs font-medium text-zinc-500">Friends</p>
             </button>
+            {!isOwnProfile && Boolean(profile.mutualFriendsCount) && (
+              <div>
+                <p className="text-xl font-bold text-white">{profile.mutualFriendsCount}</p>
+                <p className="text-xs font-medium text-zinc-500">Mutual friends</p>
+              </div>
+            )}
           </motion.div>
+
+          {profile.isBlocked && (
+            <div className="mt-4 flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[.04] p-4 text-sm text-zinc-300">
+              <Ban className="mt-0.5 size-4 shrink-0 text-destructive" />
+              <p>You blocked {profile.fullName.split(" ")[0]}. They can't message you, send you friend requests, find you in search or see you on the map.</p>
+            </div>
+          )}
 
           {profile.canSeeMusicActivity && isListening && (
             <motion.div className="mt-4 flex items-center gap-3 rounded-2xl border border-primary/25 bg-gradient-to-r from-primary/15 to-transparent p-4" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
@@ -418,7 +495,27 @@ const UserProfilePage = () => {
         </div>
       </motion.section>
 
-          </div>
+      {!profile.isBlocked && (
+        <section className="mx-auto mt-5 w-full max-w-5xl rounded-2xl border border-white/10 bg-zinc-950 p-5 sm:p-6">
+          <ProfileMusic userId={profile.clerkId} name={profile.fullName.split(" ")[0]} isOwnProfile={isOwnProfile} />
+        </section>
+      )}
+
+      <AlertDialog open={confirmBlock} onOpenChange={setConfirmBlock}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Block {profile.fullName}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You'll stop being friends. They won't be able to message you, send you friend requests, find you in search or see you on the map. You can unblock them any time in Settings.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => blockMutation.mutate(true)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Block</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   );
 };
 

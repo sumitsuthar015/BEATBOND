@@ -5,6 +5,8 @@ import { isDatabaseConnected } from "./db.js";
 import { Message } from "../models/message.model.js";
 import { Notification } from "../models/notification.model.js";
 import { User } from "../models/user.model.js";
+import { PRIVACY_FIELDS, canSeeLiveActivity, liveActivityViewers } from "../services/privacy.service.js";
+import { sendsReadReceipts } from "../services/chat.service.js";
 
 const userSockets = new Map();
 const userActivities = new Map();
@@ -89,9 +91,41 @@ export const emitLocationToFriends = async (userId, location) => {
   }
 };
 
+// People who hide their online status, among those connected. Hiding works
+// both ways: they aren't shown as online, and they don't see who else is.
+const hiddenPresence = new Set();
+
+const presenceVisibleTo = (ownerId, viewerId) =>
+  ownerId === viewerId || (!hiddenPresence.has(ownerId) && !hiddenPresence.has(viewerId));
+
+// Each person gets the list of online people they're allowed to see.
 const emitOnlineUsers = (io) => {
-  io.emit("users_online", getOnlineUserIds());
+  const online = getOnlineUserIds();
+  for (const viewerId of userSockets.keys()) {
+    emitToUser(io, viewerId, "users_online", online.filter((ownerId) => presenceVisibleTo(ownerId, viewerId)));
+  }
 };
+
+const broadcastPresence = (io, ownerId, event) => {
+  for (const viewerId of userSockets.keys()) {
+    if (viewerId !== ownerId && presenceVisibleTo(ownerId, viewerId)) emitToUser(io, viewerId, event, ownerId);
+  }
+};
+
+/** Applies a change to someone's "show online status" setting straight away. */
+export const setPresenceVisibility = (userId, visible) => {
+  if (!socketServer || !userSockets.has(userId)) return;
+  if (visible) hiddenPresence.delete(userId);
+  else hiddenPresence.add(userId);
+  emitOnlineUsers(socketServer);
+};
+
+/** Sends an event to every open session of each of these people. */
+export const emitToUsers = (userIds, event, payload) => {
+  if (!socketServer) return;
+  for (const userId of new Set(userIds)) emitToUser(socketServer, userId, event, payload);
+};
+
 
 const isFriend = (user, otherUserId) => user.friends?.includes(otherUserId);
 
@@ -137,7 +171,7 @@ export const initializeSocket = (server) => {
       if (!userId) return next(new Error("Authentication error"));
 
       const user = await User.findOne({ clerkId: userId }).select(
-        "clerkId fullName friends blockedUsers musicPrivacy"
+        "clerkId fullName friends blockedUsers musicPrivacy showActivityStatus"
       );
       if (!user) return next(new Error("Authentication error"));
 
@@ -157,11 +191,12 @@ export const initializeSocket = (server) => {
     await presenceReset;
     const wasOffline = !userSockets.has(userId);
     addUserSocket(userId, socket.id);
+    if (socket.user.showActivityStatus === false) hiddenPresence.add(userId);
 
     try {
       if (wasOffline) {
         await User.updateOne({ clerkId: userId }, { isOnline: true });
-        io.emit("user_connected", userId);
+        broadcastPresence(io, userId, "user_connected");
 
         const pendingMessages = await Message.find({ receiverId: userId, status: "sent" }).select(
           "_id senderId"
@@ -183,14 +218,10 @@ export const initializeSocket = (server) => {
 
       const activityUsers = await User.find({
         clerkId: { $in: Array.from(userActivities.keys()) },
-      }).select("clerkId musicPrivacy");
+      }).select(PRIVACY_FIELDS).lean();
       const visibleActivities = activityUsers.flatMap((activityUser) => {
-        const isVisible =
-          activityUser.musicPrivacy === "everyone" ||
-          (activityUser.musicPrivacy === "friends" && isFriend(socket.user, activityUser.clerkId));
-
         const activity = userActivities.get(activityUser.clerkId);
-        return isVisible && activity ? [[activityUser.clerkId, activity]] : [];
+        return activity && canSeeLiveActivity(activityUser, userId) ? [[activityUser.clerkId, activity]] : [];
       });
       socket.emit("activities", visibleActivities);
     } catch (error) {
@@ -203,18 +234,14 @@ export const initializeSocket = (server) => {
 
       const activityString = activity.trim().slice(0, 500);
       try {
-        const currentUser = await User.findOne({ clerkId: userId }).select("friends musicPrivacy");
+        const currentUser = await User.findOne({ clerkId: userId }).select(PRIVACY_FIELDS).lean();
         if (!currentUser) return;
 
         userActivities.set(userId, activityString);
         await User.updateOne({ clerkId: userId }, { currentActivity: activityString });
 
-        if (currentUser.musicPrivacy === "everyone") {
-          io.emit("activity_updated", { userId, activity: activityString });
-        } else if (currentUser.musicPrivacy === "friends") {
-          for (const friendId of currentUser.friends ?? []) {
-            emitToUser(io, friendId, "activity_updated", { userId, activity: activityString });
-          }
+        for (const viewerId of liveActivityViewers(currentUser, userSockets.keys())) {
+          emitToUser(io, viewerId, "activity_updated", { userId, activity: activityString });
         }
       } catch (error) {
         console.error("Error updating activity:", error);
@@ -223,22 +250,20 @@ export const initializeSocket = (server) => {
 
     socket.on("clear_activity", async () => {
       try {
-        const currentUser = await User.findOne({ clerkId: userId }).select("friends musicPrivacy");
-        if (!currentUser) return;
-
         userActivities.delete(userId);
         await User.updateOne({ clerkId: userId }, { currentActivity: null });
-
-        if (currentUser.musicPrivacy === "everyone") {
-          io.emit("activity_cleared", { userId });
-        } else if (currentUser.musicPrivacy === "friends") {
-          for (const friendId of currentUser.friends ?? []) {
-            emitToUser(io, friendId, "activity_cleared", { userId });
-          }
-        }
+        // Stopping reveals nothing, and anyone who saw the old song (even
+        // under an older privacy choice) must drop it.
+        io.emit("activity_cleared", { userId });
       } catch (error) {
         console.error("Error clearing activity:", error);
       }
+    });
+
+    socket.on("typing", (data = {}) => {
+      const receiverId = typeof data.receiverId === "string" ? data.receiverId : "";
+      if (!receiverId || !isFriend(socket.user, receiverId)) return;
+      emitToUser(io, receiverId, "typing", { userId, isTyping: Boolean(data.isTyping) });
     });
 
     socket.on("sendMessage", async (data = {}) => {
@@ -248,11 +273,15 @@ export const initializeSocket = (server) => {
         if (!receiverId || receiverId === userId) throw new Error("Invalid recipient");
         if (!content) throw new Error("Message cannot be empty");
         if (content.length > 4000) throw new Error("Message is too long");
+        const sender = await User.findOne({ clerkId: userId }).select("fullName friends blockedUsers").lean();
+        if (!sender) throw new Error("Sender not found");
+        socket.user.friends = sender.friends;
+        socket.user.blockedUsers = sender.blockedUsers;
         if (!isFriend(socket.user, receiverId)) {
           throw new Error("You can only message friends");
         }
 
-        const receiver = await User.findOne({ clerkId: receiverId }).select("blockedUsers");
+        const receiver = await User.findOne({ clerkId: receiverId }).select("blockedUsers mutedChats messageNotifications").lean();
         if (!receiver) throw new Error("Recipient not found");
         if (socket.user.blockedUsers?.includes(receiverId) || receiver.blockedUsers?.includes(userId)) {
           throw new Error("You cannot message this user");
@@ -331,7 +360,10 @@ export const initializeSocket = (server) => {
         if (receiverIsOnline) emitToUser(io, receiverId, "messageReceived", messagePayload);
         socket.emit("messageSent", messagePayload);
 
-        void Notification.create({
+        // Muted chats and people who turned message notifications off still
+        // get the message, just no notification.
+        const wantsNotification = receiver.messageNotifications !== false && !receiver.mutedChats?.includes(userId);
+        if (wantsNotification) void Notification.create({
           userId: receiverId,
           message: `New message from ${socket.user.fullName}`,
           type: "message",
@@ -350,17 +382,24 @@ export const initializeSocket = (server) => {
         const messageId = typeof data.messageId === "string" ? data.messageId : "";
         if (!messageId) return;
 
+        // readAt always records the read (it drives unread badges); the
+        // visible "read" tick only exists when the reader shares receipts.
+        const reader = await User.findOne({ clerkId: userId }).select("readReceipts").lean();
+        const shareReceipt = sendsReadReceipts(reader);
         const message = await Message.findOneAndUpdate(
-          { _id: messageId, receiverId: userId, status: { $ne: "read" } },
-          { status: "read", readAt: new Date() },
+          { _id: messageId, receiverId: userId, readAt: null },
+          { readAt: new Date(), ...(shareReceipt ? { status: "read" } : {}) },
           { new: true }
         );
         if (!message) return;
 
-        emitToUser(io, message.senderId, "messageStatusUpdate", {
-          messageId: message._id.toString(),
-          status: "read",
-        });
+        const sender = shareReceipt ? await User.findOne({ clerkId: message.senderId }).select("readReceipts").lean() : null;
+        if (shareReceipt && sendsReadReceipts(sender)) {
+          emitToUser(io, message.senderId, "messageStatusUpdate", {
+            messageId: message._id.toString(),
+            status: "read",
+          });
+        }
         // Keep every session owned by the reader in sync so unread badges in
         // a separate open chat list disappear without waiting for a refetch.
         emitToUser(io, userId, "conversationRead", { userId: message.senderId });
@@ -375,8 +414,9 @@ export const initializeSocket = (server) => {
       // Broadcast from the in-memory source immediately. Do not make peers
       // wait for MongoDB before they see an offline state.
       userActivities.delete(userId);
+      broadcastPresence(io, userId, "user_disconnected");
+      hiddenPresence.delete(userId);
       emitOnlineUsers(io);
-      io.emit("user_disconnected", userId);
       io.emit("activity_cleared", { userId });
 
       try {
@@ -391,4 +431,19 @@ export const initializeSocket = (server) => {
   });
 
   return io;
+};
+
+// After someone changes who can see their listening (or blocks someone),
+// take their current song off every screen and send it again only to the
+// people who may still see it.
+export const refreshActivityAudience = async (userId) => {
+  if (!socketServer) return;
+  socketServer.emit("activity_cleared", { userId });
+  const activity = userActivities.get(userId);
+  if (!activity) return;
+  const owner = await User.findOne({ clerkId: userId }).select(PRIVACY_FIELDS).lean();
+  if (!owner) return;
+  for (const viewerId of liveActivityViewers(owner, userSockets.keys())) {
+    emitToUser(socketServer, viewerId, "activity_updated", { userId, activity });
+  }
 };
