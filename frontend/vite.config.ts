@@ -48,6 +48,16 @@ export default defineConfig({
 			"@": path.resolve(__dirname, "./src"),
 		},
 	},
+	build: {
+		rollupOptions: {
+			output: {
+				// The 3D map library is large and rarely changes. In its own file its
+				// name stays the same between deployments, so installed apps keep
+				// their cached copy instead of downloading it again after every update.
+				manualChunks: (id) => (id.includes("node_modules/mapbox-gl") ? "mapbox-gl" : undefined),
+			},
+		},
+	},
 	server: {
 		port: 3000,
 		proxy: {

@@ -1,6 +1,7 @@
 import { axiosInstance, setAuthTokenProvider } from "@/lib/axios";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useChatStore } from "@/stores/useChatStore";
+import { useLocationStore } from "@/stores/useLocationStore";
 import { useMusicStore } from "@/stores/useMusicStore";
 import { usePlaylistStore } from "@/stores/usePlaylistStore";
 import { useAuth } from "@clerk/clerk-react";
@@ -52,6 +53,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 	useEffect(() => {
 		// undefined means Clerk hasn't loaded (e.g. offline); only null is a sign-out.
 		if (userId !== undefined) setActiveListener(userId);
+		if (userId === null) useLocationStore.getState().signOut();
 		setAuthTokenProvider(getToken);
 		const initAuth = async () => {
 			// Offline, Clerk's script can't load and getToken() never settles, which
@@ -76,6 +78,8 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 					// every reconnect, keeping the handshake valid after Clerk refreshes
 					// the session token.
 					initSocket(getToken);
+					// Live location keeps sharing across pages and app launches.
+					void useLocationStore.getState().syncPreference();
 				}
 			} catch (error: any) {
 				updateApiToken(null);

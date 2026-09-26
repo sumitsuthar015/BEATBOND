@@ -1,175 +1,567 @@
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useUser } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+import mapboxgl from "mapbox-gl";
+import "mapbox-gl/dist/mapbox-gl.css";
 import "./map.css";
-import { LocateFixed, Navigation, Search, Box, Radio, X, Users, MessageCircle, Music2, UserRound, Wifi, Globe2 } from "lucide-react";
-import { toast } from "react-hot-toast";
+import { ArrowLeft, Loader2, LocateFixed, RefreshCw, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { axiosInstance } from "@/lib/axios";
+import { clusterByDistance, zoomForPlace, type LatLng } from "@/lib/geo";
+import { beginBackNavigation } from "@/lib/routeHistory";
+import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/useChatStore";
-import FriendRequestButton from "@/components/friends/FriendRequestButton";
-import { avatarUrl, type AvatarConfig } from "@/lib/avatar";
+import { useLocationStore } from "@/stores/useLocationStore";
+import { PersonCard, ShareCard } from "./components/MapCards";
+import PlaceSearch from "./components/PlaceSearch";
+import { circlePolygon, clusterElement, glide, personElement, personRenderKey, placeElement, renderCluster, renderPerson, renderSelf, selfElement } from "./mapMarkers";
+import { isLiveNow, nowPlaying, type LiveLocation, type PlaceResult } from "./mapTypes";
 
-type Coordinates = { lat: number; lng: number };
-type LocationVisibility = "everyone" | "friends";
-type NearbyPlace = Coordinates & { id: string; name: string; category: string };
-type LiveLocation = {
-  userId: string; latitude: number; longitude: number; updatedAt?: string; isLive: boolean; isFriend: boolean; isOnline?: boolean;
-  avatar?: AvatarConfig | null;
-  user?: { fullName?: string; username?: string; imageUrl?: string; currentActivity?: string | null };
+const TOKEN = (import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined)?.trim();
+// Mapbox Standard draws 3D buildings and landmarks, here always in daylight.
+// Mapbox GL needs the token for any map, even a free style.
+const STYLE = "mapbox://styles/mapbox/standard";
+if (TOKEN) mapboxgl.accessToken = TOKEN;
+
+const INDIA = { lng: 78.9629, lat: 22.5 };
+const VIEW_KEY = "beatbond-map-view";
+// A tilted street-level view, where the buildings stand up in 3D.
+const STREET = { zoom: 16.4, pitch: 60 };
+// Avatars are 44px wide: closer than this on screen and they would overlap.
+const CLUSTER_RADIUS_PX = 46;
+// Zoomed in this far, people close together fan out instead of merging.
+const FAN_ZOOM = 16;
+// Socket signals update single pins right away; this catches everything else
+// (expired pins, heartbeats from people who haven't moved).
+const REFRESH_MS = 60_000;
+const EMPTY = { type: "FeatureCollection" as const, features: [] };
+
+type View = { lng: number; lat: number; zoom: number; pitch: number; bearing: number };
+type MarkerEntry = { marker: mapboxgl.Marker; renderKey: string };
+
+const readView = (): View | null => {
+  try {
+    const view = JSON.parse(localStorage.getItem(VIEW_KEY) || "null") as View | null;
+    return view && [view.lng, view.lat, view.zoom, view.pitch, view.bearing].every(Number.isFinite) ? view : null;
+  } catch {
+    return null;
+  }
 };
-
-const INDIA_CENTER: L.LatLngExpression = [20.5937, 78.9629];
-const MIN_SHARE_INTERVAL_MS = 15_000;
-const MIN_CONTEXT_INTERVAL_MS = 60_000;
-const escapeHtml = (value = "") => value.replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character] || character);
-
-const markerIcon = (color: string, label: string) => L.divIcon({ className: "friend-map-marker", iconSize: [40, 40], iconAnchor: [20, 20], html: `<span class="friend-map-marker__dot" style="--marker-color:${color}">${label}</span>` });
-// Only a saved/customized avatar replaces the normal profile photo. This
-// keeps profile photos visible for users who have never created an avatar.
-const mapAvatarUrl = (user: LiveLocation) => {
-  const hasCustomAvatar = Boolean(user.avatar?.options && Object.keys(user.avatar.options).length > 0);
-  const profileImage = typeof user.user?.imageUrl === "string" ? user.user.imageUrl.trim() : "";
-  return hasCustomAvatar ? avatarUrl(user.avatar, user.userId) : profileImage || undefined;
-};
-const liveUserIcon = (user: LiveLocation) => {
-  const name = user.user?.fullName || "Live user";
-  const imageUrl = mapAvatarUrl(user);
-  const initial = escapeHtml((name.trim()[0] || "L").toUpperCase());
-  // The fallback keeps the marker clean even when a profile-image host rejects
-  // a stale URL or an image request fails.
-  const avatar = imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'" /><b class="live-user-marker__fallback">${initial}</b>` : `<b>${initial}</b>`;
-  return L.divIcon({ className: `live-user-marker ${user.isLive ? "is-live" : "is-last-location"}`, iconSize: [48, 48], iconAnchor: [24, 24], html: `<span class="live-user-marker__avatar ${user.isFriend ? "is-friend" : ""}">${avatar}<i></i></span>` });
+const saveView = (map: mapboxgl.Map) => {
+  const { lng, lat } = map.getCenter();
+  try {
+    localStorage.setItem(VIEW_KEY, JSON.stringify({ lng, lat, zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing() }));
+  } catch {
+    /* A remembered view is only a convenience. */
+  }
 };
 
 const MapPage = () => {
-  const { isSignedIn } = useUser();
+  const { isSignedIn, user } = useUser();
   const navigate = useNavigate();
   const socket = useChatStore((state) => state.socket);
+  const socketConnected = useChatStore((state) => state.isConnected);
+  const userActivities = useChatStore((state) => state.userActivities);
+  const fix = useLocationStore((state) => state.fix);
+  const permission = useLocationStore((state) => state.permission);
+  const isLocating = useLocationStore((state) => state.isLocating);
+
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<L.Map | null>(null);
-  const userMarkerRef = useRef<L.Marker | null>(null);
-  const placeMarkersRef = useRef<L.Marker[]>([]);
-  const liveMarkersRef = useRef(new Map<string, L.Marker>());
-  const watchRef = useRef<number | null>(null);
-  const sharingRef = useRef(false);
-  const visibilityRef = useRef<LocationVisibility>("everyone");
-  const hasReceivedLiveFixRef = useRef(false);
-  const lastSharedRef = useRef<{ point: L.LatLng; at: number } | null>(null);
-  const lastContextRef = useRef<{ point: L.LatLng; at: number } | null>(null);
-  const [query, setQuery] = useState("");
-  const [areaName, setAreaName] = useState("");
-  const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
-  const [liveLocations, setLiveLocations] = useState<LiveLocation[]>([]);
-  const [selectedUser, setSelectedUser] = useState<LiveLocation | null>(null);
-  const [isSearching, setIsSearching] = useState(false);
-  const [isLocating, setIsLocating] = useState(false);
-  const [isSharing, setIsSharing] = useState(false);
-  const [visibility, setVisibility] = useState<LocationVisibility>("everyone");
-  const [mapStatus, setMapStatus] = useState<"loading" | "ready" | "error">("loading");
+  const cardRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<mapboxgl.Map | null>(null);
+  const selfRef = useRef<mapboxgl.Marker | null>(null);
+  const markersRef = useRef(new Map<string, MarkerEntry>());
+  const placeMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const peopleRef = useRef<LiveLocation[]>([]);
+  const cardHeightRef = useRef(0);
+  const followRef = useRef(false);
+  const centeredRef = useRef(false);
 
-  const drawPlaces = useCallback((places: NearbyPlace[]) => {
-    placeMarkersRef.current.forEach((marker) => marker.remove());
-    placeMarkersRef.current = places.map((place) => L.marker([place.lat, place.lng], { icon: markerIcon("#2563eb", "•") }).bindPopup(`<strong>${escapeHtml(place.name)}</strong><br><span>${escapeHtml(place.category)}</span>`).addTo(mapRef.current!));
+  const [people, setPeople] = useState<LiveLocation[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [following, setFollowing] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const [mapKey, setMapKey] = useState(0);
+  const [mapState, setMapState] = useState<"loading" | "ready" | "error" | "unavailable">(TOKEN ? "loading" : "unavailable");
+  const [layoutTick, setLayoutTick] = useState(0);
+  const [cardHeight, setCardHeight] = useState(0);
+
+  useEffect(() => {
+    peopleRef.current = people;
+  }, [people]);
+
+  const activityOf = useCallback(
+    (person: LiveLocation) => (socketConnected ? userActivities.get(person.userId) ?? null : person.user?.currentActivity ?? null),
+    [socketConnected, userActivities],
+  );
+  const selected = selectedId ? people.find((person) => person.userId === selectedId) ?? null : null;
+
+  const setFollow = useCallback((value: boolean) => {
+    followRef.current = value;
+    setFollowing(value);
   }, []);
-  const loadContext = useCallback(async (location: Coordinates) => {
-    try { const { data } = await axiosInstance.get<{ areaName: string; places: NearbyPlace[] }>("/locations/context", { params: location }); const places = (data.places || []).slice(0, 12); setAreaName(data.areaName || ""); setNearbyPlaces(places); if (mapRef.current) drawPlaces(places); } catch { /* Map remains useful without reverse geocoding. */ }
-  }, [drawPlaces]);
-  const loadLiveLocations = useCallback(async () => {
-    if (!isSignedIn) return setLiveLocations([]);
-    try { const { data } = await axiosInstance.get<LiveLocation[]>("/locations/live"); setLiveLocations(data); } catch { setLiveLocations([]); }
-  }, [isSignedIn]);
-  const loadLocationPreference = useCallback(async () => {
-    if (!isSignedIn) return;
+
+  // Keeps whatever the camera moves to clear of the card at the bottom.
+  const padding = useCallback(() => ({ top: 90, bottom: cardHeightRef.current + 40, left: 24, right: 24 }), []);
+
+  const flyTo = useCallback((point: LatLng, options: { zoom?: number; pitch?: number; duration?: number } = {}) => {
+    const map = mapRef.current;
+    if (!map) return;
+    map.flyTo({
+      center: [point.lng, point.lat],
+      zoom: options.zoom ?? Math.max(map.getZoom(), STREET.zoom),
+      pitch: options.pitch ?? Math.max(map.getPitch(), 50),
+      padding: padding(),
+      duration: options.duration ?? 1800,
+    });
+  }, [padding]);
+
+  const showAccuracy = useCallback(() => {
+    const current = useLocationStore.getState().fix;
+    const source = mapRef.current?.getSource("me-accuracy") as mapboxgl.GeoJSONSource | undefined;
+    source?.setData(current ? circlePolygon(current, current.accuracy) : EMPTY);
+  }, []);
+
+  // ---- The 3D map ----
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    if (!TOKEN) {
+      console.error("The map needs VITE_MAPBOX_ACCESS_TOKEN (a public Mapbox token) at build time.");
+      return;
+    }
+    const saved = readView();
+    const startFix = useLocationStore.getState().fix;
+    // Open where you are when that's already known; otherwise where you last
+    // looked (or India) until your position arrives and the camera flies to it.
+    const start: View = startFix
+      ? { lng: startFix.lng, lat: startFix.lat, zoom: STREET.zoom, pitch: STREET.pitch, bearing: -20 }
+      : saved ?? { ...INDIA, zoom: 3.4, pitch: 0, bearing: 0 };
+    centeredRef.current = Boolean(startFix);
+    setMapState("loading");
+
+    let map: mapboxgl.Map;
     try {
-      const { data } = await axiosInstance.get<{ sharingEnabled: boolean; visibility: LocationVisibility }>("/locations/me");
-      const savedVisibility = data.visibility === "friends" ? "friends" : "everyone";
-      visibilityRef.current = savedVisibility;
-      setVisibility(savedVisibility);
-    } catch { /* The map works before a preference has been saved. */ }
-  }, [isSignedIn]);
-  const shareLocation = useCallback(async (location: Coordinates) => {
-    if (!sharingRef.current) return;
-    const point = L.latLng(location.lat, location.lng); const previous = lastSharedRef.current; const now = Date.now();
-    if (previous && now - previous.at < MIN_SHARE_INTERVAL_MS && previous.point.distanceTo(point) < 30) return;
-    lastSharedRef.current = { point, at: now };
-    try { await axiosInstance.put("/locations/me", { latitude: location.lat, longitude: location.lng, sharingEnabled: true, visibility: visibilityRef.current }); } catch { /* Retry on the next position update. */ }
-  }, []);
-  const showPosition = useCallback((position: GeolocationPosition, focus = true) => {
-    const location = { lat: position.coords.latitude, lng: position.coords.longitude }; const map = mapRef.current; if (!map) return;
-    const point = L.latLng(location.lat, location.lng);
-    if (!userMarkerRef.current) userMarkerRef.current = L.marker(point, { icon: markerIcon("#ef4444", "You") }).addTo(map); else userMarkerRef.current.setLatLng(point);
-    if (focus) map.flyTo(point, 16, { duration: 0.7 });
-    const previousContext = lastContextRef.current;
-    if (focus || !previousContext || point.distanceTo(previousContext.point) > 500 || Date.now() - previousContext.at > MIN_CONTEXT_INTERVAL_MS) { lastContextRef.current = { point, at: Date.now() }; void loadContext(location); }
-    void shareLocation(location);
-  }, [loadContext, shareLocation]);
-  const startSharing = useCallback(() => {
-    if (!navigator.geolocation) return toast.error("Location is not supported by this browser.");
-    if (sharingRef.current || watchRef.current !== null) return;
-    sharingRef.current = true; hasReceivedLiveFixRef.current = false; setIsSharing(true);
-    watchRef.current = navigator.geolocation.watchPosition((position) => { const focus = !hasReceivedLiveFixRef.current; hasReceivedLiveFixRef.current = true; showPosition(position, focus); }, () => { sharingRef.current = false; setIsSharing(false); if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current); watchRef.current = null; toast.error("Allow location access to share your live location."); }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 10000 });
-  }, [showPosition]);
-  const stopSharing = useCallback(async () => {
-    sharingRef.current = false; setIsSharing(false); hasReceivedLiveFixRef.current = false; lastSharedRef.current = null;
-    if (watchRef.current !== null) { navigator.geolocation.clearWatch(watchRef.current); watchRef.current = null; }
-    try { await axiosInstance.delete("/locations/me"); } catch { toast.error("Could not turn off location sharing. Please try again."); }
+      map = new mapboxgl.Map({
+        container,
+        style: STYLE,
+        center: [start.lng, start.lat],
+        zoom: start.zoom,
+        pitch: start.pitch,
+        bearing: start.bearing,
+        maxPitch: 75,
+        attributionControl: false,
+        logoPosition: "bottom-right",
+        config: { basemap: { lightPreset: "day", showPointOfInterestLabels: true } },
+      });
+    } catch {
+      // No WebGL (very old phones, or hardware acceleration turned off).
+      setMapState("error");
+      return;
+    }
+    mapRef.current = map;
+    map.addControl(new mapboxgl.AttributionControl({ compact: true }), "bottom-left");
+    map.addControl(new mapboxgl.NavigationControl({ showZoom: false, visualizePitch: true }), "top-right");
+
+    let loaded = false;
+    const failTimer = window.setTimeout(() => { if (!loaded) setMapState("error"); }, 20_000);
+    map.on("load", () => {
+      loaded = true;
+      window.clearTimeout(failTimer);
+      map.addSource("me-accuracy", { type: "geojson", data: EMPTY });
+      map.addLayer({ id: "me-accuracy-fill", type: "fill", source: "me-accuracy", slot: "middle", paint: { "fill-color": "#3b82f6", "fill-opacity": 0.15, "fill-emissive-strength": 1 } });
+      map.addLayer({ id: "me-accuracy-line", type: "line", source: "me-accuracy", slot: "middle", paint: { "line-color": "#60a5fa", "line-width": 1.5, "line-opacity": 0.8, "line-emissive-strength": 1 } });
+      showAccuracy();
+      setMapState("ready");
+      setLayoutTick((tick) => tick + 1);
+    });
+    map.on("error", (event) => {
+      // A rejected token can't recover; single missing tiles can.
+      if (!loaded && (event.error as { status?: number } | undefined)?.status === 401) setMapState("error");
+    });
+
+    let saveTimer = 0;
+    map.on("dragstart", () => {
+      setFollow(false);
+      // Exploring before your position arrives: don't pull the camera away.
+      centeredRef.current = true;
+    });
+    map.on("moveend", () => {
+      container.classList.toggle("show-names", map.getZoom() >= 15);
+      setLayoutTick((tick) => tick + 1);
+      window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(() => saveView(map), 400);
+    });
+    map.on("click", (event) => {
+      if (event.originalEvent.target === map.getCanvas()) setSelectedId(null);
+    });
+
+    // The desktop layout has resizable side panels, which change the map's
+    // size without any window resize.
+    const observer = new ResizeObserver(() => map.resize());
+    observer.observe(container);
+    const markers = markersRef.current;
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(failTimer);
+      window.clearTimeout(saveTimer);
+      map.remove();
+      mapRef.current = null;
+      selfRef.current = null;
+      placeMarkerRef.current = null;
+      markers.clear();
+    };
+  }, [mapKey, setFollow, showAccuracy]);
+
+  // The card's height decides where the camera centres things.
+  useEffect(() => {
+    const cardArea = cardRef.current;
+    if (!cardArea) return;
+    const observer = new ResizeObserver(() => {
+      cardHeightRef.current = cardArea.offsetHeight;
+      setCardHeight(cardArea.offsetHeight);
+    });
+    observer.observe(cardArea);
+    return () => observer.disconnect();
   }, []);
 
+  // Relative times and liveness move with the clock.
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return;
-    const map = L.map(containerRef.current, { zoomControl: false, attributionControl: true, preferCanvas: true, zoomAnimation: true, fadeAnimation: true, markerZoomAnimation: true, inertia: true }).setView(INDIA_CENTER, 5);
-    mapRef.current = map;
-    const tiles = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, keepBuffer: 1, updateWhenIdle: true, attribution: "© OpenStreetMap contributors" }).addTo(map);
-    let tilesLoaded = false; const tileTimeout = window.setTimeout(() => { if (!tilesLoaded) setMapStatus("error"); }, 15_000);
-    tiles.once("load", () => { tilesLoaded = true; window.clearTimeout(tileTimeout); map.invalidateSize(); setMapStatus("ready"); });
-    const resizeMap = () => map.invalidateSize(); window.addEventListener("resize", resizeMap); requestAnimationFrame(resizeMap);
-    navigator.geolocation?.getCurrentPosition((position) => showPosition(position, false), () => undefined, { enableHighAccuracy: false, timeout: 8000, maximumAge: 60_000 });
-    return () => { window.removeEventListener("resize", resizeMap); window.clearTimeout(tileTimeout); if (watchRef.current !== null) navigator.geolocation?.clearWatch(watchRef.current); map.remove(); mapRef.current = null; };
-  }, [showPosition]);
-  useEffect(() => { void loadLiveLocations(); const refresh = window.setInterval(() => void loadLiveLocations(), 20_000); return () => window.clearInterval(refresh); }, [loadLiveLocations]);
-  useEffect(() => { void loadLocationPreference(); }, [loadLocationPreference]);
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  // ---- You ----
   useEffect(() => {
-    const onLocationUpdate = () => void loadLiveLocations();
+    void useLocationStore.getState().checkPermission();
+  }, []);
+
+  // The map shows where you are as soon as it opens (the browser asks for
+  // permission the first time) and keeps your marker live while it's open.
+  const locationBlocked = permission === "denied" || permission === "unsupported";
+  useEffect(() => {
+    if (locationBlocked) return;
+    const { watch, unwatch } = useLocationStore.getState();
+    watch("map");
+    return () => unwatch("map");
+  }, [locationBlocked]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !fix) return;
+    const target = { lat: fix.lat, lng: fix.lng };
+    if (!selfRef.current) {
+      selfRef.current = new mapboxgl.Marker({ element: selfElement(user?.imageUrl, user?.firstName ?? user?.fullName ?? "") })
+        .setLngLat([fix.lng, fix.lat])
+        .addTo(map);
+    } else {
+      const marker = selfRef.current;
+      glide(marker, marker.getLngLat(), target, (point) => marker.setLngLat([point.lng, point.lat]), 700);
+    }
+    showAccuracy();
+
+    if (!centeredRef.current) {
+      // Fly to where you are: a long sweep down from the globe, or a short hop.
+      centeredRef.current = true;
+      map.flyTo({ center: [fix.lng, fix.lat], zoom: STREET.zoom, pitch: STREET.pitch, bearing: -20, padding: padding(), duration: map.getZoom() < 10 ? 4000 : 2000 });
+    } else if (followRef.current && !map.isMoving()) {
+      map.easeTo({ center: [fix.lng, fix.lat], padding: padding(), duration: 900 });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the user's photo is kept current by the effect below
+  }, [fix, padding, showAccuracy]);
+
+  useEffect(() => {
+    const element = selfRef.current?.getElement();
+    if (element) renderSelf(element, user?.imageUrl, user?.firstName ?? user?.fullName ?? "");
+  }, [user?.imageUrl, user?.firstName, user?.fullName]);
+
+  // ---- People ----
+  const loadPeople = useCallback(async () => {
+    if (!isSignedIn) {
+      setPeople([]);
+      return;
+    }
+    try {
+      const { data } = await axiosInstance.get<LiveLocation[]>("/locations/live");
+      setPeople(data);
+    } catch {
+      /* Keep showing the last known pins. */
+    }
+  }, [isSignedIn]);
+
+  useEffect(() => {
+    void loadPeople();
+    const refresh = () => { if (document.visibilityState === "visible") void loadPeople(); };
+    const timer = window.setInterval(refresh, REFRESH_MS);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [loadPeople]);
+
+  // A socket signal names who changed: refresh just that pin, and group bursts.
+  useEffect(() => {
+    if (!isSignedIn) return;
+    const pending = new Map<string, number>();
+    const refreshPerson = async (userId: string) => {
+      try {
+        const { data } = await axiosInstance.get<LiveLocation | null>(`/locations/live/${encodeURIComponent(userId)}`);
+        setPeople((current) => {
+          const exists = current.some((person) => person.userId === userId);
+          if (!data) return exists ? current.filter((person) => person.userId !== userId) : current;
+          return exists ? current.map((person) => (person.userId === userId ? data : person)) : [...current, data];
+        });
+      } catch {
+        /* The regular refresh catches up. */
+      }
+    };
+    const onLocationUpdate = (payload?: { userId?: string }) => {
+      const userId = payload?.userId;
+      if (!userId) return void loadPeople();
+      if (userId === user?.id) return;
+      window.clearTimeout(pending.get(userId));
+      pending.set(userId, window.setTimeout(() => {
+        pending.delete(userId);
+        void refreshPerson(userId);
+      }, 700));
+    };
     socket.on("friend_location_updated", onLocationUpdate);
     socket.on("live_location_updated", onLocationUpdate);
     return () => {
       socket.off("friend_location_updated", onLocationUpdate);
       socket.off("live_location_updated", onLocationUpdate);
+      pending.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [socket, loadLiveLocations]);
-  useEffect(() => {
-    const map = mapRef.current; if (!map) return;
-    const activeIds = new Set(liveLocations.map((person) => person.userId));
-    liveMarkersRef.current.forEach((marker, userId) => { if (!activeIds.has(userId)) { marker.remove(); liveMarkersRef.current.delete(userId); } });
-    liveLocations.forEach((person) => {
-      const point: L.LatLngExpression = [person.latitude, person.longitude]; const existing = liveMarkersRef.current.get(person.userId);
-      if (existing) existing.setLatLng(point).setIcon(liveUserIcon(person));
-      else liveMarkersRef.current.set(person.userId, L.marker(point, { icon: liveUserIcon(person), keyboard: true, title: person.user?.fullName || "Live user" }).on("click", () => setSelectedUser(person)).addTo(map));
-    });
-  }, [liveLocations]);
+  }, [socket, loadPeople, isSignedIn, user?.id]);
 
-  const locateMe = () => { if (!navigator.geolocation) return toast.error("Location is not supported by this browser."); setIsLocating(true); navigator.geolocation.getCurrentPosition((position) => { showPosition(position, true); setIsLocating(false); }, () => { setIsLocating(false); toast.error("Allow location access to show your area on the map."); }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 30_000 }); };
-  const search = async (event: FormEvent) => { event.preventDefault(); const term = query.trim(); if (!term) return; setIsSearching(true); try { const { data } = await axiosInstance.get<{ lat: number; lng: number }>("/locations/search", { params: { q: term } }); mapRef.current?.flyTo([data.lat, data.lng], 16, { duration: 0.7 }); setQuery(""); } catch { toast.error("No matching place found."); } finally { setIsSearching(false); } };
-  const changeVisibility = async (nextVisibility: LocationVisibility) => {
-    const previousVisibility = visibility;
-    visibilityRef.current = nextVisibility;
-    setVisibility(nextVisibility);
-    try { await axiosInstance.patch("/locations/me/visibility", { visibility: nextVisibility }); }
-    catch { visibilityRef.current = previousVisibility; setVisibility(previousVisibility); toast.error("Could not update location visibility. Please try again."); }
+  useEffect(() => {
+    if (selectedId && !selected) setSelectedId(null);
+  }, [selectedId, selected]);
+
+  const selectPerson = useCallback((userId: string, fly = false) => {
+    const map = mapRef.current;
+    const person = peopleRef.current.find((candidate) => candidate.userId === userId);
+    setSelectedId(userId);
+    setFollow(false);
+    centeredRef.current = true;
+    if (!map || !person) return;
+    const point = { lat: person.latitude, lng: person.longitude };
+    if (fly) flyTo(point);
+    // Wait for the card to switch, then centre the pin above it.
+    else window.setTimeout(() => map.easeTo({ center: [point.lng, point.lat], padding: padding(), duration: 700 }), 60);
+  }, [flyTo, padding, setFollow]);
+
+  // Marker listeners are attached once per marker, so they go through refs to
+  // always reach the latest callbacks.
+  const selectRef = useRef(selectPerson);
+  const flyRef = useRef(flyTo);
+  useEffect(() => {
+    selectRef.current = selectPerson;
+    flyRef.current = flyTo;
+  }, [selectPerson, flyTo]);
+
+  // ---- People markers: grouped when they'd overlap, updated in place ----
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || mapState === "error" || mapState === "unavailable") return;
+    const zoom = map.getZoom();
+    const live = (person: LiveLocation) => isLiveNow(person, now);
+    const ordered = [...people].sort((a, b) =>
+      Number(b.userId === selectedId) - Number(a.userId === selectedId)
+      || Number(b.isFriend) - Number(a.isFriend)
+      || Number(live(b)) - Number(live(a)));
+    const groups = clusterByDistance(ordered.map((person) => {
+      const point = map.project([person.longitude, person.latitude]);
+      return { x: point.x, y: point.y, item: person };
+    }), CLUSTER_RADIUS_PX);
+
+    const markers = markersRef.current;
+    const seen = new Set<string>();
+
+    const placePerson = (person: LiveLocation, offset: [number, number]) => {
+      const key = `u:${person.userId}`;
+      seen.add(key);
+      const isLive = live(person);
+      const listening = Boolean(nowPlaying(activityOf(person)));
+      const renderKey = personRenderKey(person, isLive, listening);
+      let entry = markers.get(key);
+      if (!entry) {
+        const element = personElement(person, isLive, listening);
+        const select = (event: Event) => {
+          event.stopPropagation();
+          selectRef.current(person.userId);
+        };
+        element.addEventListener("click", select);
+        element.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") select(event); });
+        entry = { marker: new mapboxgl.Marker({ element }).setLngLat([person.longitude, person.latitude]).addTo(map), renderKey };
+        markers.set(key, entry);
+      } else {
+        const marker = entry.marker;
+        if (entry.renderKey !== renderKey) {
+          renderPerson(marker.getElement(), person, isLive, listening);
+          entry.renderKey = renderKey;
+        }
+        const from = marker.getLngLat();
+        if (from.lng !== person.longitude || from.lat !== person.latitude) {
+          glide(marker, from, { lat: person.latitude, lng: person.longitude }, (point) => marker.setLngLat([point.lng, point.lat]));
+        }
+      }
+      entry.marker.setOffset(offset);
+      const element = entry.marker.getElement();
+      const isSelected = person.userId === selectedId;
+      element.classList.toggle("is-selected", isSelected);
+      element.style.zIndex = isSelected ? "3" : person.isFriend ? "2" : "1";
+    };
+
+    groups.forEach((members) => {
+      if (members.length === 1) return placePerson(members[0].item, [0, 0]);
+      const clustered = members.map((member) => member.item).sort((a, b) => a.userId.localeCompare(b.userId));
+      if (zoom >= FAN_ZOOM) {
+        // Close up, show everyone: spread them in a ring around their spot.
+        const radius = 22 + clustered.length * 5;
+        clustered.forEach((person, index) => {
+          const angle = (index / clustered.length) * 2 * Math.PI - Math.PI / 2;
+          placePerson(person, [Math.round(Math.cos(angle) * radius), Math.round(Math.sin(angle) * radius)]);
+        });
+        return;
+      }
+      const key = `c:${clustered.map((person) => person.userId).join(",")}`;
+      seen.add(key);
+      const center = {
+        lat: clustered.reduce((sum, person) => sum + person.latitude, 0) / clustered.length,
+        lng: clustered.reduce((sum, person) => sum + person.longitude, 0) / clustered.length,
+      };
+      const renderKey = clustered.map((person) => personRenderKey(person, live(person), false)).join("#");
+      const entry = markers.get(key);
+      if (!entry) {
+        const element = clusterElement(clustered, live);
+        element.addEventListener("click", (event) => {
+          event.stopPropagation();
+          flyRef.current(center, { zoom: Math.max(map.getZoom() + 2.5, FAN_ZOOM + 0.5) });
+        });
+        markers.set(key, { marker: new mapboxgl.Marker({ element }).setLngLat([center.lng, center.lat]).addTo(map), renderKey });
+      } else {
+        if (entry.renderKey !== renderKey) {
+          renderCluster(entry.marker.getElement(), clustered, live);
+          entry.renderKey = renderKey;
+        }
+        entry.marker.setLngLat([center.lng, center.lat]);
+      }
+    });
+
+    markers.forEach((entry, key) => {
+      if (seen.has(key)) return;
+      entry.marker.remove();
+      markers.delete(key);
+    });
+  }, [people, now, activityOf, selectedId, layoutTick, mapState]);
+
+  // ---- Actions ----
+  const getBias = useCallback(() => {
+    const center = mapRef.current?.getCenter();
+    return center ? { lat: center.lat, lng: center.lng } : null;
+  }, []);
+
+  const pickPlace = useCallback((place: PlaceResult) => {
+    const map = mapRef.current;
+    if (!map) return;
+    setFollow(false);
+    setSelectedId(null);
+    centeredRef.current = true;
+    placeMarkerRef.current?.remove();
+    placeMarkerRef.current = new mapboxgl.Marker({ element: placeElement(place.name), anchor: "bottom" }).setLngLat([place.lng, place.lat]).addTo(map);
+    const zoom = zoomForPlace(place.kind);
+    if (place.bounds && zoom < STREET.zoom) {
+      const [[south, west], [north, east]] = place.bounds;
+      map.fitBounds([[west, south], [east, north]], { padding: padding(), maxZoom: STREET.zoom, pitch: 45, duration: 2200 });
+    } else {
+      flyTo({ lat: place.lat, lng: place.lng }, { zoom: Math.max(zoom, STREET.zoom), pitch: STREET.pitch });
+    }
+  }, [flyTo, padding, setFollow]);
+
+  const clearPlace = useCallback(() => {
+    placeMarkerRef.current?.remove();
+    placeMarkerRef.current = null;
+  }, []);
+
+  const locateMe = async () => {
+    setFollow(true);
+    const found = await useLocationStore.getState().locate();
+    if (!found) return setFollow(false);
+    flyTo(found, { pitch: STREET.pitch });
   };
 
-  return <main className="friend-map isolate relative h-full min-h-[320px] overflow-hidden bg-zinc-950">
-    <div ref={containerRef} className="absolute inset-0 z-0" aria-label="Interactive live listeners map" />
-    {mapStatus !== "ready" && <div className="absolute inset-0 z-20 grid place-items-center bg-zinc-950/80 p-6 text-center text-white backdrop-blur-sm"><div className="max-w-sm rounded-3xl border border-white/10 bg-zinc-900/95 p-6 shadow-2xl"><Box className="mx-auto mb-3 size-9 text-primary" /><h1 className="font-bold">{mapStatus === "loading" ? "Loading map…" : "Map connection failed"}</h1><p className="mt-2 text-sm text-zinc-400">{mapStatus === "loading" ? "Preparing streets and live listeners." : "Check your internet connection, then refresh this page."}</p></div></div>}
-    <form onSubmit={search} className="absolute left-4 right-4 top-[calc(env(safe-area-inset-top)+0.75rem)] z-10 sm:left-6 sm:right-auto sm:w-[min(440px,calc(100%-3rem))]"><div className="relative"><Search className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-zinc-500" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search a place…" className="h-12 rounded-2xl border-white/10 bg-zinc-950/85 pl-12 pr-12 text-white shadow-xl backdrop-blur-xl" />{query && <button type="button" onClick={() => setQuery("")} aria-label="Clear search" className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400"><X className="size-5" /></button>}</div></form>
-    <div className="map-action-controls absolute right-4 top-[calc(env(safe-area-inset-top)+4.5rem)] z-10 flex flex-col gap-2"><Button type="button" onClick={locateMe} disabled={isSearching || isLocating} className="h-10 gap-2 rounded-full bg-zinc-950/90 px-4 text-white shadow-xl backdrop-blur hover:bg-zinc-800"><LocateFixed className={`size-4 ${isLocating ? "animate-pulse" : ""}`} />{isLocating ? "Locating…" : "Locate me"}</Button><Button type="button" onClick={() => isSharing ? void stopSharing() : startSharing()} className={`h-10 gap-2 rounded-full px-4 shadow-xl ${isSharing ? "bg-rose-500 hover:bg-rose-600" : "bg-zinc-950/90 text-white hover:bg-zinc-800"}`} aria-pressed={isSharing}><Radio className={`size-4 ${isSharing ? "animate-pulse" : ""}`} />Location: {isSharing ? "On" : "Off"}</Button></div>
-    <section className="absolute bottom-4 left-4 right-4 z-10 rounded-2xl border border-white/10 bg-zinc-950/85 p-4 text-white shadow-2xl backdrop-blur-xl sm:left-6 sm:right-auto sm:w-96"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-full bg-primary/20 text-primary"><Navigation className="size-5" /></span><div className="min-w-0 flex-1"><p className="truncate font-semibold">{areaName || "Live listeners map"}</p><p className="truncate text-xs text-zinc-400">{liveLocations.length ? `${liveLocations.filter((user) => user.isLive).length} live · ${liveLocations.filter((user) => !user.isLive).length} last locations` : "No saved locations yet"}</p></div><Users className="size-5 text-violet-300" /></div><div className="mt-3 flex items-center justify-between gap-3"><p className="text-xs text-zinc-400">{isSharing ? "Your location is visible on the live map" : "Share your location with BeatBond"}</p><Button type="button" size="sm" onClick={() => isSharing ? void stopSharing() : startSharing()} className={isSharing ? "bg-rose-500 hover:bg-rose-600" : ""}>{isSharing ? "Stop" : "Share live"}</Button></div>{nearbyPlaces.length > 0 && <div className="mt-3 flex gap-2 overflow-x-auto">{nearbyPlaces.slice(0, 5).map((place) => <button key={place.id} type="button" onClick={() => mapRef.current?.flyTo([place.lat, place.lng], 17, { duration: 0.7 })} className="shrink-0 rounded-full bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20">{place.name}</button>)}</div>}</section>
-    <section className="absolute bottom-4 right-4 z-10 rounded-2xl border border-white/10 bg-zinc-950/90 p-3 text-white shadow-xl backdrop-blur-xl sm:bottom-6 sm:right-6"><label className="flex items-center gap-2 text-xs text-zinc-300"><Globe2 className="size-4 text-violet-300" /><span>Who can see you</span><select aria-label="Who can see your location" value={visibility} onChange={(event) => void changeVisibility(event.target.value as LocationVisibility)} className="bg-transparent font-semibold text-white outline-none"><option value="everyone" className="bg-zinc-900">Everyone</option><option value="friends" className="bg-zinc-900">Friends only</option></select></label></section>
-    {selectedUser && <section className="absolute bottom-4 right-4 z-[1200] w-[calc(100%-2rem)] max-w-sm overflow-hidden rounded-2xl border border-white/15 bg-zinc-950/95 text-white shadow-2xl backdrop-blur-xl sm:bottom-6 sm:right-6"><button type="button" onClick={() => setSelectedUser(null)} aria-label="Close live user card" className="absolute right-3 top-3 z-10 grid size-8 place-items-center rounded-full bg-black/45 text-zinc-300 hover:bg-white/15"><X className="size-4" /></button><div className="flex gap-3 p-4 pr-12"><div className="relative shrink-0"><div className="grid size-14 place-items-center overflow-hidden rounded-2xl bg-primary/20 text-lg font-bold text-primary">{mapAvatarUrl(selectedUser) ? <img src={mapAvatarUrl(selectedUser)} alt="" className="size-full object-cover" /> : (selectedUser.user?.fullName?.[0] || "L")}</div><span className={`absolute -bottom-1 -right-1 grid size-5 place-items-center rounded-full border-2 border-zinc-950 ${selectedUser.isLive ? "bg-emerald-500" : "bg-zinc-500"}`}><Wifi className="size-2.5" /></span></div><div className="min-w-0"><p className="truncate font-bold">{selectedUser.user?.fullName || "Live user"}</p><p className="truncate text-sm text-zinc-400">@{selectedUser.user?.username || "beatbond"}</p><p className={`mt-1 flex items-center gap-1.5 text-xs font-medium ${selectedUser.isLive ? "text-emerald-400" : "text-zinc-400"}`}><span className={`size-1.5 rounded-full ${selectedUser.isLive ? "animate-pulse bg-emerald-400" : "bg-zinc-500"}`} />{selectedUser.isLive ? "Live location shared" : "Last location shared"}</p></div></div><div className="border-y border-white/10 bg-white/[.035] px-4 py-3">{selectedUser.user?.currentActivity ? <p className="flex items-center gap-2 truncate text-sm text-violet-200"><Music2 className="size-4 shrink-0 text-violet-400" /><span className="truncate">Live listening: {selectedUser.user.currentActivity}</span></p> : <p className="text-sm text-zinc-400">{selectedUser.isLive ? "Live now on BeatBond" : "Location sharing is currently off"}</p>}</div><div className="flex flex-wrap gap-2 p-3"><Button size="sm" variant="outline" onClick={() => navigate(`/profile/${selectedUser.userId}`)} className="border-white/15 bg-white/5 hover:bg-white/10"><UserRound className="size-4" />View profile</Button>{selectedUser.isFriend ? <Button size="sm" onClick={() => navigate(`/chat?userId=${selectedUser.userId}`)}><MessageCircle className="size-4" />Chat</Button> : <FriendRequestButton userId={selectedUser.userId} />}</div></section>}
-  </main>;
+  return (
+    <main
+      className="friend-map isolate relative h-full min-h-[320px] overflow-hidden bg-zinc-950"
+      style={{ "--card-h": `${cardHeight}px` } as CSSProperties}
+    >
+      {/* Inline: Mapbox's stylesheet sets position: relative on the container. */}
+      <div ref={containerRef} style={{ position: "absolute", inset: 0 }} className="z-0" aria-label="3D live listeners map" />
+
+      <div className="absolute inset-x-3 top-[calc(env(safe-area-inset-top)+0.75rem)] z-20 flex items-start gap-2 sm:inset-x-6 md:right-auto md:w-[420px]">
+        {/* Phones open the map fullscreen without the bottom navigation. */}
+        <button
+          type="button"
+          onClick={() => navigate(beginBackNavigation(), { replace: true })}
+          aria-label="Go back"
+          title="Go back"
+          className="grid size-12 shrink-0 place-items-center rounded-2xl border border-white/10 bg-zinc-950/90 text-white shadow-xl backdrop-blur-xl md:hidden"
+        >
+          <ArrowLeft className="size-5" />
+        </button>
+        <PlaceSearch people={people} getBias={getBias} onPickPlace={pickPlace} onPickPerson={(person) => selectPerson(person.userId, true)} onClear={clearPlace} />
+      </div>
+
+      <button
+        type="button"
+        onClick={() => void locateMe()}
+        disabled={isLocating}
+        aria-label={following ? "Following your location" : "Show my location"}
+        title={following ? "Following your location" : "Show my location"}
+        className={cn(
+          "absolute bottom-[calc(var(--card-h)+env(safe-area-inset-bottom)+3.25rem)] right-3 z-10 grid size-12 place-items-center rounded-2xl border shadow-xl backdrop-blur-xl transition-colors sm:right-6 md:bottom-12",
+          following ? "border-sky-400/60 bg-sky-500 text-white" : "border-white/10 bg-zinc-950/90 text-white hover:bg-zinc-800",
+        )}
+      >
+        {isLocating ? <Loader2 className="size-5 animate-spin" /> : <LocateFixed className="size-5" />}
+      </button>
+
+      <div ref={cardRef} className="absolute inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+2.25rem)] z-10 sm:inset-x-6 md:bottom-10 md:left-6 md:right-auto md:w-[360px]">
+        {selected ? (
+          <PersonCard person={selected} now={now} activity={activityOf(selected)} onClose={() => setSelectedId(null)} />
+        ) : (
+          <ShareCard isSignedIn={Boolean(isSignedIn)} />
+        )}
+      </div>
+
+      {mapState === "loading" && (
+        <div className="pointer-events-none absolute left-1/2 top-[calc(env(safe-area-inset-top)+5rem)] z-20 flex -translate-x-1/2 items-center gap-2 rounded-full bg-zinc-950/90 px-3 py-1.5 text-xs text-zinc-300 shadow-xl md:top-24">
+          <Loader2 className="size-3.5 animate-spin" />Loading 3D map…
+        </div>
+      )}
+      {mapState === "unavailable" && (
+        <div className="absolute inset-0 z-30 grid place-items-center bg-zinc-950 p-6">
+          <div className="max-w-sm rounded-3xl border border-white/10 bg-zinc-900/95 p-6 text-center text-white shadow-2xl">
+            <WifiOff className="mx-auto mb-3 size-9 text-zinc-400" />
+            <h1 className="font-bold">The map isn't available right now</h1>
+            <p className="mt-2 text-sm text-zinc-400">Please check back soon.</p>
+          </div>
+        </div>
+      )}
+      {mapState === "error" && (
+        <div className="absolute inset-0 z-30 grid place-items-center bg-zinc-950/80 p-6 backdrop-blur-sm">
+          <div className="max-w-sm rounded-3xl border border-white/10 bg-zinc-900/95 p-6 text-center text-white shadow-2xl">
+            <WifiOff className="mx-auto mb-3 size-9 text-zinc-400" />
+            <h1 className="font-bold">The map couldn't load</h1>
+            <p className="mt-2 text-sm text-zinc-400">Check your internet connection, then try again.</p>
+            <Button className="mt-4" onClick={() => setMapKey((key) => key + 1)}><RefreshCw className="size-4" />Try again</Button>
+          </div>
+        </div>
+      )}
+    </main>
+  );
 };
+
 export default MapPage;

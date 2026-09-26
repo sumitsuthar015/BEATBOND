@@ -20,7 +20,6 @@ import ConnectionsPage from "./pages/profile/ConnectionsPage";
 import LibraryPage from "./pages/library/LibraryPage";
 import MobileProfilePage from "./pages/profile/MobileProfilePage";
 import AudioPlayer from "./layout/components/AudioPlayer";
-import PageBackButton from "./layout/components/PageBackButton";
 import PlaylistDetailPage from "./pages/playlists/PlaylistDetailPage";
 import LikedSongsPage from "./pages/playlists/LikedSongsPage";
 import RouteHistoryTracker from "./components/RouteHistoryTracker";
@@ -63,7 +62,6 @@ function App() {
           never create a second player or tear down the active stream. */}
       <AudioPlayer />
       <RouteHistoryTracker />
-      <PageBackButton />
       <Routes>
         <Route
           path="/sso-callback"

@@ -1,151 +1,352 @@
 .friend-map {
-  --map-surface: #09090b;
-  --map-panel: rgb(9 9 11 / 0.9);
-  --map-border: rgb(255 255 255 / 0.12);
-  background: var(--map-surface);
+  background: #09090b;
 }
 
-.friend-map .leaflet-container {
-  height: 100%;
-  width: 100%;
-  background: #111827;
-  color: #f4f4f5;
-  font: inherit;
-  outline: 0;
+.friend-map .mapboxgl-canvas:focus { outline: none; }
+
+/* ---- Map controls ---- */
+.friend-map .mapboxgl-ctrl-top-right {
+  top: 0.75rem;
+  right: 0.75rem;
 }
 
-/* Keep the streets readable in the dark application without hiding map detail. */
-.friend-map .leaflet-tile-pane {
-  filter: saturate(0.82) contrast(1.05) brightness(0.9);
+.friend-map .mapboxgl-ctrl-top-right .mapboxgl-ctrl { margin: 0; }
+
+.friend-map .mapboxgl-ctrl-group {
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 1rem;
+  background: rgb(9 9 11 / 0.9);
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.35);
+  backdrop-filter: blur(16px);
 }
 
-.friend-map .leaflet-tile {
-  transition: opacity 160ms ease-out;
-  will-change: opacity, transform;
+.friend-map .mapboxgl-ctrl-group button {
+  width: 48px;
+  height: 48px;
 }
 
-.friend-map .leaflet-control-attribution {
-  margin: 0 !important;
-  border-radius: 0.5rem 0 0 0 !important;
-  background: rgb(9 9 11 / 0.75) !important;
-  color: #a1a1aa !important;
-  font-size: 10px !important;
+.friend-map .mapboxgl-ctrl-group button:hover { background-color: rgb(255 255 255 / 0.08); }
+.friend-map .mapboxgl-ctrl-compass .mapboxgl-ctrl-icon { filter: invert(1) brightness(1.2); }
+
+.friend-map .mapboxgl-ctrl-attrib.mapboxgl-compact {
+  background: rgb(9 9 11 / 0.75);
+  color: #a1a1aa;
 }
 
-.friend-map .leaflet-control-attribution a { color: #d4d4d8; }
+.friend-map .mapboxgl-ctrl-attrib a { color: #d4d4d8; }
+.friend-map .mapboxgl-ctrl-attrib-button { filter: invert(1); background-color: transparent; }
 
-.map-action-controls > button {
-  border: 1px solid rgb(255 255 255 / 0.12) !important;
-  background: rgb(9 9 11 / 0.94) !important;
-  box-shadow: 0 10px 24px rgb(0 0 0 / 0.38) !important;
+/* ---- People ---- */
+.map-person,
+.map-cluster {
+  cursor: pointer;
+  outline: none;
 }
 
-.map-action-controls > button:hover:not(:disabled) {
-  background: #27272a !important;
+.map-person { width: 52px; height: 52px; }
+.map-cluster { width: 64px; height: 56px; }
+
+.map-person__body {
+  --map-ring: #a78bfa;
+  position: relative;
+  display: block;
+  width: 52px;
+  height: 52px;
+  animation: map-pop 260ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
 }
 
-.map-action-controls > button[aria-pressed="true"] {
-  border-color: rgb(244 63 94 / 0.7) !important;
-  background: #e11d48 !important;
-  color: white !important;
-}
+.map-person__body.is-friend { --map-ring: #34d399; }
 
-.map-action-controls > button[aria-pressed="true"]:hover:not(:disabled) {
-  background: #be123c !important;
-}
-
-.friend-map-marker {
-  border: 0 !important;
-  background: transparent !important;
-}
-
-.friend-map-marker__dot {
+.map-avatar {
+  position: relative;
   display: grid;
-  height: 40px;
-  width: 40px;
+  width: 44px;
+  height: 44px;
+  margin: 4px;
+  box-sizing: border-box;
   place-items: center;
-  border: 3px solid white;
+  overflow: hidden;
+  border: 3px solid var(--map-ring, #a78bfa);
   border-radius: 9999px;
-  background: var(--marker-color);
-  box-shadow: 0 6px 18px rgb(0 0 0 / 0.4), 0 0 0 2px rgb(9 9 11 / 0.35);
+  background: #27272a;
+  box-shadow: 0 8px 20px rgb(0 0 0 / 0.5);
   color: white;
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
+  font-size: 16px;
+  font-weight: 700;
   transition: transform 180ms ease, box-shadow 180ms ease;
 }
 
-.friend-map-marker:hover .friend-map-marker__dot {
-  transform: scale(1.1);
-  box-shadow: 0 9px 24px rgb(0 0 0 / 0.48), 0 0 0 3px rgba(255, 255, 255, 0.195);
+.map-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  user-select: none;
 }
 
-.live-user-marker {
-  width: 48px !important;
-  height: 48px !important;
-  border: 0 !important;
-  background: transparent !important;
+.map-avatar__fallback { display: none; position: absolute; inset: 0; place-items: center; }
+
+/* A soft ring that keeps pulsing while someone shares live. */
+.map-person__body.is-live::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border: 2px solid var(--map-ring);
+  border-radius: 9999px;
+  animation: map-pulse 2.4s ease-out infinite;
 }
 
-.live-user-marker__avatar {
+.map-person__body.is-stale .map-avatar { filter: grayscale(0.85); opacity: 0.75; }
+
+.map-person:hover .map-avatar,
+.map-person:focus-visible .map-avatar { transform: scale(1.08); }
+
+.map-person.is-selected .map-avatar {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 3px rgb(255 255 255 / 0.95), 0 10px 26px rgb(0 0 0 / 0.55);
+}
+
+.map-person__music {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  display: flex;
+  width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 1.5px;
+  padding: 5px 4px;
+  border-radius: 9999px;
+  background: #8b5cf6;
+  box-shadow: 0 0 0 2px #09090b;
+}
+
+.map-person__music i,
+.map-eq i {
+  display: block;
+  width: 3px;
+  height: 100%;
+  border-radius: 1px;
+  background: white;
+  transform-origin: bottom;
+  animation: map-eq 900ms ease-in-out infinite;
+}
+
+.map-person__music i:nth-child(2),
+.map-eq i:nth-child(2) { animation-delay: -300ms; }
+.map-person__music i:nth-child(3),
+.map-eq i:nth-child(3) { animation-delay: -600ms; }
+
+.map-eq { display: inline-flex; height: 14px; align-items: flex-end; gap: 2px; }
+.map-eq i { background: #a78bfa; }
+
+.map-person__name {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  background: rgb(9 9 11 / 0.88);
+  color: #fafafa;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 1px);
+  transition: opacity 150ms ease;
+}
+
+.show-names .map-person__name,
+.map-person:hover .map-person__name,
+.map-person.is-selected .map-person__name { opacity: 1; }
+
+/* ---- Groups of people ---- */
+.map-cluster__body {
+  position: relative;
+  display: flex;
+  width: 64px;
+  height: 56px;
+  align-items: center;
+  justify-content: center;
+  animation: map-pop 260ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+.map-cluster__faces { display: flex; transition: transform 180ms ease; }
+.map-cluster:hover .map-cluster__faces { transform: scale(1.06); }
+
+.map-cluster__faces .map-avatar {
+  width: 34px;
+  height: 34px;
+  margin: 0 0 0 -14px;
+  border-width: 2px;
+  font-size: 13px;
+}
+
+.map-cluster__faces .map-avatar:first-child { margin-left: 0; }
+.map-cluster__faces .map-avatar.is-friend { border-color: #34d399; }
+
+.map-cluster__count {
+  position: absolute;
+  right: 0;
+  bottom: 4px;
+  display: grid;
+  min-width: 22px;
+  height: 22px;
+  box-sizing: border-box;
+  place-items: center;
+  padding: 0 6px;
+  border-radius: 9999px;
+  background: #8b5cf6;
+  box-shadow: 0 0 0 2px #09090b;
+  color: white;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.map-cluster__body.has-friend .map-cluster__count { background: #10b981; }
+
+/* ---- You: your photo in a blue ring, with a "You" tag ---- */
+/* No position here: Mapbox positions the marker element absolutely. */
+.map-self {
+  z-index: 4;
+  width: 56px;
+  height: 56px;
+  pointer-events: none;
+}
+
+.map-self__avatar {
   position: relative;
   display: grid;
   width: 48px;
   height: 48px;
+  margin: 4px;
   box-sizing: border-box;
-  overflow: hidden;
   place-items: center;
-  border: 3px solid #a78bfa;
+  overflow: hidden;
+  border: 4px solid #2563eb;
   border-radius: 9999px;
-  background: #27272a;
-  box-shadow: 0 8px 22px rgb(0 0 0 / 0.5), 0 0 0 4px rgb(124 58 237 / 0.18);
+  background: #1e3a8a;
+  box-shadow: 0 0 0 3px white, 0 10px 24px rgb(37 99 235 / 0.45);
   color: white;
-  font-size: 17px;
-  transition: transform 180ms ease, box-shadow 180ms ease;
+  font-size: 18px;
+  font-weight: 800;
 }
 
-.live-user-marker__avatar.is-friend { border-color: #34d399; box-shadow: 0 8px 22px rgb(0 0 0 / 0.5), 0 0 0 4px rgb(16 185 129 / 0.18); }
-.live-user-marker__avatar img { display: block; width: 100% !important; height: 100% !important; min-width: 100%; min-height: 100%; border-radius: inherit; object-fit: cover; }
-.live-user-marker__fallback { display: none; position: absolute; inset: 0; place-items: center; }
-.live-user-marker__avatar > b:not(.live-user-marker__fallback) { display: grid; }
-.live-user-marker.is-last-location .live-user-marker__avatar { filter: grayscale(0.9); opacity: 0.72; }
-.live-user-marker__avatar i { position: absolute; right: 1px; bottom: 1px; width: 10px; height: 10px; border: 2px solid #18181b; border-radius: 9999px; background: #34d399; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.35); }
-.live-user-marker:hover .live-user-marker__avatar { transform: scale(1.1); box-shadow: 0 11px 28px rgb(0 0 0 / 0.55), 0 0 0 5px rgb(167 139 250 / 0.25); }
-
-.friend-map .leaflet-popup-content-wrapper,
-.friend-map .leaflet-popup-tip {
-  background: #18181b;
-  color: #f4f4f5;
-  box-shadow: 0 16px 36px rgb(0 0 0 / 0.4);
+.map-self__avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  user-select: none;
 }
 
-.friend-map .leaflet-popup-content-wrapper {
-  border: 1px solid var(--map-border);
-  border-radius: 0.9rem;
+/* A blue wave that keeps rippling out from where you are. */
+.map-self__pulse {
+  position: absolute;
+  inset: 4px;
+  border-radius: 9999px;
+  background: rgb(37 99 235 / 0.35);
+  animation: map-self-pulse 2s ease-out infinite;
 }
 
-.friend-map .leaflet-popup-content {
-  margin: 0.75rem 0.9rem;
-  line-height: 1.35;
+.map-self__label {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 50%;
+  padding: 1px 9px;
+  border-radius: 9999px;
+  background: #2563eb;
+  box-shadow: 0 4px 12px rgb(37 99 235 / 0.4);
+  color: white;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 17px;
+  white-space: nowrap;
+  transform: translateX(-50%);
 }
 
-.friend-map .leaflet-popup-content span { color: #a1a1aa; font-size: 0.75rem; }
-.friend-map .leaflet-popup-close-button { color: #d4d4d8 !important; }
-
-/* Leaflet panes use values up to 1000. App controls must always remain usable. */
-.friend-map > form,
-.friend-map > section,
-.friend-map > div:not(.leaflet-container) {
-  z-index: 1100 !important;
+/* ---- Searched place ---- */
+.map-place {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
 }
 
-@media (max-width: 640px) {
+.map-place__label,
+.map-place svg { animation: map-drop 360ms cubic-bezier(0.2, 0.9, 0.3, 1.3) both; }
+
+.map-place__label {
+  max-width: 220px;
+  overflow: hidden;
+  padding: 3px 10px;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 9999px;
+  background: rgb(9 9 11 / 0.9);
+  box-shadow: 0 8px 20px rgb(0 0 0 / 0.4);
+  color: #fafafa;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-place svg {
+  display: block;
+  width: 34px;
+  height: 44px;
+  filter: drop-shadow(0 4px 8px rgb(0 0 0 / 0.5));
+}
+
+.map-place path { fill: #ef4444; stroke: white; stroke-width: 1.5; }
+.map-place circle { fill: white; }
+
+@keyframes map-pop {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes map-pulse {
+  0% { opacity: 0.75; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.65); }
+}
+
+@keyframes map-self-pulse {
+  0% { opacity: 0.8; transform: scale(1); }
+  100% { opacity: 0; transform: scale(2.4); }
+}
+
+@keyframes map-eq {
+  0%, 100% { transform: scaleY(0.35); }
+  50% { transform: scaleY(1); }
+}
+
+@keyframes map-drop {
+  from { opacity: 0; transform: translateY(-16px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 767px) {
   /* MainLayout gives /map the complete dynamic viewport on mobile. */
   .friend-map { min-height: 100dvh; }
-  .friend-map .leaflet-control-attribution { display: none; }
+  /* Below the search bar, which spans the width on phones. */
+  .friend-map .mapboxgl-ctrl-top-right { top: calc(env(safe-area-inset-top) + 4.5rem); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .friend-map .leaflet-tile,
-  .friend-map-marker__dot { transition: none; }
+  .map-person__body,
+  .map-cluster__body,
+  .map-place__label,
+  .map-place svg,
+  .map-person__body.is-live::before,
+  .map-self__pulse,
+  .map-person__music i,
+  .map-eq i { animation: none; }
 }
