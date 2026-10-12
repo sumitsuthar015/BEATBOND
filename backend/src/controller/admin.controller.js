@@ -8,7 +8,7 @@ import { Message } from "../models/message.model.js";
 import { Playlist } from "../models/playlist.model.js";
 import cloudinary from "../lib/cloudinary.js";
 import { isDatabaseConnected } from "../lib/db.js";
-import { getOnlineUserIds, isUserOnline } from "../lib/socket.js";
+import { getOnlineUserIds, isUserOnline } from "../lib/realtime.js";
 import { isAdminUser } from "../middleware/auth.middleware.js";
 
 // helper function for cloudinary uploads

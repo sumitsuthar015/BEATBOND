@@ -22,7 +22,18 @@ export const PushNotificationSetting = () => {
       const registration = await navigator.serviceWorker.getRegistration("/");
       if (!active) return;
       setSupported(Boolean(registration));
-      setSubscribed(Boolean(await registration?.pushManager.getSubscription()));
+      const subscription = await registration?.pushManager.getSubscription();
+      if (!subscription || Notification.permission !== "granted") return;
+
+      // The browser can retain a subscription after the server DB has been
+      // reset, or after this device signs into another account. Re-save it for
+      // the currently authenticated user so push delivery can find it.
+      try {
+        await axiosInstance.post("/notifications/push/subscriptions", subscription.toJSON());
+        if (active) setSubscribed(true);
+      } catch {
+        if (active) setSubscribed(false);
+      }
     };
     void load().catch(() => undefined);
     return () => { active = false; };
@@ -36,10 +47,14 @@ export const PushNotificationSetting = () => {
       const registration = await navigator.serviceWorker.ready;
       const { data } = await axiosInstance.get<{ publicKey: string }>("/notifications/push/public-key");
       if (!data.publicKey) throw new Error("Push notifications are not configured on the server yet.");
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: decodeKey(data.publicKey),
-      });
+      // Reuse a browser subscription when one already exists. subscribe() can
+      // reject with InvalidStateError in that case, and its existing endpoint
+      // still needs to be synchronized with the current account on the server.
+      const subscription = await registration.pushManager.getSubscription()
+        ?? await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: decodeKey(data.publicKey),
+        });
       await axiosInstance.post("/notifications/push/subscriptions", subscription.toJSON());
       setSubscribed(true);
       toast.success("Device notifications enabled");

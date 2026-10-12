@@ -41,7 +41,10 @@ export const sendPushToUser = async (userId, payload) => {
       if (error.statusCode === 404 || error.statusCode === 410) {
         await PushSubscription.deleteOne({ _id: subscription._id });
       } else {
-        console.error("Unable to send push notification:", error.message);
+        console.error(
+          `Unable to send push notification${error.statusCode ? ` (HTTP ${error.statusCode})` : ""}:`,
+          error.message,
+        );
       }
     }
   }));

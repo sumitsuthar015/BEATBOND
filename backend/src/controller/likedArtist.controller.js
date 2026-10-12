@@ -1,5 +1,5 @@
 import { LikedArtist } from "../models/likedArtist.model.js";
-import { emitLikedArtistsUpdate } from "../lib/socket.js";
+import { emitLikedArtistsUpdate } from "../lib/realtime.js";
 
 const list = (userId) => LikedArtist.find({ userId }).sort({ createdAt: -1 }).lean();
 

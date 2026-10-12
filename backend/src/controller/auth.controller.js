@@ -22,7 +22,7 @@ export const authCallback = async (req, res) => {
 				imageUrl: image_url || '',
 				photoSource: 'provider',
 				providerImageUrl: image_url || '',
-				// Presence is set exclusively by an authenticated Socket.IO connection.
+				// Presence is set exclusively by an authenticated WebSocket connection.
 				isOnline: false
 			};
 

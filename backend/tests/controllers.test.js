@@ -34,7 +34,7 @@ test("AI therapy chat returns 503 when the AI service is not configured", async 
 test("protectRoute blocks requests from users who are not logged in", async () => {
   const res = mockResponse();
   let nextCalled = false;
-  await protectRoute({ auth: {} }, res, () => { nextCalled = true; });
+  await protectRoute({ auth: () => null }, res, () => { nextCalled = true; });
 
   assert.equal(res.statusCode, 401);
   assert.equal(nextCalled, false);

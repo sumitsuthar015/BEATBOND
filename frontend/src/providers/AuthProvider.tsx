@@ -18,7 +18,7 @@ const updateApiToken = (token: string | null) => {
 };
 
 const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-	const { getToken, userId } = useAuth();
+	const { getToken, userId, isLoaded, isSignedIn } = useAuth();
 	const [loading, setLoading] = useState(true);
 	const checkAdminStatus = useAuthStore((state) => state.checkAdminStatus);
 	const initSocket = useChatStore((state) => state.initSocket);
@@ -55,11 +55,28 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 		if (userId !== undefined) setActiveListener(userId);
 		if (userId === null) useLocationStore.getState().signOut();
 		setAuthTokenProvider(getToken);
+		// Clerk can restore the signed-in user before its session token is ready.
+		// Mounting the app here lets friends/profile queries race the token and
+		// fail once (queries intentionally do not retry 401s). Wait for Clerk's
+		// loaded state before rendering authenticated screens or prefetching data.
+		if (!isLoaded) {
+			if (!navigator.onLine) setLoading(false);
+			return () => {
+				setAuthTokenProvider(null);
+				disconnectSocket();
+			};
+		}
+
 		const initAuth = async () => {
 			// Offline, Clerk's script can't load and getToken() never settles, which
 			// kept the whole app on this loading screen. Open it so downloaded songs
 			// can play; sign-in picks up again on the next online visit.
 			if (!navigator.onLine) {
+				setLoading(false);
+				return;
+			}
+			if (!isSignedIn) {
+				updateApiToken(null);
 				setLoading(false);
 				return;
 			}
@@ -74,7 +91,35 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 				if (token) {
 					// Run admin check asynchronously so app load is not blocked
 					void checkAdminStatus();
-					// Pass the getter rather than this one token. Socket.IO calls it for
+					// Load account data as soon as auth is ready. These same keys are
+					// used by the profile page, so navigating there no longer acts as
+					// the first trigger for data that other screens already need.
+					if (userId) {
+						void Promise.allSettled([
+							queryClient.prefetchQuery({
+								queryKey: ["myProfile", userId],
+								queryFn: async () => (await axiosInstance.get(`/users/profile/${userId}`)).data,
+								staleTime: 60_000,
+							}),
+							queryClient.prefetchQuery({
+								queryKey: ["myListeningHistory"],
+								queryFn: async () => (await axiosInstance.get("/users/listening-history?limit=6")).data,
+								staleTime: 30_000,
+							}),
+							queryClient.prefetchQuery({
+								queryKey: ["myLikedSongs"],
+								queryFn: async () => (await axiosInstance.get("/songs/liked")).data,
+								staleTime: 30_000,
+							}),
+							queryClient.prefetchQuery({
+								queryKey: ["friends"],
+								queryFn: async () => (await axiosInstance.get("/friends")).data,
+								staleTime: 30_000,
+							}),
+						]);
+						void usePlaylistStore.getState().fetchPlaylists();
+					}
+					// Pass the getter rather than this one token. Realtime calls it for
 					// every reconnect, keeping the handshake valid after Clerk refreshes
 					// the session token.
 					initSocket(getToken);
@@ -89,6 +134,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 			}
 		};
 
+		setLoading(true);
 		initAuth();
 
 		// clean up
@@ -96,7 +142,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 			setAuthTokenProvider(null);
 			disconnectSocket();
 		};
-	}, [getToken, userId, checkAdminStatus, initSocket, disconnectSocket]);
+	}, [getToken, userId, isLoaded, isSignedIn, checkAdminStatus, initSocket, disconnectSocket]);
 
 	if (loading)
 		return (

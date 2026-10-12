@@ -8,7 +8,7 @@ import cors from "cors";
 import fs from "fs";
 import { createServer } from "http";
 import cron from "node-cron";
-import { emitRealtimeUpdate, initializeSocket } from "./lib/socket.js";
+import { emitRealtimeUpdate, initializeWebSocket } from "./lib/realtime.js";
 import { connectDB, isDatabaseConnected } from "./lib/db.js";
 import userRoutes from "./routes/user.route.js";
 import adminRoutes from "./routes/admin.route.js";
@@ -39,7 +39,7 @@ const app = express();
 const PORT = Number(process.env.PORT) || 5002;
 
 const httpServer = createServer(app);
-initializeSocket(httpServer);
+initializeWebSocket(httpServer);
 
 const allowedOrigins = [
   "http://localhost:3000",

@@ -419,7 +419,9 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
   }, [setMessages]);
 
   const emit = useCallback((event: string, data?: unknown) => {
-    if (!socket?.connected) return false;
+    // sendMessage is queued by RealtimeSocket while reconnecting; transient
+    // events such as typing are dropped when no connection is available.
+    if (!socket || (!socket.connected && event !== "sendMessage")) return false;
     socket.emit(event, data);
     return true;
   }, [socket]);
@@ -632,7 +634,6 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
       return;
     }
 
-    if (!socket?.connected) return void toast.error("You're offline. Try again in a moment.");
     stopTyping();
     const clientMessageId = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const tempId = `temp-${clientMessageId}`;
@@ -652,13 +653,14 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
     pendingMessagesRef.current.set(clientMessageId, { tempId, content });
     setMessages((data) => appendMessage(data, optimistic));
     scrollToBottom();
+    const sentWhileConnected = socket.connected;
     if (!emit("sendMessage", { clientMessageId, receiverId: userId, content, ...(replyingTo && { replyTo: replyingTo._id }) })) {
       pendingMessagesRef.current.delete(clientMessageId);
       removeMessage(tempId);
       setMessage(content);
       setIsSending(false);
       toast.error("You're offline. Try again in a moment.");
-    }
+    } else if (!sentWhileConnected) setIsSending(false);
     setReplyingTo(null);
   };
 

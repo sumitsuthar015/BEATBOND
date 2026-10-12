@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { Message } from "../models/message.model.js";
 import { User } from "../models/user.model.js";
-import { emitToUsers, setPresenceVisibility } from "../lib/socket.js";
+import { emitToUsers, setPresenceVisibility } from "../lib/realtime.js";
 import { REACTIONS, canEditMessage, toggleReaction } from "../services/chat.service.js";
 
 const participants = (message) => [message.senderId, message.receiverId];

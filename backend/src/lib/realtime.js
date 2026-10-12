@@ -1,5 +1,7 @@
 import { verifyToken } from "@clerk/express";
-import { Server } from "socket.io";
+import { WebSocketServer, WebSocket } from "ws";
+import { randomUUID } from "node:crypto";
+import { createRealtimeRedis } from "./realtimeRedis.js";
 import mongoose from "mongoose";
 import { isDatabaseConnected } from "./db.js";
 import { Message } from "../models/message.model.js";
@@ -10,13 +12,20 @@ import { sendsReadReceipts } from "../services/chat.service.js";
 import { sendPushToUser } from "../services/push.service.js";
 
 const userSockets = new Map();
+const socketsById = new Map();
+const socketHandlers = new WeakMap();
 const userForegroundSockets = new Map();
 const userActivities = new Map();
+const clusterOnlineUsers = new Set();
+const hiddenPresence = new Set();
+let socketServer = null;
+let redisBridge = null;
+let redisReady = Promise.resolve(false);
 
-// Socket membership is the only presence source of truth. Database fields are
+// WebSocket membership is the only presence source of truth. Database fields are
 // retained for last-seen/profile views, but are never used to infer presence.
-export const isUserOnline = (userId) => userSockets.has(userId);
-export const getOnlineUserIds = () => Array.from(userSockets.keys());
+export const isUserOnline = (userId) => userSockets.has(userId) || clusterOnlineUsers.has(userId);
+export const getOnlineUserIds = () => Array.from(new Set([...clusterOnlineUsers, ...userSockets.keys()]));
 
 const SOCKET_ORIGINS = [
   "http://localhost:3000",
@@ -51,10 +60,19 @@ const removeUserSocket = (userId, socketId) => {
   return true;
 };
 
-const emitToUser = (io, userId, event, payload) => {
-  for (const socketId of userSockets.get(userId) ?? []) {
-    io.to(socketId).emit(event, payload);
-  }
+const sendPacket = (socket, type, payload) => {
+  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type, payload }));
+};
+const sendToLocalUser = (userId, event, payload, foregroundOnly = false) => {
+  const socketIds = foregroundOnly ? userForegroundSockets.get(userId) ?? [] : userSockets.get(userId) ?? [];
+  for (const socketId of socketIds) sendPacket(socketsById.get(socketId), event, payload);
+};
+const sendToAllLocalUsers = (event, payload) => {
+  for (const userId of userSockets.keys()) sendToLocalUser(userId, event, payload);
+};
+const emitToUser = (_hub, userId, event, payload, foregroundOnly = false) => {
+  sendToLocalUser(userId, event, payload, foregroundOnly);
+  socketServer?.publishUser(userId, event, payload, foregroundOnly);
 };
 
 export const emitLikedArtistsUpdate = (userId, artists) => {
@@ -72,7 +90,6 @@ export const emitRealtimeUpdate = ({ resource, actorId = null }) => {
   });
 };
 
-let socketServer = null;
 let presenceReset = Promise.resolve();
 let hasResetStalePresence = false;
 
@@ -82,8 +99,20 @@ const resetStalePresence = () => {
   if (hasResetStalePresence || !isDatabaseConnected()) return presenceReset;
 
   hasResetStalePresence = true;
-  presenceReset = User.updateMany({ isOnline: true }, { isOnline: false }).catch((error) => {
-    console.error("Unable to clear stale presence records:", error.message);
+  presenceReset = Promise.resolve().then(async () => {
+    if (process.env.REDIS_URL) await redisReady;
+    if (redisBridge?.enabled) {
+      const onlineUsers = await redisBridge.onlineUsers() ?? [];
+      await User.updateMany(
+        { isOnline: true, clerkId: { $nin: onlineUsers } },
+        { isOnline: false },
+      );
+      if (onlineUsers.length) await User.updateMany({ clerkId: { $in: onlineUsers } }, { isOnline: true });
+    } else {
+      await User.updateMany({ isOnline: true }, { isOnline: false });
+    }
+  }).catch((error) => {
+    console.error("Unable to synchronize stale presence records:", error.message);
   });
   return presenceReset;
 };
@@ -103,10 +132,8 @@ export const emitLocationToFriends = async (userId, location) => {
   }
 };
 
-// People who hide their online status, among those connected. Hiding works
+// People who hide their online status. Hiding works
 // both ways: they aren't shown as online, and they don't see who else is.
-const hiddenPresence = new Set();
-
 const presenceVisibleTo = (ownerId, viewerId) =>
   ownerId === viewerId || (!hiddenPresence.has(ownerId) && !hiddenPresence.has(viewerId));
 
@@ -114,22 +141,21 @@ const presenceVisibleTo = (ownerId, viewerId) =>
 const emitOnlineUsers = (io) => {
   const online = getOnlineUserIds();
   for (const viewerId of userSockets.keys()) {
-    emitToUser(io, viewerId, "users_online", online.filter((ownerId) => presenceVisibleTo(ownerId, viewerId)));
+    sendToLocalUser(viewerId, "users_online", online.filter((ownerId) => presenceVisibleTo(ownerId, viewerId)));
   }
 };
 
 const broadcastPresence = (io, ownerId, event) => {
-  for (const viewerId of userSockets.keys()) {
-    if (viewerId !== ownerId && presenceVisibleTo(ownerId, viewerId)) emitToUser(io, viewerId, event, ownerId);
-  }
+  for (const viewerId of userSockets.keys())
+    if (viewerId !== ownerId && presenceVisibleTo(ownerId, viewerId)) sendToLocalUser(viewerId, event, ownerId);
 };
 
 /** Applies a change to someone's "show online status" setting straight away. */
 export const setPresenceVisibility = (userId, visible) => {
-  if (!socketServer || !userSockets.has(userId)) return;
   if (visible) hiddenPresence.delete(userId);
   else hiddenPresence.add(userId);
-  emitOnlineUsers(socketServer);
+  if (socketServer) emitOnlineUsers(socketServer);
+  void redisBridge?.setHiddenUser(userId, !visible);
 };
 
 /** Sends an event to every open session of each of these people. */
@@ -141,76 +167,132 @@ export const emitToUsers = (userIds, event, payload) => {
 
 const isFriend = (user, otherUserId) => user.friends?.includes(otherUserId);
 
-export const initializeSocket = (server) => {
-  // A process restart invalidates every old socket. Wait until MongoDB is
-  // actually connected before clearing persisted presence, rather than adding
-  // the query to Mongoose's disconnected command buffer.
-  resetStalePresence();
-  mongoose.connection.once("connected", resetStalePresence);
-
-  const io = new Server(server, {
-    cors: {
-      origin: (origin, callback) => {
-        if (!origin || process.env.NODE_ENV !== "production") {
-          return callback(null, true);
-        }
-        return callback(null, true);
-      },
-      methods: ["GET", "POST"],
-      credentials: true,
+export const initializeWebSocket = (server) => {
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+  const io = {
+    emit(event, payload) {
+      sendToAllLocalUsers(event, payload);
+      void redisBridge?.publish({ scope: "all", event, payload });
     },
-    transports: ["websocket"],
-    // Detect lost network connections quickly; normal browser closes still
-    // trigger `disconnect` immediately.
-    pingTimeout: 20000,
-    pingInterval: 10000,
-  });
+    publishUser(userId, event, payload, foregroundOnly = false) {
+      void redisBridge?.publish({ scope: "user", userId, event, payload, foregroundOnly });
+    },
+  };
   socketServer = io;
 
-  io.use(async (socket, next) => {
-    if (!isDatabaseConnected()) {
-      return next(new Error("Service temporarily unavailable"));
+  const handleRedisMessage = (message) => {
+    if (message.scope === "presence") {
+      if (message.online) clusterOnlineUsers.add(message.userId);
+      else clusterOnlineUsers.delete(message.userId);
+      if (!message.online) userActivities.delete(message.userId);
+      broadcastPresence(io, message.userId, message.online ? "user_connected" : "user_disconnected");
+      emitOnlineUsers(io);
+      if (!message.online) sendToAllLocalUsers("activity_cleared", { userId: message.userId });
+      return;
     }
-
-    const token = socket.handshake.auth?.token;
-    if (!token) return next(new Error("Authentication error"));
-
-    try {
-      const claims = await verifyToken(token, {
-        secretKey: process.env.CLERK_SECRET_KEY,
-        clockSkewInMs: 10_000,
-      });
-      const userId = claims?.sub;
-      if (!userId) return next(new Error("Authentication error"));
-
-      const user = await User.findOne({ clerkId: userId }).select(
-        "clerkId fullName friends blockedUsers musicPrivacy showActivityStatus"
-      );
-      if (!user) return next(new Error("Authentication error"));
-
-      socket.user = user;
-      socket.clientVisible = socket.handshake.auth?.visible === true;
-      next();
-    } catch (error) {
-      console.error("Socket authentication failed:", error.message);
-      next(new Error("Authentication error"));
+    if (message.scope === "visibility") {
+      if (message.hidden) hiddenPresence.add(message.userId);
+      else hiddenPresence.delete(message.userId);
+      emitOnlineUsers(io);
+      return;
     }
+    if (message.scope === "user") {
+      if (message.event === "activity_updated")
+        userActivities.set(message.payload.userId, message.payload.activity);
+      else if (message.event === "activity_cleared")
+        userActivities.delete(message.payload.userId);
+      sendToLocalUser(message.userId, message.event, message.payload, message.foregroundOnly);
+      return;
+    }
+    if (message.scope === "all") {
+      if (message.event === "activity_cleared") userActivities.delete(message.payload.userId);
+      sendToAllLocalUsers(message.event, message.payload);
+    }
+  };
+
+  const syncRedisState = async () => {
+    if (!redisBridge?.enabled) return;
+    await redisBridge.refreshPresence(Array.from(userSockets.keys()));
+    const [onlineUsers, hiddenUsers, activities] = await Promise.all([
+      redisBridge.onlineUsers(),
+      redisBridge.hiddenUsers(),
+      redisBridge.activities(),
+    ]);
+    if (!onlineUsers) return;
+    const previousUsers = new Set(clusterOnlineUsers);
+    clusterOnlineUsers.clear();
+    for (const userId of onlineUsers) clusterOnlineUsers.add(userId);
+    hiddenPresence.clear();
+    for (const userId of hiddenUsers) hiddenPresence.add(userId);
+    userActivities.clear();
+    for (const [userId, activity] of Object.entries(activities)) userActivities.set(userId, activity);
+
+    const nextUsers = new Set(clusterOnlineUsers);
+    for (const userId of previousUsers) {
+      if (!nextUsers.has(userId) && !userSockets.has(userId)) {
+        broadcastPresence(io, userId, "user_disconnected");
+        sendToAllLocalUsers("activity_cleared", { userId });
+        void redisBridge.clearActivity(userId);
+        void User.updateOne(
+          { clerkId: userId },
+          { isOnline: false, lastSeen: new Date(), currentActivity: null },
+        ).catch((error) => console.error("Unable to clear expired Redis presence:", error.message));
+      }
+    }
+    for (const userId of nextUsers) {
+      if (!previousUsers.has(userId) && !userSockets.has(userId)) broadcastPresence(io, userId, "user_connected");
+    }
+    emitOnlineUsers(io);
+  };
+
+  redisBridge = createRealtimeRedis({ onMessage: handleRedisMessage, onReady: syncRedisState });
+  redisReady = redisBridge.connect();
+  // When Redis is enabled, Mongo presence is reconciled against its live lease
+  // set so this process never marks users on other instances as offline.
+  resetStalePresence();
+  mongoose.connection.once("connected", resetStalePresence);
+  if (!process.env.REDIS_URL && process.env.NODE_ENV === "production")
+    console.warn("REDIS_URL is unset; realtime presence and events are local to this server instance.");
+
+  server.on("upgrade", (request, networkSocket, head) => {
+    const pathname = new URL(request.url, "http://localhost").pathname;
+    if (pathname !== "/ws") { networkSocket.destroy(); return; }
+    const origin = request.headers.origin;
+    const allowedOrigins = new Set([
+      ...SOCKET_ORIGINS,
+      process.env.CLIENT_URL,
+      process.env.FRONTEND_URL,
+    ].filter(Boolean));
+    if (process.env.NODE_ENV === "production" && origin && !allowedOrigins.has(origin)) {
+      networkSocket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+      networkSocket.destroy();
+      return;
+    }
+    wss.handleUpgrade(request, networkSocket, head, (ws) => wss.emit("connection", ws, request));
   });
 
-  io.on("connection", async (socket) => {
+  const onAuthenticatedConnection = async (socket) => {
     const userId = socket.user.clerkId;
     // Ensure startup cleanup cannot overwrite a connection that arrives while
     // MongoDB is clearing records left by the previous server process.
     await resetStalePresence();
     await presenceReset;
-    const wasOffline = !userSockets.has(userId);
+    await redisReady;
+    if (socket.closed) return;
+    const sharedWasOffline = await redisBridge.registerUser(userId);
+    const wasOffline = sharedWasOffline ?? !isUserOnline(userId);
     addUserSocket(userId, socket.id, socket.clientVisible);
-    if (socket.user.showActivityStatus === false) hiddenPresence.add(userId);
+    clusterOnlineUsers.add(userId);
+    const showActivityStatus = socket.user.showActivityStatus !== false;
+    if (showActivityStatus) hiddenPresence.delete(userId);
+    else hiddenPresence.add(userId);
+    await redisBridge.setHiddenUser(userId, !showActivityStatus);
 
     try {
       if (wasOffline) {
         await User.updateOne({ clerkId: userId }, { isOnline: true });
         broadcastPresence(io, userId, "user_connected");
+        void redisBridge.publish({ scope: "presence", userId, online: true });
 
         const pendingMessages = await Message.find({ receiverId: userId, status: "sent" }).select(
           "_id senderId"
@@ -257,9 +339,10 @@ export const initializeSocket = (server) => {
         if (!currentUser) return;
 
         userActivities.set(userId, activityString);
+        await redisBridge.setActivity(userId, activityString);
         await User.updateOne({ clerkId: userId }, { currentActivity: activityString });
 
-        for (const viewerId of liveActivityViewers(currentUser, userSockets.keys())) {
+        for (const viewerId of liveActivityViewers(currentUser, getOnlineUserIds())) {
           emitToUser(io, viewerId, "activity_updated", { userId, activity: activityString });
         }
       } catch (error) {
@@ -270,6 +353,7 @@ export const initializeSocket = (server) => {
     socket.on("clear_activity", async () => {
       try {
         userActivities.delete(userId);
+        await redisBridge.clearActivity(userId);
         await User.updateOne({ clerkId: userId }, { currentActivity: null });
         // Stopping reveals nothing, and anyone who saw the old song (even
         // under an older privacy choice) must drop it.
@@ -367,7 +451,7 @@ export const initializeSocket = (server) => {
           };
         }
 
-        const receiverIsOnline = userSockets.has(receiverId);
+        const receiverIsOnline = isUserOnline(receiverId);
         const clientMessageId = typeof data.clientMessageId === "string" && data.clientMessageId.trim().length > 0 && data.clientMessageId.length <= 100
           ? data.clientMessageId
           : new mongoose.Types.ObjectId().toString();
@@ -393,19 +477,18 @@ export const initializeSocket = (server) => {
         if (wantsNotification) {
           const preview = content || sharedContent?.title || "Sent you a message";
           const notificationPayload = {
+            clientMessageId,
             senderId: userId,
             senderName: sender.fullName,
             senderImageUrl: sender.imageUrl || "",
             preview: preview.slice(0, 180),
             chatUrl: `/chat?userId=${encodeURIComponent(userId)}`,
           };
-          for (const socketId of userForegroundSockets.get(receiverId) ?? []) {
-            io.to(socketId).emit("newMessageNotification", notificationPayload);
-          }
+          emitToUser(io, receiverId, "newMessageNotification", notificationPayload, true);
         }
 
         // CHANGED: persistence, notification storage, and Web Push run off the
-        // Socket.IO event's critical path. A persistence failure retracts the
+        // realtime event's critical path. A persistence failure retracts the
         // temporary row from every open session.
         void (async () => {
           let message;
@@ -434,7 +517,7 @@ export const initializeSocket = (server) => {
             return;
           }
 
-          // Notification storage and Web Push run off the Socket.IO critical
+          // Notification storage and Web Push run off the realtime critical
           // path and only after the message is safely in history.
           if (wantsNotification) void (async () => {
             try {
@@ -503,13 +586,17 @@ export const initializeSocket = (server) => {
 
     socket.on("disconnect", async () => {
       if (!removeUserSocket(userId, socket.id)) return;
+      const globallyOffline = await redisBridge.unregisterUser(userId);
+      if (globallyOffline === false) return;
 
       // Broadcast from the in-memory source immediately. Do not make peers
       // wait for MongoDB before they see an offline state.
       userActivities.delete(userId);
+      clusterOnlineUsers.delete(userId);
+      await redisBridge.clearActivity(userId);
       broadcastPresence(io, userId, "user_disconnected");
-      hiddenPresence.delete(userId);
       emitOnlineUsers(io);
+      void redisBridge.publish({ scope: "presence", userId, online: false });
       io.emit("activity_cleared", { userId });
 
       try {
@@ -521,9 +608,95 @@ export const initializeSocket = (server) => {
         console.error("Error handling disconnect:", error);
       }
     });
+  };
+
+  wss.on("connection", (ws) => {
+    ws.isAlive = true;
+    ws.on("pong", () => { ws.isAlive = true; });
+    const socket = {
+      id: randomUUID(), user: null, clientVisible: false, readyState: ws.readyState,
+      on(event, handler) {
+        const handlers = socketHandlers.get(this) ?? new Map();
+        const list = handlers.get(event) ?? [];
+        list.push(handler); handlers.set(event, list); socketHandlers.set(this, handlers);
+      },
+      emit(event, payload) { sendPacket(ws, event, payload); },
+    };
+    ws.socket = socket;
+    socket.closed = false;
+    let setupComplete = false;
+    let disconnectedBeforeSetup = false;
+    let disconnectHandled = false;
+    const runDisconnectHandlers = () => {
+      if (disconnectHandled) return;
+      const handlers = socketHandlers.get(socket)?.get("disconnect") ?? [];
+      if (!handlers.length) { disconnectedBeforeSetup = true; return; }
+      disconnectHandled = true;
+      for (const handler of handlers) void handler();
+    };
+    const authTimeout = setTimeout(() => {
+      if (!socket.user) ws.close(1008, "Authentication timeout");
+    }, 10000);
+    authTimeout.unref?.();
+    ws.on("message", async (raw) => {
+      let packet;
+      try { packet = JSON.parse(raw.toString()); } catch { ws.close(1003, "Invalid JSON"); return; }
+      if (!socket.user) {
+        if (packet?.type !== "authenticate" || typeof packet.payload?.token !== "string" || !isDatabaseConnected()) {
+          sendPacket(ws, "connect_error", { message: "Authentication error" }); ws.close(1008, "Authentication required"); return;
+        }
+        try {
+          const claims = await verifyToken(packet.payload.token, { secretKey: process.env.CLERK_SECRET_KEY, clockSkewInMs: 10_000 });
+          const userId = claims?.sub;
+          const user = userId && await User.findOne({ clerkId: userId }).select("clerkId fullName friends blockedUsers musicPrivacy showActivityStatus");
+          if (!user) throw new Error("Authentication error");
+          socket.user = user;
+          clearTimeout(authTimeout);
+          socket.clientVisible = packet.payload.visible === true;
+          socket.readyState = ws.readyState;
+          socketsById.set(socket.id, ws);
+          await onAuthenticatedConnection(socket);
+          setupComplete = true;
+          if (socket.closed || disconnectedBeforeSetup) { runDisconnectHandlers(); return; }
+          sendPacket(ws, "authenticated", { userId });
+        } catch (error) {
+          console.error("WebSocket authentication failed:", error.message);
+          sendPacket(ws, "connect_error", { message: "Authentication error" }); ws.close(1008, "Authentication failed");
+        }
+        return;
+      }
+      if (!setupComplete) return;
+      if (packet?.type === "ping") { sendPacket(ws, "pong", { at: Date.now() }); return; }
+      const handler = socketHandlers.get(socket)?.get(packet?.type)?.[0];
+      if (handler) {
+        try {
+          await handler(packet.payload ?? {});
+          if (packet.requestId) sendPacket(ws, "ack", { requestId: packet.requestId, clientMessageId: packet.payload?.clientMessageId ?? null });
+        } catch (error) { console.error(`WebSocket handler failed (${packet.type}):`, error); }
+      }
+    });
+    ws.on("close", () => {
+      clearTimeout(authTimeout);
+      socket.closed = true;
+      socketsById.delete(socket.id);
+      if (socket.user && setupComplete) runDisconnectHandlers();
+      else if (socket.user) disconnectedBeforeSetup = true;
+    });
+  });
+  const heartbeat = setInterval(() => {
+    for (const ws of wss.clients) {
+      if (!ws.isAlive) { ws.terminate(); continue; }
+      ws.isAlive = false; ws.ping();
+    }
+  }, 25000);
+  heartbeat.unref?.();
+  wss.on("close", () => clearInterval(heartbeat));
+  server.once("close", () => {
+    clearInterval(heartbeat);
+    void redisBridge?.close();
   });
 
-  return io;
+  return wss;
 };
 
 // After someone changes who can see their listening (or blocks someone),

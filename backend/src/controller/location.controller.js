@@ -1,7 +1,7 @@
 import { User } from "../models/user.model.js";
 import { UserLocation } from "../models/userLocation.model.js";
 import { Avatar } from "../models/avatar.model.js";
-import { emitLocationToFriends, isUserOnline } from "../lib/socket.js";
+import { emitLocationToFriends, isUserOnline } from "../lib/realtime.js";
 import { canSeeLiveActivity } from "../services/privacy.service.js";
 import { canSeePresence } from "../services/chat.service.js";
 import {

@@ -1,16 +1,16 @@
 import { axiosInstance } from "@/lib/axios";
 import { create } from "zustand";
-import { io, Socket } from "socket.io-client";
+import { RealtimeSocket } from "@/lib/realtimeSocket";
 
 type MusicPrivacy = "everyone" | "friends" | "none";
 
 interface ChatStore {
-  socket: Socket;
+  socket: RealtimeSocket;
   isConnected: boolean;
   error: string | null;
   onlineUsers: Set<string>;
   userActivities: Map<string, string>;
-  // Kept locally so a track selected while Socket.IO is reconnecting can be
+  // Kept locally so a track selected while WebSocket is reconnecting can be
   // announced as soon as the connection is restored.
   currentActivity: string | null;
   musicPrivacy: MusicPrivacy;
@@ -21,35 +21,13 @@ interface ChatStore {
 }
 
 const getSocketUrl = () => {
-  if (import.meta.env.VITE_SOCKET_URL) return import.meta.env.VITE_SOCKET_URL;
-  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL.replace(/\/api\/?$/, "");
-  return import.meta.env.MODE === "development" ? "http://localhost:5002" : window.location.origin;
+  const base = import.meta.env.VITE_SOCKET_URL || import.meta.env.VITE_API_URL?.replace(/\/api\/?$/, "") ||
+    (import.meta.env.MODE === "development" ? "http://localhost:5002" : window.location.origin);
+  const wsBase = base.replace(/^http:/, "ws:").replace(/^https:/, "wss:").replace(/\/$/, "");
+  return `${wsBase}/ws`;
 };
 
-// Socket.IO reuses the auth payload while reconnecting unless we provide it as
-// a callback. Clerk session tokens expire, so a stale token otherwise turns a
-// short network interruption into an endless "Reconnecting" state.
-let getSocketToken: (() => Promise<string | null>) | null = null;
-
-const socket = io(getSocketUrl(), {
-  autoConnect: false,
-  withCredentials: true,
-  auth: (callback) => {
-    void Promise.resolve(getSocketToken?.())
-      .then((token) => callback(token ? { token, visible: document.visibilityState === "visible" } : {}))
-      .catch(() => callback({}));
-  },
-  // Chat packets stay on one persistent connection instead of paying the
-  // HTTP polling request/upgrade round trip on every cold connection.
-  transports: ["websocket"],
-  reconnection: true,
-  // Keep retrying after a transient network outage. Server-side Set membership
-  // prevents these reconnects from creating duplicate presence entries.
-  reconnectionAttempts: Infinity,
-  reconnectionDelay: 300,
-  reconnectionDelayMax: 2000,
-  timeout: 5000,
-});
+const socket = new RealtimeSocket(getSocketUrl());
 
 let listenersAttached = false;
 
@@ -112,12 +90,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   initSocket: (tokenProvider) => {
     attachSocketListeners();
-    getSocketToken = tokenProvider;
-    if (!socket.connected) socket.connect();
+    if (!socket.connected) socket.connect(tokenProvider);
   },
 
   disconnectSocket: () => {
-    getSocketToken = null;
     socket.disconnect();
     set({ isConnected: false, error: null, onlineUsers: new Set(), userActivities: new Map(), currentActivity: null });
   },

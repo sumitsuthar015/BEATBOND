@@ -3,7 +3,7 @@ import { Message } from "../models/message.model.js";
 import { ListeningActivity } from "../models/listeningActivity.model.js";
 import { FriendRequest } from "../models/friendRequest.model.js";
 import mongoose from "mongoose";
-import { emitToUsers, isUserOnline, refreshActivityAudience } from "../lib/socket.js";
+import { emitToUsers, isUserOnline, refreshActivityAudience } from "../lib/realtime.js";
 import { LISTENING_LEVELS, PRIVACY_FIELDS, canSeeListeningHistory, canSeeLiveActivity } from "../services/privacy.service.js";
 import { canSeePresence, statusForViewer } from "../services/chat.service.js";
 import cloudinary from "../lib/cloudinary.js";

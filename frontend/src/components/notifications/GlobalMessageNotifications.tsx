@@ -7,7 +7,7 @@ import { useUser } from "@clerk/clerk-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 interface IncomingMessageNotification {
-  notificationId: string;
+  clientMessageId: string;
   senderId: string;
   senderName: string;
   senderImageUrl?: string;
@@ -29,6 +29,22 @@ export const GlobalMessageNotifications = () => {
     const onMessageNotification = (notification: IncomingMessageNotification) => {
       void queryClient.invalidateQueries({ queryKey: ["notifications"] });
       if (activeConversation === notification.senderId) return;
+
+      // A user can have the same account open in several tabs. The server
+      // emits to each active connection, so persist a short dedupe window
+      // across tabs before creating a toast.
+      const messageId = notification.clientMessageId;
+      if (!messageId) return;
+      const storageKey = `beatbond:message-toasts:${user.id}`;
+      const toastId = `message:${user.id}:${messageId}`;
+      try {
+        const recent = JSON.parse(localStorage.getItem(storageKey) || "[]") as string[];
+        if (recent.includes(messageId)) return;
+        localStorage.setItem(storageKey, JSON.stringify([...recent.slice(-99), messageId]));
+      } catch {
+        // Keep the notification usable if storage is unavailable. react-hot-toast
+        // still de-duplicates repeated events within this tab by its stable ID.
+      }
       toast.custom((t) => (
         <button
           type="button"
@@ -40,7 +56,7 @@ export const GlobalMessageNotifications = () => {
           <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{notification.senderName}</span><span className="block truncate text-xs text-muted-foreground">{notification.preview}</span></span>
           <span className="text-xs font-medium text-primary">Open</span>
         </button>
-      ), { duration: 6500, position: "top-right" });
+      ), { id: toastId, duration: 6500, position: "top-right" });
     };
     socket.on("newMessageNotification", onMessageNotification);
     return () => { socket.off("newMessageNotification", onMessageNotification); };
