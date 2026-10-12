@@ -26,7 +26,7 @@ export const getMyPlaylists = async (req, res, next) => {
   try {
     res.json(
       (
-        await Playlist.find({ ownerId: req.auth.userId })
+        await Playlist.find({ ownerId: req.auth().userId })
           .sort({ updatedAt: -1 })
           .lean()
       ).map(present),
@@ -53,7 +53,7 @@ export const createPlaylist = async (req, res, next) => {
     if (!name)
       return res.status(400).json({ message: "A playlist name is required" });
     const playlist = await Playlist.create({
-      ownerId: req.auth.userId,
+      ownerId: req.auth().userId,
       name,
       description: String(req.body.description || "").trim(),
     });
@@ -74,7 +74,7 @@ export const updatePlaylist = async (req, res, next) => {
     if (req.body.description !== undefined)
       updates.description = String(req.body.description).trim();
     const playlist = await Playlist.findOneAndUpdate(
-      { _id: req.params.playlistId, ownerId: req.auth.userId },
+      { _id: req.params.playlistId, ownerId: req.auth().userId },
       updates,
       { new: true, runValidators: true },
     );
@@ -89,7 +89,7 @@ export const deletePlaylist = async (req, res, next) => {
   try {
     const result = await Playlist.deleteOne({
       _id: req.params.playlistId,
-      ownerId: req.auth.userId,
+      ownerId: req.auth().userId,
     });
     if (!result.deletedCount)
       return res.status(404).json({ message: "Playlist not found" });
@@ -102,7 +102,7 @@ export const setPlaylistDownloaded = async (req, res, next) => {
   try {
     const downloaded = Boolean(req.body.downloaded);
     const playlist = await Playlist.findOneAndUpdate(
-      { _id: req.params.playlistId, ownerId: req.auth.userId },
+      { _id: req.params.playlistId, ownerId: req.auth().userId },
       { downloadedAt: downloaded ? new Date() : null },
       { new: true },
     );
@@ -122,7 +122,7 @@ export const addSong = async (req, res, next) => {
         .json({ message: "A complete playable song is required" });
     const playlist = await Playlist.findOne({
       _id: req.params.playlistId,
-      ownerId: req.auth.userId,
+      ownerId: req.auth().userId,
     });
     if (!playlist)
       return res.status(404).json({ message: "Playlist not found" });
@@ -141,7 +141,7 @@ export const removeSong = async (req, res, next) => {
   try {
     const playlist = await Playlist.findOne({
       _id: req.params.playlistId,
-      ownerId: req.auth.userId,
+      ownerId: req.auth().userId,
     });
     if (!playlist)
       return res.status(404).json({ message: "Playlist not found" });

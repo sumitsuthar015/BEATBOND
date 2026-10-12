@@ -4,7 +4,7 @@ import { photoStateOf, photoUpdate } from "../services/profile.service.js";
 export const authCallback = async (req, res) => {
 	try {
 		const { email_addresses, username, first_name, last_name, image_url } = req.body;
-		const id = req.auth.userId;
+		const id = req.auth().userId;
 
 		// Find existing user
 		let user = await User.findOne({ clerkId: id });
@@ -68,7 +68,7 @@ export const authCallback = async (req, res) => {
 
 export const getCurrentUser = async (req, res) => {
 	try {
-		const { userId } = req.auth;
+		const { userId } = req.auth();
 		
 		if (!userId) {
 			return res.status(401).json({ error: 'No user ID provided' });

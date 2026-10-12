@@ -29,6 +29,7 @@ import { useAuthStore } from "@/stores/useAuthStore";
 import { useChatStore } from "@/stores/useChatStore";
 import { useLocationStore } from "@/stores/useLocationStore";
 import { usePreferencesStore } from "@/stores/usePreferencesStore";
+import { PushNotificationSetting } from "@/components/notifications/PushNotificationSetting";
 
 const rowClass = "flex min-h-[72px] w-full items-center gap-3 px-4 py-3 text-left";
 const rowLinkClass = cn(rowClass, "transition-colors hover:bg-secondary/50");
@@ -296,6 +297,7 @@ const SettingsPage = () => {
         </Section>
 
         <Section title="Chats">
+          <PushNotificationSetting />
           <div className={rowClass}>
             <RowBody
               icon={CheckCheck}

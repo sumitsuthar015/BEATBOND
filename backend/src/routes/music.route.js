@@ -7,7 +7,7 @@ const buckets = new Map();
 // Lightweight per-process protection for the public provider. This can be
 // replaced by a shared Redis limiter when the app is horizontally scaled.
 const rateLimit = (req, res, next) => {
-  const key = req.auth?.userId || req.ip;
+  const key = req.auth()?.userId || req.ip;
   const now = Date.now();
   const bucket = buckets.get(key) || { startedAt: now, count: 0 };
   if (now - bucket.startedAt > 60_000) { bucket.startedAt = now; bucket.count = 0; }

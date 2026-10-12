@@ -7,8 +7,10 @@ import { Notification } from "../models/notification.model.js";
 import { User } from "../models/user.model.js";
 import { PRIVACY_FIELDS, canSeeLiveActivity, liveActivityViewers } from "../services/privacy.service.js";
 import { sendsReadReceipts } from "../services/chat.service.js";
+import { sendPushToUser } from "../services/push.service.js";
 
 const userSockets = new Map();
+const userForegroundSockets = new Map();
 const userActivities = new Map();
 
 // Socket membership is the only presence source of truth. Database fields are
@@ -22,13 +24,23 @@ const SOCKET_ORIGINS = [
   "https://beatbond-75ns.onrender.com",
 ];
 
-const addUserSocket = (userId, socketId) => {
+const addUserSocket = (userId, socketId, isVisible) => {
   const sockets = userSockets.get(userId) ?? new Set();
   sockets.add(socketId);
   userSockets.set(userId, sockets);
+  if (isVisible) setSocketVisibility(userId, socketId, true);
+};
+
+const setSocketVisibility = (userId, socketId, isVisible) => {
+  const sockets = userForegroundSockets.get(userId) ?? new Set();
+  if (isVisible) sockets.add(socketId);
+  else sockets.delete(socketId);
+  if (sockets.size) userForegroundSockets.set(userId, sockets);
+  else userForegroundSockets.delete(userId);
 };
 
 const removeUserSocket = (userId, socketId) => {
+  setSocketVisibility(userId, socketId, false);
   const sockets = userSockets.get(userId);
   if (!sockets) return false;
 
@@ -166,6 +178,7 @@ export const initializeSocket = (server) => {
     try {
       const claims = await verifyToken(token, {
         secretKey: process.env.CLERK_SECRET_KEY,
+        clockSkewInMs: 10_000,
       });
       const userId = claims?.sub;
       if (!userId) return next(new Error("Authentication error"));
@@ -176,6 +189,7 @@ export const initializeSocket = (server) => {
       if (!user) return next(new Error("Authentication error"));
 
       socket.user = user;
+      socket.clientVisible = socket.handshake.auth?.visible === true;
       next();
     } catch (error) {
       console.error("Socket authentication failed:", error.message);
@@ -190,7 +204,7 @@ export const initializeSocket = (server) => {
     await resetStalePresence();
     await presenceReset;
     const wasOffline = !userSockets.has(userId);
-    addUserSocket(userId, socket.id);
+    addUserSocket(userId, socket.id, socket.clientVisible);
     if (socket.user.showActivityStatus === false) hiddenPresence.add(userId);
 
     try {
@@ -215,6 +229,11 @@ export const initializeSocket = (server) => {
         }
       }
       emitOnlineUsers(io);
+
+    socket.on("client_visibility", ({ visible } = {}) => {
+      socket.clientVisible = visible === true;
+      setSocketVisibility(userId, socket.id, socket.clientVisible);
+    });
 
       const activityUsers = await User.find({
         clerkId: { $in: Array.from(userActivities.keys()) },
@@ -273,7 +292,7 @@ export const initializeSocket = (server) => {
         if (!receiverId || receiverId === userId) throw new Error("Invalid recipient");
         if (!content) throw new Error("Message cannot be empty");
         if (content.length > 4000) throw new Error("Message is too long");
-        const sender = await User.findOne({ clerkId: userId }).select("fullName friends blockedUsers").lean();
+        const sender = await User.findOne({ clerkId: userId }).select("fullName imageUrl friends blockedUsers").lean();
         if (!sender) throw new Error("Sender not found");
         socket.user.friends = sender.friends;
         socket.user.blockedUsers = sender.blockedUsers;
@@ -354,8 +373,8 @@ export const initializeSocket = (server) => {
           status: receiverIsOnline ? "delivered" : "sent",
         });
 
-        // Deliver immediately after the message write. Notification storage is
-        // intentionally asynchronous: it must never delay the visible chat.
+        // Deliver the chat message immediately, then create its alert record
+        // before notifying visible clients or attempting a device push.
         const messagePayload = { message: message.toObject() };
         if (receiverIsOnline) emitToUser(io, receiverId, "messageReceived", messagePayload);
         socket.emit("messageSent", messagePayload);
@@ -363,14 +382,42 @@ export const initializeSocket = (server) => {
         // Muted chats and people who turned message notifications off still
         // get the message, just no notification.
         const wantsNotification = receiver.messageNotifications !== false && !receiver.mutedChats?.includes(userId);
-        if (wantsNotification) void Notification.create({
-          userId: receiverId,
-          message: `New message from ${socket.user.fullName}`,
-          type: "message",
-          metadata: { messageId: message._id, senderId: userId },
-        }).catch((notificationError) => {
-          console.error("Unable to create message notification:", notificationError);
-        });
+        if (wantsNotification) {
+          const preview = content || sharedContent?.title || "Sent you a message";
+          const notification = await Notification.create({
+            userId: receiverId,
+            message: `New message from ${sender.fullName}`,
+            type: "message",
+            metadata: {
+              messageId: message._id.toString(),
+              senderId: userId,
+              senderName: sender.fullName,
+              senderImageUrl: sender.imageUrl || "",
+              preview: preview.slice(0, 180),
+            },
+          });
+          const notificationPayload = {
+            notificationId: notification._id.toString(),
+            senderId: userId,
+            senderName: sender.fullName,
+            senderImageUrl: sender.imageUrl || "",
+            preview: preview.slice(0, 180),
+            chatUrl: `/chat?userId=${encodeURIComponent(userId)}`,
+          };
+          for (const socketId of userForegroundSockets.get(receiverId) ?? []) {
+            io.to(socketId).emit("newMessageNotification", notificationPayload);
+          }
+          if (!userForegroundSockets.has(receiverId)) {
+            void sendPushToUser(receiverId, {
+              title: sender.fullName || "New message",
+              body: notificationPayload.preview,
+              icon: sender.imageUrl || "/pwa-192x192.png",
+              url: notificationPayload.chatUrl,
+              tag: `chat-${userId}`,
+              data: { url: notificationPayload.chatUrl },
+            }).catch((pushError) => console.error("Unable to send chat push notification:", pushError.message));
+          }
+        }
       } catch (error) {
         console.error("Error sending message:", error);
         socket.emit("messageError", { message: error.message || "Failed to send message" });

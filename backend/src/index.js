@@ -89,7 +89,7 @@ app.use((req, res, next) => {
   const resource = req.path.split("/").filter(Boolean)[1];
   res.once("finish", () => {
     if (res.statusCode >= 200 && res.statusCode < 300 && resource) {
-      emitRealtimeUpdate({ resource, actorId: req.auth?.userId ?? null });
+      emitRealtimeUpdate({ resource, actorId: req.auth()?.userId ?? null });
     }
   });
   next();

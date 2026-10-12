@@ -19,6 +19,7 @@ export default defineConfig({
 		registerType: "autoUpdate",
 		injectRegister: false,
 		workbox: {
+			importScripts: ["/push-handler.js"],
 			globPatterns: ["**/*.{js,css,html,ico,png,svg,jpg,jpeg,webp}"],
 			cleanupOutdatedCaches: true,
 			clientsClaim: true,

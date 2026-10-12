@@ -146,7 +146,7 @@ export const deleteAlbum = async (req, res, next) => {
 
 export const checkAdmin = async (req, res, next) => {
 	try {
-		res.status(200).json({ admin: await isAdminUser(req.auth.userId) });
+		res.status(200).json({ admin: await isAdminUser(req.auth().userId) });
 	} catch (error) {
 		next(error);
 	}

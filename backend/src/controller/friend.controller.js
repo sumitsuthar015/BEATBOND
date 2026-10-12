@@ -7,7 +7,7 @@ import { canSeePresence } from "../services/chat.service.js";
 
 export const sendFriendRequest = async (req, res, next) => {
   try {
-    const senderId = req.auth.userId;
+    const senderId = req.auth().userId;
     const { receiverId } = req.body;
 
     if (!receiverId) {
@@ -88,7 +88,7 @@ export const respondToFriendRequest = async (req, res, next) => {
   try {
     const { requestId } = req.params;
     const { status } = req.body;
-    const userId = req.auth.userId;
+    const userId = req.auth().userId;
 
     if (!['accepted', 'rejected'].includes(status)) {
       return res.status(400).json({ error: "Invalid status. Must be 'accepted' or 'rejected'" });
@@ -142,7 +142,7 @@ export const respondToFriendRequest = async (req, res, next) => {
 export const cancelFriendRequest = async (req, res, next) => {
   try {
     const { requestId } = req.params;
-    const userId = req.auth.userId;
+    const userId = req.auth().userId;
 
     const request = await FriendRequest.findOneAndDelete({
       _id: requestId,
@@ -169,7 +169,7 @@ export const cancelFriendRequest = async (req, res, next) => {
 
 export const getFriends = async (req, res, next) => {
   try {
-    const viewerId = req.auth.userId;
+    const viewerId = req.auth().userId;
     const userId = req.params.userId || viewerId;
 
     const profileUser = await User.findOne({ clerkId: userId }).select("friends").lean();
@@ -242,7 +242,7 @@ export const getFriends = async (req, res, next) => {
 
 export const getPendingRequests = async (req, res, next) => {
   try {
-    const userId = req.auth.userId;
+    const userId = req.auth().userId;
     
     const pendingRequests = await FriendRequest.find({
       receiverId: userId,
@@ -281,7 +281,7 @@ export const getPendingRequests = async (req, res, next) => {
 
 export const getFriendshipStatus = async (req, res, next) => {
   try {
-    const userId = req.auth.userId;
+    const userId = req.auth().userId;
     const { targetUserId } = req.params;
 
     if (!targetUserId) {
@@ -322,7 +322,7 @@ export const getFriendshipStatus = async (req, res, next) => {
 
 export const removeFriend = async (req, res, next) => {
   try {
-    const userId = req.auth.userId;
+    const userId = req.auth().userId;
     const { friendId } = req.params;
 
     if (!friendId) {
@@ -360,7 +360,7 @@ export const removeFriend = async (req, res, next) => {
 
 export const getMutualFriends = async (req, res, next) => {
   try {
-    const viewerId = req.auth.userId;
+    const viewerId = req.auth().userId;
     const { userId } = req.params;
 
     const [viewer, target] = await Promise.all([

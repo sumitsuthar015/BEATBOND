@@ -6,11 +6,19 @@ import {
   markAllAsRead,
   deleteNotification,
   clearAllNotifications,
+  getPushPublicKey,
+  subscribeToPush,
+  unsubscribeFromPush,
 } from "../controller/notification.controller.js";
 
 const router = Router();
 
+router.get("/push/public-key", getPushPublicKey);
+
 router.use(protectRoute);
+
+router.post("/push/subscriptions", subscribeToPush);
+router.delete("/push/subscriptions", unsubscribeFromPush);
 
 router.get("/", getNotifications);
 router.put("/read-all", markAllAsRead);

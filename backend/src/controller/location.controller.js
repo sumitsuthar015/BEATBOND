@@ -81,7 +81,7 @@ export const updateMyLocation = async (req, res, next) => {
   try {
     const location = parseLocation(req.body);
     if (!valid(location)) return res.status(400).json({ message: "Invalid coordinates" });
-    const userId = req.auth.userId;
+    const userId = req.auth().userId;
     const sharingEnabled = Boolean(req.body.sharingEnabled);
     const visibility = parseVisibility(req.body.visibility) || "everyone";
     const saved = {
@@ -113,7 +113,7 @@ export const updateMyLocation = async (req, res, next) => {
 
 export const getMyLocationPreference = async (req, res, next) => {
   try {
-    const location = await UserLocation.findOne({ userId: req.auth.userId }).select("sharingEnabled visibility").lean();
+    const location = await UserLocation.findOne({ userId: req.auth().userId }).select("sharingEnabled visibility").lean();
     res.json({ sharingEnabled: Boolean(location?.sharingEnabled), visibility: location?.visibility || "everyone" });
   } catch (error) { next(error); }
 };
@@ -123,14 +123,14 @@ export const updateMyLocationVisibility = async (req, res, next) => {
     const visibility = parseVisibility(req.body.visibility);
     if (!visibility) return res.status(400).json({ message: "Visibility must be everyone or friends" });
     const saved = await UserLocation.findOneAndUpdate(
-      { userId: req.auth.userId },
+      { userId: req.auth().userId },
       // Only who can see it changes; the pin keeps its own timestamp.
       { visibility },
       { new: true }
     );
     // Broadcast a refresh signal (never coordinates) so a privacy change is
     // reflected immediately for viewers who should no longer see this pin.
-    await emitLocationToFriends(req.auth.userId, { visibility: "everyone" });
+    await emitLocationToFriends(req.auth().userId, { visibility: "everyone" });
     res.json({ sharingEnabled: Boolean(saved?.sharingEnabled), visibility });
   } catch (error) { next(error); }
 };
@@ -187,7 +187,7 @@ const presentLocations = async (viewerId, viewer, locations) => {
 // A viewer never receives their own record.
 export const getLiveLocations = async (req, res, next) => {
   try {
-    const viewerId = req.auth.userId;
+    const viewerId = req.auth().userId;
     const viewer = await loadViewer(viewerId);
     const locations = await UserLocation.find({
       userId: { $nin: [viewerId, ...(viewer?.blockedUsers ?? [])] },
@@ -201,7 +201,7 @@ export const getLiveLocations = async (req, res, next) => {
 // instead of reloading everyone. Null means the viewer may no longer see it.
 export const getLiveLocation = async (req, res, next) => {
   try {
-    const viewerId = req.auth.userId;
+    const viewerId = req.auth().userId;
     const userId = String(req.params.userId || "").slice(0, 200);
     if (!userId || userId === viewerId) return res.json(null);
     const viewer = await loadViewer(viewerId);
@@ -214,7 +214,7 @@ export const getLiveLocation = async (req, res, next) => {
 
 export const getFriendLocations = async (req, res, next) => {
   try {
-    const me = await User.findOne({ clerkId: req.auth.userId }).select("friends").lean();
+    const me = await User.findOne({ clerkId: req.auth().userId }).select("friends").lean();
     const friendIds = me?.friends ?? [];
     const [locations, friends, avatars] = await Promise.all([
       UserLocation.find({ userId: { $in: friendIds }, sharingEnabled: true }).lean(),
@@ -227,7 +227,7 @@ export const getFriendLocations = async (req, res, next) => {
       const friend = users.get(location.userId);
       const user = friend && {
         clerkId: friend.clerkId, fullName: friend.fullName, imageUrl: friend.imageUrl, lastSeen: friend.lastSeen,
-        currentActivity: canSeeLiveActivity(friend, req.auth.userId) ? friend.currentActivity : null,
+        currentActivity: canSeeLiveActivity(friend, req.auth().userId) ? friend.currentActivity : null,
       };
       return { ...location, user, avatar: avatarByUser.get(location.userId), isOnline: isUserOnline(location.userId) };
     }));
@@ -237,11 +237,11 @@ export const getFriendLocations = async (req, res, next) => {
 export const disableMyLocation = async (req, res, next) => {
   try {
     const saved = await UserLocation.findOneAndUpdate(
-      { userId: req.auth.userId },
+      { userId: req.auth().userId },
       { sharingEnabled: false, updatedAt: new Date() },
       { new: true }
     );
-    await emitLocationToFriends(req.auth.userId, saved);
+    await emitLocationToFriends(req.auth().userId, saved);
     res.status(204).end();
   } catch (error) { next(error); }
 };

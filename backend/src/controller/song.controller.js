@@ -116,7 +116,7 @@ export const getMoodSongs = async (req, res) => {
 export const toggleLike = async (req, res) => {
 	try {
 		const { id } = req.params;
-		const userId = req.auth?.userId;
+		const userId = req.auth()?.userId;
 
 		if (!userId) {
 			return res.status(401).json({ message: 'Unauthorized - you must be logged in' });
@@ -152,7 +152,7 @@ export const toggleLike = async (req, res) => {
 
 export const getLikedSongs = async (req, res) => {
 	try {
-		const userId = req.auth?.userId;
+		const userId = req.auth()?.userId;
 
 		if (!userId) {
 			return res.status(401).json({ message: 'Unauthorized - you must be logged in' });

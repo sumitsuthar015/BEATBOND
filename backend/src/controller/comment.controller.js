@@ -3,7 +3,7 @@ import { User } from "../models/user.model.js";
 
 export const addComment = async (req, res, next) => {
   try {
-    const userId = req.auth.userId;
+    const userId = req.auth().userId;
     const { songId, songTitle, songArtist, songImageUrl, content } = req.body;
 
     if (!songId || !content || !content.trim()) {
@@ -90,7 +90,7 @@ export const getUserComments = async (req, res, next) => {
 
 export const deleteComment = async (req, res, next) => {
   try {
-    const userId = req.auth.userId;
+    const userId = req.auth().userId;
     const { commentId } = req.params;
 
     const comment = await Comment.findById(commentId);

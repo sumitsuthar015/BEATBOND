@@ -90,7 +90,7 @@ export const createPost = async (req, res, next) => {
     }
 
     const post = await Post.create({
-      authorId: req.auth.userId,
+      authorId: req.auth().userId,
       content,
       media,
       song: song?._id ?? null,
@@ -115,7 +115,7 @@ export const deletePost = async (req, res, next) => {
   try {
     const post = await Post.findById(req.params.postId);
     if (!post) return res.status(404).json({ message: "Post not found." });
-    if (post.authorId !== req.auth.userId)
+    if (post.authorId !== req.auth().userId)
       return res
         .status(403)
         .json({ message: "You can only delete your own posts." });

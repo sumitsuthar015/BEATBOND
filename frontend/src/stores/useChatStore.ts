@@ -36,7 +36,7 @@ const socket = io(getSocketUrl(), {
   withCredentials: true,
   auth: (callback) => {
     void Promise.resolve(getSocketToken?.())
-      .then((token) => callback(token ? { token } : {}))
+      .then((token) => callback(token ? { token, visible: document.visibilityState === "visible" } : {}))
       .catch(() => callback({}));
   },
   // Polling establishes reliably behind proxies, then Socket.IO upgrades to a
@@ -62,6 +62,7 @@ const attachSocketListeners = () => {
 
   socket.on("connect", () => {
     useChatStore.setState({ isConnected: true, error: null });
+    socket.emit("client_visibility", { visible: document.visibilityState === "visible" });
     const activity = useChatStore.getState().currentActivity;
     if (activity) socket.emit("update_activity", { activity });
   });
@@ -142,3 +143,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     if (get().isConnected) socket.emit("update_activity", { activity: currentActivity });
   },
 }));
+
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (socket.connected) socket.emit("client_visibility", { visible: document.visibilityState === "visible" });
+  });
+}

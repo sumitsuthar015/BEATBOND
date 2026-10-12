@@ -20,7 +20,7 @@ export const saveListeningActivity = async (req, res, next) => {
 		// Ignore accidental taps: playback history should represent meaningful use.
 		if (!completed && !skipped && played < 10) return res.status(204).end();
 		const activity = await ListeningActivity.create({
-			userId: req.auth.userId,
+			userId: req.auth().userId,
 			songId: String(_id), title, artist, imageUrl, audioUrl, albumId, genre,
 			duration: safeDuration, durationPlayed: played, completionPercentage: completion,
 			completed: Boolean(completed), skipped: Boolean(skipped), skipPosition: Math.max(0, Number(skipPosition) || 0), source: String(source || "player").slice(0, 40), playedAt: new Date(),
@@ -32,7 +32,7 @@ export const saveListeningActivity = async (req, res, next) => {
 export const getListeningHistory = async (req, res, next) => {
 	try {
 		const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 1000);
-		const history = await ListeningActivity.find({ userId: req.auth.userId }).sort({ playedAt: -1 }).limit(limit).lean();
+		const history = await ListeningActivity.find({ userId: req.auth().userId }).sort({ playedAt: -1 }).limit(limit).lean();
 		res.status(200).json(history.map((item) => ({
 			_id: item.songId, title: item.title, artist: item.artist, imageUrl: item.imageUrl,
 			audioUrl: item.audioUrl, albumId: item.albumId, genre: item.genre, duration: item.duration,
@@ -45,7 +45,7 @@ export const getListeningHistory = async (req, res, next) => {
 
 export const getAllUsers = async (req, res, next) => {
 	try {
-		const currentUserId = req.auth.userId;
+		const currentUserId = req.auth().userId;
 		const me = await User.findOne({ clerkId: currentUserId }).select("blockedUsers").lean();
 		// Public profile fields only: never emails, activity, friends or blocks.
 		const users = await User.find({ clerkId: { $nin: [currentUserId, ...(me?.blockedUsers ?? [])] }, blockedUsers: { $ne: currentUserId } })
@@ -59,7 +59,7 @@ export const getAllUsers = async (req, res, next) => {
 
 export const getMessages = async (req, res, next) => {
 	try {
-		const myId = req.auth.userId; // Current user ID
+		const myId = req.auth().userId; // Current user ID
 		let { userId } = req.params; // Other user's Clerk ID (or legacy Mongo ID)
 		if (mongoose.isValidObjectId(userId)) {
 			const resolvedUser = await User.findById(userId).select("clerkId").lean();
@@ -124,7 +124,7 @@ export const getMessages = async (req, res, next) => {
 
 export const getSharedMessages = async (req, res, next) => {
 	try {
-		const myId = req.auth.userId;
+		const myId = req.auth().userId;
 		const { userId } = req.params;
 		const messages = await Message.find({
 			$or: [
@@ -142,7 +142,7 @@ export const getSharedMessages = async (req, res, next) => {
 
 export const clearConversation = async (req, res, next) => {
 	try {
-		const myId = req.auth.userId;
+		const myId = req.auth().userId;
 		const { userId } = req.params;
 		const result = await Message.updateMany({
 			$or: [
@@ -192,7 +192,7 @@ export const syncClerkUsersToDatabase = async () => {
 export const searchUsers = async (req, res, next) => {
 	try {
 		const { q } = req.query;
-		const currentUserId = req.auth.userId;
+		const currentUserId = req.auth().userId;
 
 		if (!q || !q.trim()) {
 			return res.status(200).json([]);
@@ -235,7 +235,7 @@ export const searchUsers = async (req, res, next) => {
 
 export const getSuggestedUsers = async (req, res, next) => {
 	try {
-		const currentUserId = req.auth.userId;
+		const currentUserId = req.auth().userId;
 
 		await syncClerkUsersToDatabase();
 
@@ -278,7 +278,7 @@ export const getSuggestedUsers = async (req, res, next) => {
 export const updateUserProfile = async (req, res, next) => {
 	try {
 		const { clerkId } = req.params;
-		if (req.auth.userId !== clerkId) {
+		if (req.auth().userId !== clerkId) {
 			return res.status(403).json({ message: "You can only update your own profile" });
 		}
 
@@ -345,7 +345,7 @@ export const uploadProfilePhoto = async (req, res, next) => {
 			transformation: [{ width: 512, height: 512, crop: "fill", gravity: "face" }, { fetch_format: "auto", quality: "auto" }],
 		});
 		if (!url) return;
-		const result = await savePhotoChange(req.auth.userId, { photoUrl: url, photoSource: "upload" });
+		const result = await savePhotoChange(req.auth().userId, { photoUrl: url, photoSource: "upload" });
 		if (!result) return res.status(404).json({ message: "User not found" });
 		res.json(result);
 	} catch (error) {
@@ -359,13 +359,13 @@ export const uploadAvatarPhoto = async (req, res, next) => {
 	try {
 		const url = await storeUploadedImage(req, res, {
 			folder: "beatbond/avatar-photos",
-			public_id: req.auth.userId,
+			public_id: req.auth().userId,
 			overwrite: true,
 			invalidate: true,
 			transformation: [{ width: 512, height: 512, crop: "fill" }, { fetch_format: "auto", quality: "auto" }],
 		});
 		if (!url) return;
-		const result = await savePhotoChange(req.auth.userId, { avatarImageUrl: url, photoSource: "avatar" });
+		const result = await savePhotoChange(req.auth().userId, { avatarImageUrl: url, photoSource: "avatar" });
 		if (!result) return res.status(404).json({ message: "User not found" });
 		res.json(result);
 	} catch (error) {
@@ -377,10 +377,10 @@ export const setPhotoSource = async (req, res, next) => {
 	try {
 		const source = req.body?.source;
 		if (!PHOTO_SOURCES.includes(source)) return res.status(400).json({ message: "Choose provider, upload, avatar or none" });
-		const user = await User.findOne({ clerkId: req.auth.userId }).select(PHOTO_FIELDS).lean();
+		const user = await User.findOne({ clerkId: req.auth().userId }).select(PHOTO_FIELDS).lean();
 		if (!user) return res.status(404).json({ message: "User not found" });
 		if (!photoSourceAvailable(photoStateOf(user), source)) return res.status(400).json({ message: "That picture isn't available yet." });
-		res.json(await savePhotoChange(req.auth.userId, { photoSource: source }));
+		res.json(await savePhotoChange(req.auth().userId, { photoSource: source }));
 	} catch (error) { next(error); }
 };
 
@@ -388,7 +388,7 @@ export const setPhotoSource = async (req, res, next) => {
 export const getUserProfile = async (req, res, next) => {
 	try {
 		const { userId } = req.params;
-		const currentUserId = req.auth.userId; // Logged in user
+		const currentUserId = req.auth().userId; // Logged in user
 
 		const lookup = [{ clerkId: userId }];
 		if (mongoose.isValidObjectId(userId)) lookup.push({ _id: userId });
@@ -477,7 +477,7 @@ export const getUserProfile = async (req, res, next) => {
 export const updateMusicPrivacy = async (req, res, next) => {
 	try {
 		const { musicPrivacy } = req.body;
-		const userId = req.auth.userId; // Clerk userId
+		const userId = req.auth().userId; // Clerk userId
 
 		// Validate privacy value
 		if (!['everyone', 'friends', 'none'].includes(musicPrivacy)) {
@@ -511,7 +511,7 @@ export const updateMusicPrivacy = async (req, res, next) => {
 // NEW: Mark all messages from a specific user as read
 export const markAllMessagesAsRead = async (req, res, next) => {
 	try {
-		const myId = req.auth.userId; // Current user ID
+		const myId = req.auth().userId; // Current user ID
 		const { userId } = req.params; // The sender's ID
 
 		const reader = await User.findOne({ clerkId: myId }).select("readReceipts").lean();
@@ -539,7 +539,7 @@ export const markAllMessagesAsRead = async (req, res, next) => {
 // removes it for both people and is only for the sender.
 export const deleteMessage = async (req, res, next) => {
 	try {
-		const myId = req.auth.userId;
+		const myId = req.auth().userId;
 		const { messageId } = req.params;
 		if (!mongoose.isValidObjectId(messageId)) return res.status(404).json({ message: "Message not found" });
 
@@ -575,7 +575,7 @@ export const deleteMessage = async (req, res, next) => {
 // privacy lets this viewer see them.
 export const getProfileMusic = async (req, res, next) => {
 	try {
-		const viewerId = req.auth.userId;
+		const viewerId = req.auth().userId;
 		const { userId } = req.params;
 		const owner = await User.findOne({ clerkId: userId }).select(PRIVACY_FIELDS).lean();
 		if (!owner || (userId !== viewerId && owner.blockedUsers?.includes(viewerId))) {
@@ -594,14 +594,14 @@ export const getProfileMusic = async (req, res, next) => {
 
 export const clearListeningHistory = async (req, res, next) => {
 	try {
-		await ListeningActivity.deleteMany({ userId: req.auth.userId });
+		await ListeningActivity.deleteMany({ userId: req.auth().userId });
 		res.status(204).end();
 	} catch (error) { next(error); }
 };
 
 export const getBlockedUsers = async (req, res, next) => {
 	try {
-		const me = await User.findOne({ clerkId: req.auth.userId }).select("blockedUsers").lean();
+		const me = await User.findOne({ clerkId: req.auth().userId }).select("blockedUsers").lean();
 		const users = await User.find({ clerkId: { $in: me?.blockedUsers ?? [] } })
 			.select("clerkId fullName username imageUrl")
 			.lean();
@@ -613,7 +613,7 @@ export const getBlockedUsers = async (req, res, next) => {
 // people from each other's search, profile, messages and live map.
 export const blockUser = async (req, res, next) => {
 	try {
-		const me = req.auth.userId;
+		const me = req.auth().userId;
 		const target = String(req.params.userId || "");
 		if (!target || target === me) return res.status(400).json({ message: "You can't block yourself" });
 		if (!(await User.exists({ clerkId: target }))) return res.status(404).json({ message: "User not found" });
@@ -629,7 +629,7 @@ export const blockUser = async (req, res, next) => {
 
 export const unblockUser = async (req, res, next) => {
 	try {
-		await User.updateOne({ clerkId: req.auth.userId }, { $pull: { blockedUsers: String(req.params.userId || "") } });
+		await User.updateOne({ clerkId: req.auth().userId }, { $pull: { blockedUsers: String(req.params.userId || "") } });
 		res.json({ blocked: false });
 	} catch (error) { next(error); }
 };
@@ -644,9 +644,9 @@ export const updatePrivacy = async (req, res, next) => {
 			updates[key] = req.body[key];
 		}
 		if (!Object.keys(updates).length) return res.status(400).json({ message: "Nothing to update" });
-		const user = await User.findOneAndUpdate({ clerkId: req.auth.userId }, updates, { new: true }).select("musicPrivacy historyPrivacy").lean();
+		const user = await User.findOneAndUpdate({ clerkId: req.auth().userId }, updates, { new: true }).select("musicPrivacy historyPrivacy").lean();
 		if (!user) return res.status(404).json({ message: "User not found" });
-		if (updates.musicPrivacy) await refreshActivityAudience(req.auth.userId);
+		if (updates.musicPrivacy) await refreshActivityAudience(req.auth().userId);
 		res.json({ musicPrivacy: user.musicPrivacy, historyPrivacy: user.historyPrivacy });
 	} catch (error) { next(error); }
 };
@@ -654,7 +654,7 @@ export const updatePrivacy = async (req, res, next) => {
 // People who never see your listening, whatever the settings above say.
 export const getHiddenListeners = async (req, res, next) => {
 	try {
-		const me = await User.findOne({ clerkId: req.auth.userId }).select("musicHiddenFrom").lean();
+		const me = await User.findOne({ clerkId: req.auth().userId }).select("musicHiddenFrom").lean();
 		const users = await User.find({ clerkId: { $in: me?.musicHiddenFrom ?? [] } })
 			.select("clerkId fullName username imageUrl")
 			.lean();
@@ -665,18 +665,18 @@ export const getHiddenListeners = async (req, res, next) => {
 export const hideListeningFrom = async (req, res, next) => {
 	try {
 		const target = String(req.params.userId || "");
-		if (!target || target === req.auth.userId) return res.status(400).json({ message: "Choose someone else" });
+		if (!target || target === req.auth().userId) return res.status(400).json({ message: "Choose someone else" });
 		if (!(await User.exists({ clerkId: target }))) return res.status(404).json({ message: "User not found" });
-		await User.updateOne({ clerkId: req.auth.userId }, { $addToSet: { musicHiddenFrom: target } });
-		await refreshActivityAudience(req.auth.userId);
+		await User.updateOne({ clerkId: req.auth().userId }, { $addToSet: { musicHiddenFrom: target } });
+		await refreshActivityAudience(req.auth().userId);
 		res.json({ hidden: true });
 	} catch (error) { next(error); }
 };
 
 export const showListeningTo = async (req, res, next) => {
 	try {
-		await User.updateOne({ clerkId: req.auth.userId }, { $pull: { musicHiddenFrom: String(req.params.userId || "") } });
-		await refreshActivityAudience(req.auth.userId);
+		await User.updateOne({ clerkId: req.auth().userId }, { $pull: { musicHiddenFrom: String(req.params.userId || "") } });
+		await refreshActivityAudience(req.auth().userId);
 		res.json({ hidden: false });
 	} catch (error) { next(error); }
 };

@@ -1,8 +1,26 @@
 import { Notification } from "../models/notification.model.js";
+import { getVapidPublicKey, removePushSubscription, savePushSubscription } from "../services/push.service.js";
+
+export const getPushPublicKey = (_req, res) => res.json({ publicKey: getVapidPublicKey() });
+
+export const subscribeToPush = async (req, res, next) => {
+  try {
+    if (!getVapidPublicKey()) return res.status(503).json({ error: "Push notifications are not configured" });
+    await savePushSubscription(req.auth().userId, req.body);
+    res.status(201).json({ success: true });
+  } catch (error) { next(error); }
+};
+
+export const unsubscribeFromPush = async (req, res, next) => {
+  try {
+    await removePushSubscription(req.auth().userId, req.body?.endpoint);
+    res.status(200).json({ success: true });
+  } catch (error) { next(error); }
+};
 
 export const getNotifications = async (req, res, next) => {
   try {
-    const userId = req.auth.userId;
+    const userId = req.auth().userId;
     
     if (!userId) {
       return res.status(401).json({ error: "Unauthorized" });
@@ -22,7 +40,7 @@ export const getNotifications = async (req, res, next) => {
 export const markAsRead = async (req, res, next) => {
   try {
     const { notificationId } = req.params;
-    const userId = req.auth.userId;
+    const userId = req.auth().userId;
 
     if (!userId) {
       return res.status(401).json({ error: "Unauthorized" });
@@ -54,7 +72,7 @@ export const markAsRead = async (req, res, next) => {
 
 export const markAllAsRead = async (req, res, next) => {
   try {
-    const userId = req.auth.userId;
+    const userId = req.auth().userId;
 
     if (!userId) {
       return res.status(401).json({ error: "Unauthorized" });
@@ -78,7 +96,7 @@ export const markAllAsRead = async (req, res, next) => {
 export const deleteNotification = async (req, res, next) => {
   try {
     const { notificationId } = req.params;
-    const userId = req.auth.userId;
+    const userId = req.auth().userId;
 
     if (!userId) {
       return res.status(401).json({ error: "Unauthorized" });
@@ -109,7 +127,7 @@ export const deleteNotification = async (req, res, next) => {
 
 export const clearAllNotifications = async (req, res, next) => {
   try {
-    const userId = req.auth.userId;
+    const userId = req.auth().userId;
 
     if (!userId) {
       return res.status(401).json({ error: "Unauthorized" });
