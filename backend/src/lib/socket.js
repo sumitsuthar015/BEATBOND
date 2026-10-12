@@ -159,7 +159,7 @@ export const initializeSocket = (server) => {
       methods: ["GET", "POST"],
       credentials: true,
     },
-    transports: ["websocket", "polling"],
+    transports: ["websocket"],
     // Detect lost network connections quickly; normal browser closes still
     // trigger `disconnect` immediately.
     pingTimeout: 20000,
@@ -292,29 +292,33 @@ export const initializeSocket = (server) => {
         if (!receiverId || receiverId === userId) throw new Error("Invalid recipient");
         if (!content) throw new Error("Message cannot be empty");
         if (content.length > 4000) throw new Error("Message is too long");
-        const sender = await User.findOne({ clerkId: userId }).select("fullName imageUrl friends blockedUsers").lean();
+        const [sender, receiver] = await Promise.all([
+          User.findOne({ clerkId: userId }).select("fullName imageUrl friends blockedUsers").lean(),
+          User.findOne({ clerkId: receiverId }).select("blockedUsers mutedChats messageNotifications").lean(),
+        ]);
         if (!sender) throw new Error("Sender not found");
+        if (!receiver) throw new Error("Recipient not found");
         socket.user.friends = sender.friends;
         socket.user.blockedUsers = sender.blockedUsers;
         if (!isFriend(socket.user, receiverId)) {
           throw new Error("You can only message friends");
         }
 
-        const receiver = await User.findOne({ clerkId: receiverId }).select("blockedUsers mutedChats messageNotifications").lean();
-        if (!receiver) throw new Error("Recipient not found");
         if (socket.user.blockedUsers?.includes(receiverId) || receiver.blockedUsers?.includes(userId)) {
           throw new Error("You cannot message this user");
         }
 
         let replyTo = null;
+        let replyPreview = null;
         if (data.replyTo) {
-          const originalMessage = await Message.findById(data.replyTo).select("senderId receiverId");
+          const originalMessage = await Message.findById(data.replyTo).select("senderId receiverId content");
           const belongsToConversation =
             originalMessage &&
             [originalMessage.senderId, originalMessage.receiverId].includes(userId) &&
             [originalMessage.senderId, originalMessage.receiverId].includes(receiverId);
           if (!belongsToConversation) throw new Error("Invalid reply target");
           replyTo = originalMessage._id;
+          replyPreview = { _id: originalMessage._id.toString(), senderId: originalMessage.senderId, content: originalMessage.content };
         }
 
         let sharedContent = undefined;
@@ -364,40 +368,31 @@ export const initializeSocket = (server) => {
         }
 
         const receiverIsOnline = userSockets.has(receiverId);
-        const message = await Message.create({
+        const clientMessageId = typeof data.clientMessageId === "string" && data.clientMessageId.trim().length > 0 && data.clientMessageId.length <= 100
+          ? data.clientMessageId
+          : new mongoose.Types.ObjectId().toString();
+        const now = new Date().toISOString();
+        const transientMessage = {
+          _id: `temp-${clientMessageId}`,
+          clientMessageId,
           senderId: userId,
           receiverId,
           content,
-          replyTo,
+          replyTo: replyPreview,
           sharedContent,
+          createdAt: now,
           status: receiverIsOnline ? "delivered" : "sent",
-        });
+        };
 
-        // Deliver the chat message immediately, then create its alert record
-        // before notifying visible clients or attempting a device push.
-        const messagePayload = { message: message.toObject() };
-        if (receiverIsOnline) emitToUser(io, receiverId, "messageReceived", messagePayload);
-        socket.emit("messageSent", messagePayload);
-
-        // Muted chats and people who turned message notifications off still
-        // get the message, just no notification.
+        // CHANGED: deliver to connected clients before waiting for the message
+        // insert. Client IDs reconcile this instant placeholder to MongoDB.
+        const realtimePayload = { message: transientMessage, clientMessageId };
+        if (receiverIsOnline) emitToUser(io, receiverId, "messageReceived", realtimePayload);
+        socket.emit("messageSent", realtimePayload);
         const wantsNotification = receiver.messageNotifications !== false && !receiver.mutedChats?.includes(userId);
         if (wantsNotification) {
           const preview = content || sharedContent?.title || "Sent you a message";
-          const notification = await Notification.create({
-            userId: receiverId,
-            message: `New message from ${sender.fullName}`,
-            type: "message",
-            metadata: {
-              messageId: message._id.toString(),
-              senderId: userId,
-              senderName: sender.fullName,
-              senderImageUrl: sender.imageUrl || "",
-              preview: preview.slice(0, 180),
-            },
-          });
           const notificationPayload = {
-            notificationId: notification._id.toString(),
             senderId: userId,
             senderName: sender.fullName,
             senderImageUrl: sender.imageUrl || "",
@@ -407,20 +402,71 @@ export const initializeSocket = (server) => {
           for (const socketId of userForegroundSockets.get(receiverId) ?? []) {
             io.to(socketId).emit("newMessageNotification", notificationPayload);
           }
-          if (!userForegroundSockets.has(receiverId)) {
-            void sendPushToUser(receiverId, {
-              title: sender.fullName || "New message",
-              body: notificationPayload.preview,
-              icon: sender.imageUrl || "/pwa-192x192.png",
-              url: notificationPayload.chatUrl,
-              tag: `chat-${userId}`,
-              data: { url: notificationPayload.chatUrl },
-            }).catch((pushError) => console.error("Unable to send chat push notification:", pushError.message));
-          }
         }
+
+        // CHANGED: persistence, notification storage, and Web Push run off the
+        // Socket.IO event's critical path. A persistence failure retracts the
+        // temporary row from every open session.
+        void (async () => {
+          let message;
+          try {
+            message = await Message.findOneAndUpdate(
+              { senderId: userId, clientMessageId },
+              { $setOnInsert: {
+                senderId: userId,
+                receiverId,
+                clientMessageId,
+                content,
+                replyTo,
+                sharedContent,
+                status: receiverIsOnline ? "delivered" : "sent",
+              } },
+              { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true },
+            );
+            const persistedPayload = { clientMessageId, message: message.toObject() };
+            emitToUser(io, userId, "messagePersisted", persistedPayload);
+            if (receiverIsOnline) emitToUser(io, receiverId, "messagePersisted", persistedPayload);
+          } catch (persistError) {
+            console.error("Unable to persist realtime message:", persistError);
+            const failedPayload = { clientMessageId, senderId: userId, receiverId, message: "Message could not be saved. Please retry." };
+            emitToUser(io, userId, "messageFailed", failedPayload);
+            if (receiverIsOnline) emitToUser(io, receiverId, "messageFailed", failedPayload);
+            return;
+          }
+
+          // Notification storage and Web Push run off the Socket.IO critical
+          // path and only after the message is safely in history.
+          if (wantsNotification) void (async () => {
+            try {
+              const preview = content || sharedContent?.title || "Sent you a message";
+              const notificationPromise = Notification.create({
+                userId: receiverId,
+                message: `New message from ${sender.fullName}`,
+                type: "message",
+                metadata: {
+                  messageId: message._id.toString(),
+                  senderId: userId,
+                  senderName: sender.fullName,
+                  senderImageUrl: sender.imageUrl || "",
+                  preview: preview.slice(0, 180),
+                },
+              });
+              void sendPushToUser(receiverId, {
+                title: sender.fullName || "New message",
+                body: preview.slice(0, 180),
+                icon: sender.imageUrl || "/pwa-192x192.png",
+                url: `/chat?userId=${encodeURIComponent(userId)}`,
+                tag: `chat-${userId}`,
+              }).catch((pushError) => console.error("Unable to send chat push notification:", pushError.message));
+              await notificationPromise;
+            } catch (notificationError) {
+              console.error("Unable to create message notification:", notificationError.message);
+            }
+          })();
+        })();
       } catch (error) {
         console.error("Error sending message:", error);
-        socket.emit("messageError", { message: error.message || "Failed to send message" });
+        socket.emit("messageError", { clientMessageId: data.clientMessageId, message: error.message || "Failed to send message" });
       }
     });
 

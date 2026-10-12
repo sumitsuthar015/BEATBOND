@@ -7,7 +7,7 @@ export const EDIT_WINDOW_MS = 15 * 60 * 1000;
 
 export type Reaction = { userId: string; emoji: string };
 
-type ChatMessage = { _id: string; senderId: string; createdAt: string };
+type ChatMessage = { _id: string; clientMessageId?: string; senderId: string; createdAt: string };
 
 export type ChatItem<T extends ChatMessage> =
   | { type: "day"; key: string; label: string }
@@ -45,7 +45,7 @@ export const buildChatItems = <T extends ChatMessage>(messages: T[], now = new D
       && other!.senderId === message.senderId
       && startOfDay(new Date(other!.createdAt)) === day
       && Math.abs(new Date(other!.createdAt).getTime() - new Date(message.createdAt).getTime()) <= GROUP_GAP_MS;
-    items.push({ type: "message", key: message._id, message, startsGroup: !joins(previous), endsGroup: !joins(next) });
+    items.push({ type: "message", key: message.clientMessageId || message._id, message, startsGroup: !joins(previous), endsGroup: !joins(next) });
   });
   return items;
 };

@@ -32,6 +32,8 @@ interface ChatProps {
 
 interface Message {
   _id: string;
+  clientMessageId?: string;
+  clientStatus?: "sending" | "sent";
   senderId: string;
   receiverId: string;
   content: string;
@@ -76,7 +78,7 @@ const mapMessages = (data: Messages, update: (messages: Message[]) => Message[])
 
 const appendMessage = (data: Messages, message: Message): InfiniteData<MessagePage> => {
   if (!data) return { pages: [{ messages: [message], totalPages: 1 }], pageParams: [1] };
-  if (data.pages.some((page) => page.messages.some((existing) => existing._id === message._id))) return data;
+  if (data.pages.some((page) => page.messages.some((existing) => existing._id === message._id || (message.clientMessageId && existing.clientMessageId === message.clientMessageId)))) return data;
   const pages = [...data.pages];
   pages[0] = { ...pages[0], messages: [...pages[0].messages, message] };
   return { ...data, pages };
@@ -125,7 +127,7 @@ type BubbleProps = {
 };
 
 const ReadReceipt = ({ msg }: { msg: Message }) => {
-  if (msg._id.startsWith("temp-")) return <Loader2 className="size-3 animate-spin opacity-70" />;
+  if (msg.clientStatus === "sending") return <Loader2 className="size-3 animate-spin opacity-70" aria-label="Sending" />;
   if (msg.status === "read") return <CheckCheck className="size-3.5 text-sky-400" aria-label="Read" />;
   if (msg.status === "delivered") return <CheckCheck className="size-3.5 opacity-70" aria-label="Delivered" />;
   return <Check className="size-3.5 opacity-70" aria-label="Sent" />;
@@ -178,7 +180,7 @@ const MessageBubble = memo(({ msg, isMine, startsGroup, endsGroup, friend, frien
             "max-w-full select-text whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm leading-relaxed [overflow-wrap:anywhere]",
             isMine ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground",
             isMine ? (endsGroup ? "rounded-br-md" : "") : (endsGroup ? "rounded-bl-md" : ""),
-            isTemp && "opacity-70",
+            isTemp && msg.clientStatus === "sending" && "opacity-70",
           )}
         >
           {msg.replyTo && (
@@ -324,6 +326,8 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
   const navigate = useNavigate();
 
   const [message, setMessage] = useState("");
+  const messageRef = useRef(message);
+  messageRef.current = message;
   const [isSending, setIsSending] = useState(false);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
@@ -341,7 +345,7 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
   const hasScrolledToLatestRef = useRef(false);
   const nearBottomRef = useRef(true);
   const restoreScrollRef = useRef<{ height: number; top: number } | null>(null);
-  const pendingMessageRef = useRef<{ tempId: string; content: string } | null>(null);
+  const pendingMessagesRef = useRef(new Map<string, { tempId: string; content: string }>());
   const typingRef = useRef<{ active: boolean; timer: number }>({ active: false, timer: 0 });
   const friendTypingTimer = useRef(0);
   // Each message is reported read once; the screen re-checks what's visible on every update.
@@ -481,7 +485,7 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
         if (!entry.isIntersecting) continue;
         const id = entry.target.getAttribute("data-message-id");
         const found = id ? byId.get(id) : undefined;
-        if (found && found.senderId !== myId && found.status !== "read") markMessageAsRead(found._id);
+        if (found && !found._id.startsWith("temp-") && found.senderId !== myId && found.status !== "read") markMessageAsRead(found._id);
       }
     }, { root: container, threshold: 0.5 });
     container.querySelectorAll("[data-message-id]").forEach((element) => observer.observe(element));
@@ -507,33 +511,51 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
   useEffect(() => {
     if (!socket || !isConnected) return;
     const onReceived = ({ message: incoming }: { message: Message }) => {
-      void queryClient.invalidateQueries({ queryKey: ["friends"] });
       if (incoming.senderId !== userId) return;
       setFriendTyping(false);
       setMessages((data) => appendMessage(data, incoming));
       if (nearBottomRef.current) scrollToBottom();
       else setUnseen((count) => count + 1);
     };
-    const onSent = ({ message: sent }: { message: Message }) => {
-      void queryClient.invalidateQueries({ queryKey: ["friends"] });
+    const onSent = ({ message: sent, clientMessageId }: { message: Message; clientMessageId?: string }) => {
       if (sent.receiverId !== userId) return;
-      const tempId = pendingMessageRef.current?.tempId;
+      const correlationId = clientMessageId || sent.clientMessageId;
       setMessages((data) => {
-        if (tempId && data?.pages.some((page) => page.messages.some((item) => item._id === tempId))) {
-          return mapMessages(data, (list) => list.map((item) => (item._id === tempId ? sent : item)));
-        }
-        return appendMessage(data, sent);
+        const exists = data?.pages.some((page) => page.messages.some((item) => item._id === sent._id || (correlationId && item.clientMessageId === correlationId)));
+        return exists
+          ? mapMessages(data, (list) => list.map((item) => (item._id === sent._id || (correlationId && item.clientMessageId === correlationId) ? { ...item, ...sent, clientStatus: "sent" } : item)))
+          : appendMessage(data, { ...sent, clientStatus: "sent" });
       });
-      pendingMessageRef.current = null;
       setIsSending(false);
       scrollToBottom();
     };
-    const onError = (error: { message?: string }) => {
-      const pending = pendingMessageRef.current;
+    const onPersisted = ({ message: persisted, clientMessageId }: { message: Message; clientMessageId: string }) => {
+      if (persisted.senderId !== userId && persisted.receiverId !== userId) return;
+      setMessages((data) => {
+        const found = data?.pages.some((page) => page.messages.some((item) => item.clientMessageId === clientMessageId || item._id === `temp-${clientMessageId}`));
+        return found
+          ? mapMessages(data, (list) => list.map((item) => item.clientMessageId === clientMessageId || item._id === `temp-${clientMessageId}` ? persisted : item))
+          : appendMessage(data, persisted);
+      });
+      pendingMessagesRef.current.delete(clientMessageId);
+    };
+    const onFailed = ({ clientMessageId, senderId, receiverId, message: errorMessage }: { clientMessageId: string; senderId: string; receiverId: string; message: string }) => {
+      if (senderId !== userId && receiverId !== userId) return;
+      const pending = pendingMessagesRef.current.get(clientMessageId);
+      setMessages((data) => mapMessages(data, (list) => list.filter((item) => item.clientMessageId !== clientMessageId && item._id !== `temp-${clientMessageId}`)));
+      pendingMessagesRef.current.delete(clientMessageId);
+      if (pending) {
+        if (!messageRef.current) setMessage(pending.content);
+        setIsSending(false);
+        toast.error(errorMessage || "Message could not be saved");
+      }
+    };
+    const onError = (error: { message?: string; clientMessageId?: string }) => {
+      const pending = error.clientMessageId ? pendingMessagesRef.current.get(error.clientMessageId) : undefined;
       if (pending) {
         removeMessage(pending.tempId);
-        setMessage(pending.content);
-        pendingMessageRef.current = null;
+        if (!messageRef.current) setMessage(pending.content);
+        pendingMessagesRef.current.delete(error.clientMessageId!);
       }
       setIsSending(false);
       toast.error(error?.message || "Failed to send message");
@@ -553,6 +575,8 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
 
     socket.on("messageReceived", onReceived);
     socket.on("messageSent", onSent);
+    socket.on("messagePersisted", onPersisted);
+    socket.on("messageFailed", onFailed);
     socket.on("messageError", onError);
     socket.on("messageStatusUpdate", onStatus);
     socket.on("messageUpdated", onUpdated);
@@ -561,6 +585,8 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
     return () => {
       socket.off("messageReceived", onReceived);
       socket.off("messageSent", onSent);
+      socket.off("messagePersisted", onPersisted);
+      socket.off("messageFailed", onFailed);
       socket.off("messageError", onError);
       socket.off("messageStatusUpdate", onStatus);
       socket.off("messageUpdated", onUpdated);
@@ -568,7 +594,7 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
       socket.off("typing", onTyping);
       window.clearTimeout(friendTypingTimer.current);
     };
-  }, [socket, isConnected, userId, queryClient, setMessages, patchMessage, removeMessage, scrollToBottom]);
+  }, [socket, isConnected, userId, setMessages, patchMessage, removeMessage, scrollToBottom]);
 
   useEffect(() => {
     if (friendTyping && nearBottomRef.current) scrollToBottom();
@@ -608,9 +634,12 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
 
     if (!socket?.connected) return void toast.error("You're offline. Try again in a moment.");
     stopTyping();
-    const tempId = `temp-${Date.now()}-${Math.random()}`;
+    const clientMessageId = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const tempId = `temp-${clientMessageId}`;
     const optimistic: Message = {
       _id: tempId,
+      clientMessageId,
+      clientStatus: "sending",
       senderId: user.id,
       receiverId: userId,
       content,
@@ -620,10 +649,16 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
     };
     setIsSending(true);
     setMessage("");
-    pendingMessageRef.current = { tempId, content };
+    pendingMessagesRef.current.set(clientMessageId, { tempId, content });
     setMessages((data) => appendMessage(data, optimistic));
     scrollToBottom();
-    emit("sendMessage", { receiverId: userId, content, ...(replyingTo && { replyTo: replyingTo._id }) });
+    if (!emit("sendMessage", { clientMessageId, receiverId: userId, content, ...(replyingTo && { replyTo: replyingTo._id }) })) {
+      pendingMessagesRef.current.delete(clientMessageId);
+      removeMessage(tempId);
+      setMessage(content);
+      setIsSending(false);
+      toast.error("You're offline. Try again in a moment.");
+    }
     setReplyingTo(null);
   };
 

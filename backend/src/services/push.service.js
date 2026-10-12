@@ -24,9 +24,16 @@ export const removePushSubscription = (userId, endpoint) =>
 
 export const sendPushToUser = async (userId, payload) => {
   const { publicKey, privateKey } = getVapidConfig();
-  if (!publicKey || !privateKey) return;
+  if (!publicKey || !privateKey) {
+    console.error("Web Push is not configured; set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY.");
+    return;
+  }
   webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:support@beatbond.app", publicKey, privateKey);
   const subscriptions = await PushSubscription.find({ userId }).lean();
+  if (!subscriptions.length) {
+    console.warn("No Web Push subscription is saved for the message recipient.");
+    return;
+  }
   await Promise.all(subscriptions.map(async (subscription) => {
     try {
       await webpush.sendNotification(subscription, JSON.stringify(payload));

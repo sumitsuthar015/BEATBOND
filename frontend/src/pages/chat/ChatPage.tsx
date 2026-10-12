@@ -50,12 +50,18 @@ const ChatPage = () => {
       if (!matchingFriend) return friends;
 
       return [
-        { ...matchingFriend, lastMessage, lastMessageTime },
+        {
+          ...matchingFriend,
+          lastMessage,
+          lastMessageTime,
+          unreadCount: message.receiverId === user?.id && selectedUserId !== otherUserId
+            ? (matchingFriend.unreadCount || 0) + 1
+            : matchingFriend.unreadCount,
+        },
         ...friends.filter((friend) => friend.clerkId !== otherUserId),
       ];
     });
-    void queryClient.invalidateQueries({ queryKey: ["friends"] });
-  }, [queryClient, user?.id]);
+  }, [queryClient, selectedUserId, user?.id]);
 
   useEffect(() => {
     if (!isSocketConnected) return;

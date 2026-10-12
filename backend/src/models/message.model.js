@@ -12,6 +12,9 @@ const messageSchema = new mongoose.Schema(
       required: true,
       ref: "User",
     },
+    // Client-generated correlation ID lets live placeholders reconcile to the
+    // durable message without waiting for MongoDB before delivery.
+    clientMessageId: { type: String, default: null },
     content: {
       type: String,
       required: true,
@@ -57,5 +60,9 @@ const messageSchema = new mongoose.Schema(
 messageSchema.index({ senderId: 1, receiverId: 1, createdAt: -1 });
 messageSchema.index({ receiverId: 1, senderId: 1, createdAt: -1 });
 messageSchema.index({ status: 1 });
+messageSchema.index({ senderId: 1, clientMessageId: 1 }, {
+  unique: true,
+  partialFilterExpression: { clientMessageId: { $type: "string" } },
+});
 
 export const Message = mongoose.model("Message", messageSchema);

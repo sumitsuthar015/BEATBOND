@@ -39,12 +39,9 @@ const socket = io(getSocketUrl(), {
       .then((token) => callback(token ? { token, visible: document.visibilityState === "visible" } : {}))
       .catch(() => callback({}));
   },
-  // Polling establishes reliably behind proxies, then Socket.IO upgrades to a
-  // WebSocket automatically. `rememberUpgrade` makes later connections go
-  // straight to WebSocket after one successful upgrade.
-  transports: ["polling", "websocket"],
-  rememberUpgrade: true,
-  upgrade: true,
+  // Chat packets stay on one persistent connection instead of paying the
+  // HTTP polling request/upgrade round trip on every cold connection.
+  transports: ["websocket"],
   reconnection: true,
   // Keep retrying after a transient network outage. Server-side Set membership
   // prevents these reconnects from creating duplicate presence entries.
