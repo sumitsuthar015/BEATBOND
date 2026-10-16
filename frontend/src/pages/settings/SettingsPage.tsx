@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import {
-  Bell, CheckCheck, ChevronRight, CircleDot, Download, Eye, EyeOff, Gauge, History, KeyRound, LayoutDashboard, ListMusic, LogOut, MapPin, MessageSquare, Palette,
+  Bell, CheckCheck, ChevronRight, CircleDot, Download, Eye, EyeOff, Gauge, History, KeyRound, LayoutDashboard, ListMusic, LogOut, MapPin, Palette,
   Radio, Repeat, Sparkles, UserX, type LucideIcon,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -161,7 +161,7 @@ const SettingsPage = () => {
     }
   };
 
-  const chatSettings: ChatSettings = profile?.chatSettings ?? { readReceipts: true, showActivityStatus: true, messageNotifications: true };
+  const chatSettings: ChatSettings = profile?.chatSettings ?? { readReceipts: true, showActivityStatus: true };
   const changeChatSetting = async (setting: keyof ChatSettings, value: boolean) => {
     const key = ["myProfile", user.id];
     const withValue = (next: boolean) => (current: { chatSettings?: ChatSettings } | undefined) => current && { ...current, chatSettings: { ...chatSettings, [setting]: next } };
@@ -314,15 +314,6 @@ const SettingsPage = () => {
               title="Show when I'm online"
               detail="When off, friends won't see you online or your last seen, and you won't see theirs."
               end={<Switch checked={chatSettings.showActivityStatus} onChange={(value) => void changeChatSetting("showActivityStatus", value)} label="Show when I'm online" />}
-            />
-          </div>
-          <div className={rowClass}>
-            <RowBody
-              icon={MessageSquare}
-              tone="bg-violet-500/15 text-violet-500"
-              title="Message notifications"
-              detail="Get notified when a friend messages you. You can also mute single chats from the chat menu."
-              end={<Switch checked={chatSettings.messageNotifications} onChange={(value) => void changeChatSetting("messageNotifications", value)} label="Message notifications" />}
             />
           </div>
         </Section>

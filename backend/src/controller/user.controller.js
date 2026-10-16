@@ -198,25 +198,71 @@ export const searchUsers = async (req, res, next) => {
 			return res.status(200).json([]);
 		}
 
-		await syncClerkUsersToDatabase();
-
 		const queryStr = q.trim();
+		const page = Math.min(100_000, Math.max(0, Number.parseInt(req.query.page, 10) || 0));
+		const limit = Math.min(30, Math.max(1, Number.parseInt(req.query.limit, 10) || 30));
 		const me = await User.findOne({ clerkId: currentUserId }).select("clerkId blockedUsers showActivityStatus").lean();
 		const escaped = queryStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-		const searchRegex = new RegExp(escaped, 'i');
+		const containsRegex = new RegExp(escaped, 'i');
+		const startsWithRegex = new RegExp(`^${escaped}`, 'i');
+		const exclusions = [currentUserId, ...(me?.blockedUsers ?? [])];
 
-		const users = await User.find({
-			clerkId: { $nin: [currentUserId, ...(me?.blockedUsers ?? [])] },
-			blockedUsers: { $ne: currentUserId },
-			$or: [
-				{ fullName: searchRegex },
-				{ username: searchRegex },
-				{ email: searchRegex }
-			]
-		})
-		.select('clerkId fullName username imageUrl bio friends showActivityStatus')
-		.limit(30)
-		.lean();
+		// Rank prefix matches before substring matches, then page the ordered list
+		// so a one-letter search can expose every match without mounting them all.
+		const users = await User.aggregate([
+			{
+				$match: {
+					clerkId: { $nin: exclusions },
+					blockedUsers: { $ne: currentUserId },
+					$or: [
+						{ fullName: containsRegex },
+						{ username: containsRegex },
+					],
+				},
+			},
+			{
+				$addFields: {
+					_searchRank: {
+						$switch: {
+							branches: [
+								{
+									case: {
+										$regexMatch: {
+											input: { $trim: { input: { $ifNull: ["$fullName", ""] } } },
+											regex: startsWithRegex,
+										},
+									},
+									then: 0,
+								},
+								{
+									case: {
+										$regexMatch: {
+											input: { $trim: { input: { $ifNull: ["$username", ""] } } },
+											regex: startsWithRegex,
+										},
+									},
+									then: 2,
+								},
+								{
+									case: {
+										$regexMatch: {
+											input: { $trim: { input: { $ifNull: ["$fullName", ""] } } },
+											regex: containsRegex,
+										},
+									},
+									then: 1,
+								},
+							],
+							default: 3,
+						},
+					},
+				},
+			},
+			{ $sort: { _searchRank: 1, fullName: 1, username: 1, clerkId: 1 } },
+			{ $skip: page * limit },
+			{ $limit: limit },
+			{ $project: { clerkId: 1, fullName: 1, username: 1, imageUrl: 1, bio: 1, friends: 1, showActivityStatus: 1 } },
+		]);
 
 		const formattedUsers = users.map(({ showActivityStatus, ...user }) => ({
 			...user,
@@ -462,7 +508,7 @@ export const getUserProfile = async (req, res, next) => {
 			// ⭐ NEW FIELDS
 			...(profileUserId === currentUserId
 				? { musicPrivacy: user.musicPrivacy || "friends", historyPrivacy: user.historyPrivacy || "none", photo: publicPhoto(photoStateOf(user)),
-					chatSettings: { readReceipts: user.readReceipts !== false, showActivityStatus: user.showActivityStatus !== false, messageNotifications: user.messageNotifications !== false } }
+					chatSettings: { readReceipts: user.readReceipts !== false, showActivityStatus: user.showActivityStatus !== false } }
 				: { listeningHiddenFromThem: currentUser?.musicHiddenFrom?.includes(profileUserId) || false }),
 			canSeeMusicActivity,
 			currentActivity: canSeeMusicActivity ? user.currentActivity : null

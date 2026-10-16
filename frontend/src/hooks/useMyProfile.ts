@@ -22,7 +22,6 @@ export type ChatSettings = {
   readReceipts: boolean;
   /** Off: friends don't see you online or your last seen, and you don't see theirs. */
   showActivityStatus: boolean;
-  messageNotifications: boolean;
 };
 
 export type MyProfile = {

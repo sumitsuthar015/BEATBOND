@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { MessageSquare, Send, Trash2, Music2, Loader2 } from "lucide-react";
 import { useUser } from "@clerk/clerk-react";
+import { toast } from "react-hot-toast";
 import { axiosInstance } from "@/lib/axios";
 import {
   Dialog,
@@ -74,27 +75,38 @@ export const SongCommentsModal = ({ song, trigger, open, onOpenChange }: SongCom
         })
       ).data;
     },
-    onSuccess: () => {
-      setNewComment("");
-      void queryClient.invalidateQueries({ queryKey: ["song-comments", songId] });
-      void queryClient.invalidateQueries({ queryKey: ["user-comments"] });
+    onSuccess: (createdComment: CommentItem) => {
+      // Update the visible list directly instead of immediately downloading and
+      // rendering the entire comment history again after every post.
+      queryClient.setQueryData<CommentItem[]>(["song-comments", songId], (current = []) =>
+        [createdComment, ...current.filter((comment) => comment._id !== createdComment._id)].slice(0, 100)
+      );
+      if (user?.id) void queryClient.invalidateQueries({ queryKey: ["userCommentsCount", user.id] });
     },
+    onError: () => toast.error("Couldn't post your comment. Please try again."),
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (commentId: string) => {
       return (await axiosInstance.delete(`/comments/${commentId}`)).data;
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["song-comments", songId] });
-      void queryClient.invalidateQueries({ queryKey: ["user-comments"] });
+    onSuccess: (_result, commentId) => {
+      queryClient.setQueryData<CommentItem[]>(["song-comments", songId], (current = []) =>
+        current.filter((comment) => comment._id !== commentId)
+      );
+      if (user?.id) void queryClient.invalidateQueries({ queryKey: ["userCommentsCount", user.id] });
     },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newComment.trim() || addMutation.isPending) return;
-    addMutation.mutate(newComment.trim());
+    const content = newComment.trim();
+    if (!content || addMutation.isPending) return;
+    setNewComment("");
+    // Release the modal's focus trap immediately; the network write continues
+    // without blocking navigation or other app interactions.
+    handleOpenChange(false);
+    addMutation.mutate(content);
   };
 
   const formatTime = (iso: string) => {

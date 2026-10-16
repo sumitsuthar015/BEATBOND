@@ -2,17 +2,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { AlertCircle, BellOff, Search, UserMinus, Loader2, MessageCircle } from "lucide-react";
+import { AlertCircle, Search, MessageCircle } from "lucide-react";
 import { useState, useCallback, useEffect, memo } from "react";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -29,7 +19,6 @@ const formatConversationTime = (value?: string) => {
 };
 
 interface User {
-  _id?: string; // friend-relationship id, used for delete
   clerkId: string;
   fullName: string;
   imageUrl: string;
@@ -38,15 +27,12 @@ interface User {
   lastMessageTime?: string;
   lastMessageFromMe?: boolean;
   unreadCount?: number;
-  isMuted?: boolean;
 }
 
 interface UserListProps {
   users: User[];
   selectedUserId?: string;
   onUserSelect?: (userId: string) => void;
-  onUserDelete?: (user: User) => void;
-  isDeleting?: boolean;
   isLoading?: boolean;
   isError?: boolean;
   onRetry?: () => void;
@@ -58,13 +44,11 @@ const UserItem = memo(
     user,
     isSelected,
     onSelect,
-    onDelete,
     nickname,
   }: {
     user: User;
     isSelected: boolean;
     onSelect: (id: string) => void;
-    onDelete?: (user: User) => void;
     nickname?: string;
   }) => {
     const onlineUsers = useChatStore((state) => state.onlineUsers);
@@ -102,7 +86,6 @@ const UserItem = memo(
             <div className="flex items-center justify-between gap-2">
               <p className="flex min-w-0 items-center gap-1.5 font-medium text-sm sm:text-base">
                 <span className="truncate">{nickname || user.fullName}</span>
-                {user.isMuted && <BellOff className="size-3.5 shrink-0 text-muted-foreground" aria-label="Muted" />}
               </p>
               {user.lastMessageTime && (
                 <span className="text-[10px] sm:text-xs text-muted-foreground flex-shrink-0">
@@ -120,22 +103,6 @@ const UserItem = memo(
           {!!user.unreadCount && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">{user.unreadCount > 99 ? "99+" : user.unreadCount}</span>}
         </Link>
 
-        {/* Delete/remove user - same markup for mobile & desktop, layout adapts responsively */}
-        {onDelete && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="flex-shrink-0 mr-1.5 sm:mr-2 h-9 w-9 text-red-400 hover:text-red-500 hover:bg-red-500/10"
-            title="Remove user"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onDelete(user);
-            }}
-          >
-            <UserMinus className="h-4 w-4" />
-          </Button>
-        )}
       </div>
     );
   }
@@ -148,15 +115,12 @@ export const UserList = memo(
     users,
     selectedUserId,
     onUserSelect,
-    onUserDelete,
-    isDeleting,
     isLoading,
     isError,
     onRetry,
     className,
   }: UserListProps) => {
     const [search, setSearch] = useState("");
-    const [userToDelete, setUserToDelete] = useState<User | null>(null);
     const [, setNicknameVersion] = useState(0);
 
     useEffect(() => {
@@ -186,13 +150,6 @@ export const UserList = memo(
       },
       [onUserSelect]
     );
-
-    const handleConfirmDelete = useCallback(() => {
-      if (userToDelete) {
-        onUserDelete?.(userToDelete);
-      }
-      setUserToDelete(null);
-    }, [userToDelete, onUserDelete]);
 
     return (
       <div className={cn("flex flex-col h-full bg-background", className)}>
@@ -246,7 +203,6 @@ export const UserList = memo(
                 nickname={localStorage.getItem(`beatbond:nickname:${user.clerkId}`) || undefined}
                 isSelected={selectedUserId === user.clerkId}
                 onSelect={handleUserSelect}
-                onDelete={onUserDelete ? setUserToDelete : undefined}
               />
             ))}
 
@@ -259,36 +215,6 @@ export const UserList = memo(
           </div>
         </ScrollArea>
 
-        {/* Remove-user confirmation dialog */}
-        <AlertDialog
-          open={!!userToDelete}
-          onOpenChange={(open) => !open && setUserToDelete(null)}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Remove {userToDelete?.fullName}?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This removes {userToDelete?.fullName} from your friends list and
-                chat list. They won't be notified, and you can add them again
-                later if you change your mind.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                disabled={isDeleting}
-                onClick={handleConfirmDelete}
-                className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
-              >
-                {isDeleting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  "Remove"
-                )}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
       </div>
     );
   }

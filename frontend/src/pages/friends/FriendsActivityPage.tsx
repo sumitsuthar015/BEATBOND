@@ -3,20 +3,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Link } from "react-router-dom";
 import { axiosInstance } from "@/lib/axios";
 import { useChatStore } from "@/stores/useChatStore";
-import { Music, Users, Loader2, AlertCircle, UserMinus, Check, X, UserPlus, MapPin, MessageCircle, Search } from "lucide-react";
+import { Music, Users, Loader2, AlertCircle, Check, X, UserPlus, MapPin, MessageCircle, Search } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "react-hot-toast";
 
@@ -42,7 +32,6 @@ interface PendingRequest {
 const FriendsActivityPage = () => {
   const queryClient = useQueryClient();
   const { onlineUsers, userActivities, isConnected } = useChatStore();
-  const [friendToRemove, setFriendToRemove] = useState<Friend | null>(null);
   const [, setNicknameVersion] = useState(0);
 
   useEffect(() => {
@@ -72,19 +61,6 @@ const FriendsActivityPage = () => {
       return data;
     },
     staleTime: 15000,
-  });
-
-  const { mutate: removeFriend, isPending: isRemoving } = useMutation({
-    mutationFn: async (friendClerkId: string) => {
-      await axiosInstance.delete(`/friends/${friendClerkId}`);
-    },
-    onSuccess: () => {
-      toast.success("Friend removed");
-      queryClient.invalidateQueries({ queryKey: ["friends"] });
-    },
-    onError: () => {
-      toast.error("Failed to remove friend");
-    },
   });
 
   const { mutate: respondToRequest, isPending: isResponding } = useMutation({
@@ -230,15 +206,6 @@ const FriendsActivityPage = () => {
                         <MessageCircle className="size-4" />
                       </Button>
                     </Link>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-9 rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                      title="Remove friend"
-                      onClick={() => setFriendToRemove(friend)}
-                    >
-                      <UserMinus className="size-4" />
-                    </Button>
                   </div>
                 </div>
               );
@@ -315,29 +282,6 @@ const FriendsActivityPage = () => {
         </Tabs>
       </div>
 
-      <AlertDialog open={!!friendToRemove} onOpenChange={(open) => !open && setFriendToRemove(null)}>
-        <AlertDialogContent className="rounded-2xl sm:rounded-2xl">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove {friendToRemove?.fullName}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This removes them from your friends list. You can send a new request later if you change your mind.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isRemoving} className="rounded-full">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={isRemoving}
-              onClick={() => {
-                if (friendToRemove) removeFriend(friendToRemove.clerkId);
-                setFriendToRemove(null);
-              }}
-              className="rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {isRemoving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Remove"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </main>
   );
 };

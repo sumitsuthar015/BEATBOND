@@ -6,6 +6,7 @@ import { ListeningActivity } from "../models/listeningActivity.model.js";
 import { Comment } from "../models/comment.model.js";
 import { Message } from "../models/message.model.js";
 import { Playlist } from "../models/playlist.model.js";
+import { Notification } from "../models/notification.model.js";
 import cloudinary from "../lib/cloudinary.js";
 import { isDatabaseConnected } from "../lib/db.js";
 import { getOnlineUserIds, isUserOnline } from "../lib/realtime.js";
@@ -61,6 +62,18 @@ export const createSong = async (req, res, next) => {
 		});
 
 		await song.save();
+
+		// Catalog additions are rare and useful to surface in the notification
+		// center. Persist these asynchronously so the admin upload response stays
+		// focused on the song save.
+		void User.distinct("clerkId", { clerkId: { $type: "string", $ne: "" } })
+			.then((userIds) => userIds.length && Notification.insertMany(userIds.map((userId) => ({
+				userId,
+				message: `New song added: ${title} by ${artist}`,
+				type: "system",
+				metadata: { songId: song._id.toString(), songTitle: title, songArtist: artist },
+			}))))
+			.catch((notificationError) => console.error("Unable to notify users about new song:", notificationError));
 
 		// if song belongs to an album, update the album's songs array
 		if (albumId) {

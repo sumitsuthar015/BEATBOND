@@ -60,7 +60,7 @@ const setMuted = (muted) => async (req, res, next) => {
 export const muteChat = setMuted(true);
 export const unmuteChat = setMuted(false);
 
-const CHAT_SETTINGS = ["readReceipts", "showActivityStatus", "messageNotifications"];
+const CHAT_SETTINGS = ["readReceipts", "showActivityStatus"];
 
 export const updateChatSettings = async (req, res, next) => {
 	try {

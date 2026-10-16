@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import FriendRequestButton from "@/components/friends/FriendRequestButton";
 import { Button } from "@/components/ui/button";
@@ -60,16 +60,25 @@ const UserSearchPage = () => {
   const navigate = useNavigate();
 
   // Debounce search query to reduce API calls
-  const debouncedSearch = useDebounce(searchQuery, 400);
+  const debouncedSearch = useDebounce(searchQuery, 180);
 
   // Fetch search results with optimized caching
-  const { data: users = [], isLoading, isFetching } = useQuery<User[]>({
+  const {
+    data: searchPages,
+    isLoading,
+    isFetching,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery<User[]>({
     queryKey: ["users", debouncedSearch],
-    queryFn: async () => {
+    initialPageParam: 0,
+    queryFn: async ({ signal, pageParam }) => {
       if (!debouncedSearch || debouncedSearch.trim().length === 0) return [];
       try {
         const { data } = await axiosInstance.get(
-          `/users/search?q=${encodeURIComponent(debouncedSearch)}`
+          `/users/search?q=${encodeURIComponent(debouncedSearch.trim())}&page=${pageParam}`,
+          { signal },
         );
         return data;
       } catch (error) {
@@ -81,7 +90,10 @@ const UserSearchPage = () => {
     staleTime: 5000, // Fetch fresh search results promptly
     gcTime: 60000,
     refetchOnWindowFocus: true,
+    getNextPageParam: (lastPage, allPages) => lastPage.length === 30 ? allPages.length : undefined,
   });
+
+  const users = useMemo(() => searchPages?.pages.flat() ?? [], [searchPages]);
 
   // Fetch suggested users
   const { data: suggestedUsers = [] } = useQuery<User[]>({
@@ -318,6 +330,18 @@ const UserSearchPage = () => {
                       </CardContent>
                     </Card>
                   ))}
+                  {hasNextPage && (
+                    <div className="flex justify-center py-4">
+                      <Button
+                        variant="outline"
+                        onClick={() => void fetchNextPage()}
+                        disabled={isFetchingNextPage}
+                      >
+                        {isFetchingNextPage ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                        {isFetchingNextPage ? "Loading more…" : "Load more users"}
+                      </Button>
+                    </div>
+                  )}
                 </>
               ) : (
                 <div className="text-center py-16 sm:py-20">

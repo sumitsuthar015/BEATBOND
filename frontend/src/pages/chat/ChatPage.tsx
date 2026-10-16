@@ -1,8 +1,7 @@
 import { useEffect, useState, useCallback, memo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { axiosInstance } from "@/lib/axios";
-import { toast } from "react-hot-toast";
 import { UserList } from "./components/UserList";
 import { DirectMessageChat } from "../../components/chat/DirectMessageChat";
 import { AlertCircle, ArrowLeft, Loader2, MessageCircle } from "lucide-react";
@@ -101,33 +100,10 @@ const ChatPage = () => {
     },
   });
 
-  // Remove / delete a user from the friends & chat list
-  const { mutate: removeUser, isPending: isDeleting } = useMutation({
-    mutationFn: async (friend: FriendUser) => {
-      await axiosInstance.delete(`/friends/${friend.clerkId}`);
-    },
-    onSuccess: (_, friend) => {
-      toast.success(`${friend.fullName} removed`);
-      queryClient.setQueryData<FriendUser[]>(["friends"], (old = []) =>
-        old.filter((u) => u.clerkId !== friend.clerkId)
-      );
-      queryClient.invalidateQueries({ queryKey: ["friends"] });
-      // If the deleted user's chat was open, go back to the list
-      if (selectedUserId === friend.clerkId) {
-        navigate("/chat");
-      }
-    },
-    onError: () => {
-      toast.error("Failed to remove user");
-    },
-  });
-
   const listPane = (
     <UserList
       users={users}
       selectedUserId={selectedUserId}
-      onUserDelete={removeUser}
-      isDeleting={isDeleting}
       isLoading={isLoadingFriends}
       isError={isFriendsError}
       onRetry={refetchFriends}
@@ -192,8 +168,6 @@ const ChatPage = () => {
             <UserList
               users={users}
               selectedUserId={selectedUserId}
-              onUserDelete={removeUser}
-              isDeleting={isDeleting}
               isLoading={isLoadingFriends}
               isError={isFriendsError}
               onRetry={refetchFriends}

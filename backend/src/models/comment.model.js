@@ -12,4 +12,8 @@ const commentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Song comment feeds are always ordered newest-first. Keep this lookup and sort
+// on an index so a popular song cannot make the comments request stall.
+commentSchema.index({ songId: 1, createdAt: -1 });
+
 export const Comment = mongoose.model("Comment", commentSchema);

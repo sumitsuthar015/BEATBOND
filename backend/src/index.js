@@ -87,6 +87,11 @@ app.use((req, res, next) => {
   }
 
   const resource = req.path.split("/").filter(Boolean)[1];
+  // Comment writes update the open song-comments cache locally. Broadcasting
+  // them as generic mutations would invalidate every active query in every
+  // connected tab, creating a large refetch burst after each comment.
+  if (resource === "comments") return next();
+
   res.once("finish", () => {
     if (res.statusCode >= 200 && res.statusCode < 300 && resource) {
       emitRealtimeUpdate({ resource, actorId: req.auth()?.userId ?? null });

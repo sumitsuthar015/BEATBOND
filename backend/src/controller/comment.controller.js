@@ -41,7 +41,8 @@ export const getSongComments = async (req, res, next) => {
   try {
     const { songId } = req.params;
 
-    const comments = await Comment.find({ songId }).sort({ createdAt: -1 }).lean();
+    // Keep the modal payload bounded even for songs with a long comment history.
+    const comments = await Comment.find({ songId }).sort({ createdAt: -1 }).limit(100).lean();
 
     const userIds = [...new Set(comments.map((c) => c.userId))];
     const users = await User.find({ clerkId: { $in: userIds } }).select("clerkId fullName username imageUrl").lean();

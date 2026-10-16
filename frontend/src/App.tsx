@@ -23,7 +23,6 @@ import AudioPlayer from "./layout/components/AudioPlayer";
 import PlaylistDetailPage from "./pages/playlists/PlaylistDetailPage";
 import LikedSongsPage from "./pages/playlists/LikedSongsPage";
 import RouteHistoryTracker from "./components/RouteHistoryTracker";
-import { GlobalMessageNotifications } from "./components/notifications/GlobalMessageNotifications";
 
 // After a deployment the open app keeps running its current version until it
 // can restart unnoticed (see registerServiceWorker.ts). The deployment removes
@@ -152,7 +151,6 @@ function App() {
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>
-      <GlobalMessageNotifications />
       <Toaster
         position="bottom-center"
         toastOptions={{

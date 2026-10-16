@@ -5,11 +5,9 @@ import { createRealtimeRedis } from "./realtimeRedis.js";
 import mongoose from "mongoose";
 import { isDatabaseConnected } from "./db.js";
 import { Message } from "../models/message.model.js";
-import { Notification } from "../models/notification.model.js";
 import { User } from "../models/user.model.js";
 import { PRIVACY_FIELDS, canSeeLiveActivity, liveActivityViewers } from "../services/privacy.service.js";
 import { sendsReadReceipts } from "../services/chat.service.js";
-import { sendPushToUser } from "../services/push.service.js";
 
 const userSockets = new Map();
 const socketsById = new Map();
@@ -378,7 +376,7 @@ export const initializeWebSocket = (server) => {
         if (content.length > 4000) throw new Error("Message is too long");
         const [sender, receiver] = await Promise.all([
           User.findOne({ clerkId: userId }).select("fullName imageUrl friends blockedUsers").lean(),
-          User.findOne({ clerkId: receiverId }).select("blockedUsers mutedChats messageNotifications").lean(),
+          User.findOne({ clerkId: receiverId }).select("blockedUsers").lean(),
         ]);
         if (!sender) throw new Error("Sender not found");
         if (!receiver) throw new Error("Recipient not found");
@@ -473,20 +471,6 @@ export const initializeWebSocket = (server) => {
         const realtimePayload = { message: transientMessage, clientMessageId };
         if (receiverIsOnline) emitToUser(io, receiverId, "messageReceived", realtimePayload);
         socket.emit("messageSent", realtimePayload);
-        const wantsNotification = receiver.messageNotifications !== false && !receiver.mutedChats?.includes(userId);
-        if (wantsNotification) {
-          const preview = content || sharedContent?.title || "Sent you a message";
-          const notificationPayload = {
-            clientMessageId,
-            senderId: userId,
-            senderName: sender.fullName,
-            senderImageUrl: sender.imageUrl || "",
-            preview: preview.slice(0, 180),
-            chatUrl: `/chat?userId=${encodeURIComponent(userId)}`,
-          };
-          emitToUser(io, receiverId, "newMessageNotification", notificationPayload, true);
-        }
-
         // CHANGED: persistence, notification storage, and Web Push run off the
         // realtime event's critical path. A persistence failure retracts the
         // temporary row from every open session.
@@ -517,35 +501,6 @@ export const initializeWebSocket = (server) => {
             return;
           }
 
-          // Notification storage and Web Push run off the realtime critical
-          // path and only after the message is safely in history.
-          if (wantsNotification) void (async () => {
-            try {
-              const preview = content || sharedContent?.title || "Sent you a message";
-              const notificationPromise = Notification.create({
-                userId: receiverId,
-                message: `New message from ${sender.fullName}`,
-                type: "message",
-                metadata: {
-                  messageId: message._id.toString(),
-                  senderId: userId,
-                  senderName: sender.fullName,
-                  senderImageUrl: sender.imageUrl || "",
-                  preview: preview.slice(0, 180),
-                },
-              });
-              void sendPushToUser(receiverId, {
-                title: sender.fullName || "New message",
-                body: preview.slice(0, 180),
-                icon: sender.imageUrl || "/pwa-192x192.png",
-                url: `/chat?userId=${encodeURIComponent(userId)}`,
-                tag: `chat-${userId}`,
-              }).catch((pushError) => console.error("Unable to send chat push notification:", pushError.message));
-              await notificationPromise;
-            } catch (notificationError) {
-              console.error("Unable to create message notification:", notificationError.message);
-            }
-          })();
         })();
       } catch (error) {
         console.error("Error sending message:", error);

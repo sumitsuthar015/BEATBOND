@@ -23,6 +23,7 @@ import {
   Loader2,
   ListVideo,
   ListMusic,
+  MessageSquare,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -46,6 +47,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SongDetailsModal } from "@/components/SongDetailsModal";
+import { SongCommentsModal } from "@/components/SongCommentsModal";
 import { LyricsPanel } from "./LyricsPanel";
 import { useSongDownload } from "@/hooks/useOfflineDownloads";
 import { fetchLyricsForSong, lyricsAsPlainText } from "@/lib/lyrics";
@@ -225,6 +227,7 @@ export const PlaybackControls = () => {
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isSongDetailsOpen, setIsSongDetailsOpen] = useState(false);
+  const [isCommentsOpen, setIsCommentsOpen] = useState(false);
   const [isLyricsOpen, setIsLyricsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -378,6 +381,15 @@ export const PlaybackControls = () => {
                 >
                   <Mic2 className="w-4 h-4 mr-2" />
                   View Lyrics
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    window.requestAnimationFrame(() => setIsCommentsOpen(true));
+                  }}
+                  className="text-zinc-300 focus:text-white focus:bg-zinc-700 cursor-pointer"
+                >
+                  <MessageSquare className="w-4 h-4 mr-2" />
+                  Comments
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={handleDownload}
@@ -550,6 +562,8 @@ export const PlaybackControls = () => {
           onClose={() => setIsSongDetailsOpen(false)}
         />
 
+        <SongCommentsModal song={currentSong} open={isCommentsOpen} onOpenChange={setIsCommentsOpen} />
+
         <LyricsModal
           isOpen={isLyricsOpen}
           onClose={() => setIsLyricsOpen(false)}
@@ -625,6 +639,17 @@ export const PlaybackControls = () => {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
+                  setIsCommentsOpen(true);
+                }}
+                aria-label="Comment on current song"
+                title="Comments"
+                className="text-zinc-400 hover:text-white transition-colors p-2"
+              >
+                <MessageSquare className="w-4 h-4" />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
                   togglePlay();
                 }}
                 className="text-white hover:scale-110 transition-transform p-2"
@@ -653,6 +678,8 @@ export const PlaybackControls = () => {
           isOpen={isSongDetailsOpen}
           onClose={() => setIsSongDetailsOpen(false)}
         />
+
+        <SongCommentsModal song={currentSong} open={isCommentsOpen} onOpenChange={setIsCommentsOpen} />
 
         <LyricsModal
           isOpen={isLyricsOpen}
@@ -756,6 +783,15 @@ export const PlaybackControls = () => {
             </button>
 
             <button
+              onClick={() => setIsCommentsOpen(true)}
+              className="text-zinc-400 hover:text-white transition-colors hover:scale-110"
+              title="Comments"
+              aria-label="Comment on current song"
+            >
+              <MessageSquare className="w-4 h-4" />
+            </button>
+
+            <button
               onClick={handleDownload}
               disabled={isDownloading}
               className="text-zinc-400 hover:text-white transition-colors hover:scale-110 disabled:opacity-50"
@@ -788,6 +824,15 @@ export const PlaybackControls = () => {
                 >
                   <Mic2 className="w-4 h-4 mr-2" />
                   View Lyrics
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    window.requestAnimationFrame(() => setIsCommentsOpen(true));
+                  }}
+                  className="text-zinc-300 focus:text-white focus:bg-zinc-700 cursor-pointer"
+                >
+                  <MessageSquare className="w-4 h-4 mr-2" />
+                  Comments
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={handleDownload}
@@ -912,6 +957,8 @@ export const PlaybackControls = () => {
         onClose={() => setIsLyricsOpen(false)}
         song={currentSong}
       />
+
+      <SongCommentsModal song={currentSong} open={isCommentsOpen} onOpenChange={setIsCommentsOpen} />
 
       <style>{`
         @keyframes marquee {

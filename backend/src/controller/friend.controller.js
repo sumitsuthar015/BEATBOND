@@ -253,7 +253,7 @@ export const getPendingRequests = async (req, res, next) => {
     const requestsWithSenderInfo = await Promise.all(
       pendingRequests.map(async (request) => {
         const sender = await User.findOne({ clerkId: request.senderId })
-          .select('clerkId fullName imageUrl email');
+          .select('clerkId fullName username imageUrl');
         
         return {
           _id: request._id,
@@ -265,8 +265,8 @@ export const getPendingRequests = async (req, res, next) => {
           sender: sender ? {
             clerkId: sender.clerkId,
             fullName: sender.fullName,
+            username: sender.username,
             imageUrl: sender.imageUrl,
-            email: sender.email
           } : null
         };
       })

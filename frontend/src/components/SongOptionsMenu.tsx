@@ -68,6 +68,7 @@ export const SongOptionsMenu: React.FC<SongOptionsMenuProps> = ({
 
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const download = useSongDownload(song);
 
@@ -115,7 +116,7 @@ export const SongOptionsMenu: React.FC<SongOptionsMenuProps> = ({
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
         <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
@@ -246,9 +247,13 @@ export const SongOptionsMenu: React.FC<SongOptionsMenuProps> = ({
 
           {/* Comments */}
           <DropdownMenuItem
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsCommentsOpen(true);
+            onSelect={(e) => {
+              e.preventDefault();
+              setIsMenuOpen(false);
+              // Let Radix finish dismissing the dropdown before mounting its
+              // sibling dialog. Overlapping modal layers can leave the page
+              // inert when one of the two focus traps closes.
+              window.requestAnimationFrame(() => setIsCommentsOpen(true));
             }}
             className="flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 focus:bg-white/10 focus:text-white rounded-lg cursor-pointer"
           >

@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import { useInView } from "react-intersection-observer";
 import {
-  ArrowLeft, Ban, Bell, BellOff, Check, CheckCheck, ChevronDown, Copy, ListMusic, Loader2, MoreVertical, Music2, Pencil, Reply,
+  ArrowLeft, Ban, Check, CheckCheck, ChevronDown, Copy, ListMusic, Loader2, MoreVertical, Music2, Pencil, Reply,
   Send, SmilePlus, Trash2, UserMinus, UserRound, X,
 } from "lucide-react";
 import { axiosInstance } from "@/lib/axios";
@@ -61,7 +61,7 @@ interface ChatUser {
   lastSeen?: string;
 }
 
-type FriendSummary = Pick<ChatUser, "clerkId" | "fullName" | "imageUrl"> & { _id?: string; isMuted?: boolean };
+type FriendSummary = Pick<ChatUser, "clerkId" | "fullName" | "imageUrl"> & { _id?: string };
 
 interface MessagePage {
   messages: Message[];
@@ -394,12 +394,11 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
     staleTime: 5 * 60_000,
   });
 
-  const { data: friends = [] } = useQuery<FriendSummary[]>({
+  useQuery<FriendSummary[]>({
     queryKey: ["friends"],
     queryFn: async () => (await axiosInstance.get("/friends")).data,
     staleTime: 30_000,
   });
-  const isMuted = Boolean(friends.find((candidate) => candidate.clerkId === userId)?.isMuted);
 
   const { data: sharedMessages = [], isLoading: isLoadingShared } = useQuery<Message[]>({
     queryKey: ["sharedMessages", userId],
@@ -778,18 +777,6 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
     onSettled: () => setDialog(null),
   });
 
-  const toggleMute = async () => {
-    const muted = !isMuted;
-    queryClient.setQueryData<FriendSummary[]>(["friends"], (list = []) => list.map((candidate) => (candidate.clerkId === userId ? { ...candidate, isMuted: muted } : candidate)));
-    try {
-      await (muted ? axiosInstance.put(`/users/chats/${userId}/mute`) : axiosInstance.delete(`/users/chats/${userId}/mute`));
-      toast.success(muted ? "Notifications muted for this chat" : "Notifications turned on");
-    } catch {
-      void queryClient.invalidateQueries({ queryKey: ["friends"] });
-      toast.error("Couldn't change notifications");
-    }
-  };
-
   const saveNickname = () => {
     const value = nicknameDraft.trim().slice(0, 40);
     if (value) localStorage.setItem(`beatbond:nickname:${userId}`, value);
@@ -841,7 +828,6 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
           <span className="min-w-0">
             <span className="flex items-center gap-1.5">
               <span className="truncate font-semibold leading-tight">{friendName}</span>
-              {isMuted && <BellOff className="size-3.5 shrink-0 text-muted-foreground" aria-label="Muted" />}
             </span>
             {status && <span className={cn("block truncate text-xs", friendTyping ? "font-medium text-primary" : "text-muted-foreground")}>{status}</span>}
           </span>
@@ -852,7 +838,6 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
             <DropdownMenuItem onSelect={() => navigate(`/profile/${userId}`)}><UserRound className="size-4" />View profile</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setDialog("shared")}><ListMusic className="size-4" />Shared songs</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => { setNicknameDraft(nickname); setDialog("nickname"); }}><Pencil className="size-4" />Set nickname</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void toggleMute()}>{isMuted ? <Bell className="size-4" /> : <BellOff className="size-4" />}{isMuted ? "Unmute notifications" : "Mute notifications"}</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setDialog("clear")}><Trash2 className="size-4" />Clear chat</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => setDialog("block")} className="text-destructive focus:text-destructive"><Ban className="size-4" />Block</DropdownMenuItem>
