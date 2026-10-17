@@ -23,7 +23,7 @@ export default defineConfig({
 			globPatterns: ["**/*.{js,css,html,ico,png,svg,jpg,jpeg,webp}"],
 			// Mapbox is large and optional. Download its chunks only after the user
 			// opens the map and allows the provider in service preferences.
-			globIgnores: ["**/mapbox-gl-*.js", "**/mapbox-gl-*.css"],
+			globIgnores: ["**/mapbox-gl-*.js", "**/mapbox-gl-*.css", "**/albums/**", "**/cover-images/**"],
 			cleanupOutdatedCaches: true,
 			clientsClaim: true,
 			skipWaiting: true,
@@ -62,6 +62,9 @@ export default defineConfig({
 					if (id.includes("node_modules/mapbox-gl")) return "mapbox-gl";
 					if (id.includes("/node_modules/@clerk/")) return "clerk-vendor";
 					if (/\/node_modules\/(react|react-dom|react-router-dom|scheduler|@remix-run\/router)\//.test(id)) return "react-vendor";
+					if (/\/node_modules\/(framer-motion|motion-dom|motion-utils)\//.test(id)) return "motion-vendor";
+					if (/\/node_modules\/(recharts|victory-vendor|d3-[^/]+)\//.test(id)) return "chart-vendor";
+					if (id.includes("/node_modules/emoji-picker-react/")) return "emoji-vendor";
 					return undefined;
 				},
 			},

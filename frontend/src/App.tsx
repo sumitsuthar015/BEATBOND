@@ -1,26 +1,11 @@
 import { Route, Routes } from "react-router-dom";
-import { lazy, Suspense, useEffect } from "react";
-import HomeCollectionPage from "./pages/home/HomeCollectionPage";
-import AuthCallbackPage from "./pages/auth-callback/AuthCallbackPage";
+import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import { AuthenticateWithRedirectCallback } from "@clerk/clerk-react";
 import MainLayout from "./layout/MainLayout";
 
 import { Toaster } from "react-hot-toast";
-import NotFoundPage from "./pages/404/NotFoundPage";
-import UserProfilePage from "./pages/profile/UserProfilePage";
-import FriendsActivityPage from "./pages/friends/FriendsActivityPage";
 import { ThemeProvider } from "./providers/theme-provider";
-import NotificationsPage from "./pages/notifications/NotificationsPage";
-import SearchPage from "./pages/search/SearchPage";
-import ArtistPage from "./pages/home/components/ArtistPage";
-import { AlbumPage } from "./pages/album/AlbumPage";
-import PlaylistsPage from "./pages/playlists/PlaylistsPage";
-import ConnectionsPage from "./pages/profile/ConnectionsPage";
-import LibraryPage from "./pages/library/LibraryPage";
-import MobileProfilePage from "./pages/profile/MobileProfilePage";
 import AudioPlayer from "./layout/components/AudioPlayer";
-import PlaylistDetailPage from "./pages/playlists/PlaylistDetailPage";
-import LikedSongsPage from "./pages/playlists/LikedSongsPage";
 import RouteHistoryTracker from "./components/RouteHistoryTracker";
 import { PrivacyPolicyPage, TermsPage } from "./pages/legal/LegalPages";
 import CookieConsentManager from "./components/privacy/CookieConsentManager";
@@ -30,6 +15,21 @@ import CookieConsentManager from "./components/privacy/CookieConsentManager";
 // the old files, so lazy pages are loaded in the background up front (except
 // the optional Mapbox route) and the running version avoids stale chunks.
 const pageLoaders = {
+  authCallback: () => import("./pages/auth-callback/AuthCallbackPage"),
+  notFound: () => import("./pages/404/NotFoundPage"),
+  homeCollection: () => import("./pages/home/HomeCollectionPage"),
+  userProfile: () => import("./pages/profile/UserProfilePage"),
+  friendsActivity: () => import("./pages/friends/FriendsActivityPage"),
+  notifications: () => import("./pages/notifications/NotificationsPage"),
+  search: () => import("./pages/search/SearchPage"),
+  artist: () => import("./pages/home/components/ArtistPage"),
+  album: () => import("./pages/album/AlbumPage"),
+  playlists: () => import("./pages/playlists/PlaylistsPage"),
+  connections: () => import("./pages/profile/ConnectionsPage"),
+  library: () => import("./pages/library/LibraryPage"),
+  mobileProfile: () => import("./pages/profile/MobileProfilePage"),
+  playlistDetail: () => import("./pages/playlists/PlaylistDetailPage"),
+  likedSongs: () => import("./pages/playlists/LikedSongsPage"),
   home: () => import("./pages/home/HomePage"),
   chat: () => import("./pages/chat/ChatPage"),
   admin: () => import("./pages/admin/AdminPage"),
@@ -40,6 +40,21 @@ const pageLoaders = {
   map: () => import("./pages/map/MapPage"),
   settings: () => import("./pages/settings/SettingsPage"),
 };
+const AuthCallbackPage = lazy(pageLoaders.authCallback);
+const NotFoundPage = lazy(pageLoaders.notFound);
+const HomeCollectionPage = lazy(pageLoaders.homeCollection);
+const UserProfilePage = lazy(pageLoaders.userProfile);
+const FriendsActivityPage = lazy(pageLoaders.friendsActivity);
+const NotificationsPage = lazy(pageLoaders.notifications);
+const SearchPage = lazy(pageLoaders.search);
+const ArtistPage = lazy(pageLoaders.artist);
+const AlbumPage = lazy(() => pageLoaders.album().then((module) => ({ default: module.AlbumPage })));
+const PlaylistsPage = lazy(pageLoaders.playlists);
+const ConnectionsPage = lazy(pageLoaders.connections);
+const LibraryPage = lazy(pageLoaders.library);
+const MobileProfilePage = lazy(pageLoaders.mobileProfile);
+const PlaylistDetailPage = lazy(pageLoaders.playlistDetail);
+const LikedSongsPage = lazy(pageLoaders.likedSongs);
 const HomePage = lazy(pageLoaders.home);
 const ChatPage = lazy(pageLoaders.chat);
 const AdminPage = lazy(pageLoaders.admin);
@@ -49,6 +64,8 @@ const DashboardPage = lazy(pageLoaders.dashboard);
 const AvatarCreatorPage = lazy(pageLoaders.avatar);
 const MapPage = lazy(pageLoaders.map);
 const SettingsPage = lazy(pageLoaders.settings);
+const RouteLoading = () => <div className="flex h-full min-h-32 items-center justify-center text-sm text-muted-foreground" role="status">Loading…</div>;
+const withSuspense = (element: ReactNode) => <Suspense fallback={<RouteLoading />}>{element}</Suspense>;
 
 const preloadPages = () => {
   if (!import.meta.env.PROD) return;
@@ -77,7 +94,7 @@ function App() {
             />
           }
         />
-        <Route path="/auth-callback" element={<AuthCallbackPage />} />
+        <Route path="/auth-callback" element={withSuspense(<AuthCallbackPage />)} />
         <Route path="/privacy" element={<PrivacyPolicyPage />} />
         <Route path="/terms" element={<TermsPage />} />
         <Route
@@ -91,7 +108,7 @@ function App() {
 
         <Route element={<MainLayout />}>
           <Route path="/" element={<Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading BeatBond...</div>}><HomePage /></Suspense>} />
-          <Route path="/home/collection/:collectionId" element={<HomeCollectionPage />} />
+          <Route path="/home/collection/:collectionId" element={withSuspense(<HomeCollectionPage />)} />
           <Route
             path="/chat"
             element={
@@ -108,11 +125,11 @@ function App() {
               </Suspense>
             }
           />
-          <Route path="/profile" element={<MobileProfilePage />} />
-          <Route path="/profile/:userId" element={<UserProfilePage />} />
-          <Route path="/me" element={<MobileProfilePage />} />
+          <Route path="/profile" element={withSuspense(<MobileProfilePage />)} />
+          <Route path="/profile/:userId" element={withSuspense(<UserProfilePage />)} />
+          <Route path="/me" element={withSuspense(<MobileProfilePage />)} />
           <Route path="/settings" element={<Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading settings...</div>}><SettingsPage /></Suspense>} />
-          <Route path="/profile/:userId/:kind" element={<ConnectionsPage />} />
+          <Route path="/profile/:userId/:kind" element={withSuspense(<ConnectionsPage />)} />
           <Route
             path="/dashboard"
             element={
@@ -121,11 +138,11 @@ function App() {
               </Suspense>
             }
           />
-          <Route path="/album/:id" element={<AlbumPage />} />
-          <Route path="/albums/:id" element={<AlbumPage />} />
-          <Route path='/artist/:id' element={<ArtistPage />} />
-          <Route path="/friends" element={<FriendsActivityPage />} />
-          <Route path="/notifications" element={<NotificationsPage />} />
+          <Route path="/album/:id" element={withSuspense(<AlbumPage />)} />
+          <Route path="/albums/:id" element={withSuspense(<AlbumPage />)} />
+          <Route path='/artist/:id' element={withSuspense(<ArtistPage />)} />
+          <Route path="/friends" element={withSuspense(<FriendsActivityPage />)} />
+          <Route path="/notifications" element={withSuspense(<NotificationsPage />)} />
           <Route
             path="/mood"
             element={
@@ -134,11 +151,11 @@ function App() {
               </Suspense>
             }
           />
-          <Route path="/playlists" element={<PlaylistsPage />} />
-          <Route path="/playlists/:playlistId" element={<PlaylistDetailPage />} />
-          <Route path="/downloads" element={<PlaylistDetailPage downloadsOnly />} />
-          <Route path="/liked-songs" element={<LikedSongsPage />} />
-          <Route path="/library" element={<LibraryPage />} />
+          <Route path="/playlists" element={withSuspense(<PlaylistsPage />)} />
+          <Route path="/playlists/:playlistId" element={withSuspense(<PlaylistDetailPage />)} />
+          <Route path="/downloads" element={withSuspense(<PlaylistDetailPage downloadsOnly />)} />
+          <Route path="/liked-songs" element={withSuspense(<LikedSongsPage />)} />
+          <Route path="/library" element={withSuspense(<LibraryPage />)} />
           <Route
             path="/avatar"
             element={
@@ -155,8 +172,8 @@ function App() {
               </Suspense>
             }
           />
-          <Route path="/search" element={<SearchPage />} />
-          <Route path="*" element={<NotFoundPage />} />
+          <Route path="/search" element={withSuspense(<SearchPage />)} />
+          <Route path="*" element={withSuspense(<NotFoundPage />)} />
         </Route>
       </Routes>
       <Toaster
