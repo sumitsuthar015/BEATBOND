@@ -19,6 +19,14 @@ const userSchema = new mongoose.Schema(
 			unique: true,
 			trim: true,
 		},
+		legalConsents: {
+			termsVersion: { type: String, default: "" },
+			termsAcceptedAt: { type: Date, default: null },
+			privacyVersion: { type: String, default: "" },
+			privacyAcceptedAt: { type: Date, default: null },
+		},
+		emailMarketingOptIn: { type: Boolean, default: false },
+		emailMarketingConsentUpdatedAt: { type: Date, default: null },
 		fullName: {
 			type: String,
 			required: true,

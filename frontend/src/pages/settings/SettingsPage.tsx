@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import {
-  Bell, CheckCheck, ChevronRight, CircleDot, Download, Eye, EyeOff, Gauge, History, KeyRound, LayoutDashboard, ListMusic, LogOut, MapPin, Palette,
+  Bell, CheckCheck, ChevronRight, CircleDot, Cookie, Download, Eye, EyeOff, FileText, Gauge, History, KeyRound, LayoutDashboard, ListMusic, LogOut, Mail, MapPin, Palette,
   Radio, Repeat, Sparkles, UserX, type LucideIcon,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -30,6 +30,7 @@ import { useChatStore } from "@/stores/useChatStore";
 import { useLocationStore } from "@/stores/useLocationStore";
 import { usePreferencesStore } from "@/stores/usePreferencesStore";
 import { PushNotificationSetting } from "@/components/notifications/PushNotificationSetting";
+import { removeAllDownloads } from "@/lib/offlineDownloads";
 
 const rowClass = "flex min-h-[72px] w-full items-center gap-3 px-4 py-3 text-left";
 const rowLinkClass = cn(rowClass, "transition-colors hover:bg-secondary/50");
@@ -136,6 +137,7 @@ const SettingsPage = () => {
   const locationVisibility = useLocationStore((state) => state.visibility);
   const stopSharing = useLocationStore((state) => state.stopSharing);
   const [downloads] = useState(() => getDownloadedSongs().length);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   if (!user) {
     return (
@@ -174,6 +176,18 @@ const SettingsPage = () => {
     }
   };
 
+  const changeEmailOptIn = async (value: boolean) => {
+    const key = ["myProfile", user.id];
+    queryClient.setQueryData(key, (current: object | undefined) => current && { ...current, emailMarketingOptIn: value });
+    try {
+      await axiosInstance.patch("/users/email-preferences", { emailMarketingOptIn: value });
+      toast.success(value ? "Email updates enabled" : "You are unsubscribed from optional email updates");
+    } catch {
+      queryClient.setQueryData(key, (current: object | undefined) => current && { ...current, emailMarketingOptIn: !value });
+      toast.error("Could not update your email preference. Please try again.");
+    }
+  };
+
   const clearHistory = async () => {
     try {
       await axiosInstance.delete("/users/listening-history");
@@ -191,6 +205,29 @@ const SettingsPage = () => {
 
   const quality = STREAM_QUALITIES.find((option) => option.value === streamQuality) ?? STREAM_QUALITIES[0];
 
+  const deleteAccount = async () => {
+    setDeletingAccount(true);
+    try {
+      await axiosInstance.delete("/users/account");
+      clearLocalListeningHistory(user.id);
+      clearSignals(user.id);
+      for (const key of Object.keys(localStorage)) {
+        if (key.startsWith("beatbond:listening-history:") || key.startsWith("beatbond:playback-signals:") || key.startsWith("beatbond:nickname:")) localStorage.removeItem(key);
+      }
+      localStorage.removeItem("beatbond:active-listener");
+      localStorage.removeItem("beatbond:recent-searches");
+      localStorage.removeItem("beatbond-map-view");
+      localStorage.removeItem("beatbond:ai-provider-consent:v1");
+      sessionStorage.removeItem("beatbond:legal-consent");
+      await removeAllDownloads().catch(() => undefined);
+      queryClient.clear();
+      await signOut({ redirectUrl: "/" });
+    } catch {
+      toast.error("Account deletion could not be completed. Please contact support@beatbond.app.");
+      setDeletingAccount(false);
+    }
+  };
+
   return (
     <main className="h-full overflow-y-auto px-4 pb-28 pt-[calc(env(safe-area-inset-top)+1rem)] md:pb-8">
       <div className="mx-auto max-w-xl">
@@ -198,7 +235,7 @@ const SettingsPage = () => {
 
         <section className="mb-6 rounded-3xl border bg-card p-4">
           <div className="flex items-center gap-3">
-            <Avatar className="size-14"><AvatarImage src={profile ? profile.imageUrl : user.imageUrl} /><AvatarFallback>{user.firstName?.[0] || "U"}</AvatarFallback></Avatar>
+            <Avatar className="size-14"><AvatarImage src={profile ? profile.imageUrl : user.imageUrl} alt={profile?.fullName || user.fullName || "Your profile photo"} /><AvatarFallback>{user.firstName?.[0] || "U"}</AvatarFallback></Avatar>
             <div className="min-w-0 flex-1">
               <p className="truncate font-semibold">{profile?.fullName || user.fullName || "Your account"}</p>
               <p className="truncate text-sm text-muted-foreground">{profile?.username ? `@${profile.username}` : user.primaryEmailAddress?.emailAddress}</p>
@@ -348,6 +385,36 @@ const SettingsPage = () => {
           <LinkRow to="/notifications" icon={Bell} tone="bg-amber-500/15 text-amber-500" title="Notifications" detail="Friend requests and activity" />
           <LinkRow to="/downloads" icon={Download} tone="bg-sky-500/15 text-sky-500" title="Downloads" detail={downloads ? `${downloads} ${downloads === 1 ? "song" : "songs"} saved for offline` : "Songs you save play offline"} />
           <LinkRow to="/dashboard" icon={ListMusic} tone="bg-emerald-500/15 text-emerald-500" title="Listening dashboard" detail="Your stats and saved music" />
+        </Section>
+
+        <Section title="Privacy & security">
+          <LinkRow to="/privacy" icon={Eye} tone="bg-violet-500/15 text-violet-500" title="Privacy Policy" detail="What BeatBond stores and how it is used" />
+          <LinkRow to="/terms" icon={FileText} tone="bg-sky-500/15 text-sky-500" title="Terms of Service" detail="Rules for using BeatBond" />
+          <button type="button" className={rowLinkClass} onClick={() => window.dispatchEvent(new Event("beatbond:open-cookie-settings"))}>
+            <RowBody chevron icon={Cookie} tone="bg-amber-500/15 text-amber-500" title="Storage & service preferences" detail="Required storage and optional Mapbox requests" />
+          </button>
+          <div className={rowClass}>
+            <RowBody icon={Mail} tone="bg-sky-500/15 text-sky-500" title="Optional email updates" detail="Currently, BeatBond sends no marketing emails. You can opt in or unsubscribe here." end={<Switch checked={profile?.emailMarketingOptIn === true} onChange={(value) => void changeEmailOptIn(value)} label="Optional email updates" />} />
+          </div>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <button type="button" className={rowLinkClass}>
+                <RowBody icon={UserX} tone="bg-destructive/15 text-destructive" title="Delete account" detail="Permanently remove your account and app data" />
+              </button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Permanently delete your account?</AlertDialogTitle>
+                <AlertDialogDescription>This deletes your profile, posts, comments, playlists, listening and search history, location, and chats from BeatBond, then removes your sign-in account. This cannot be undone. Offline downloads on this device will also be removed.</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={deletingAccount}>Cancel</AlertDialogCancel>
+                <AlertDialogAction disabled={deletingAccount} onClick={(event) => { event.preventDefault(); void deleteAccount(); }} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                  {deletingAccount ? "Deleting…" : "Delete my account"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </Section>
 
         <Button variant="outline" className="h-12 w-full rounded-2xl text-destructive hover:text-destructive" onClick={() => void signOut({ redirectUrl: "/" })}>

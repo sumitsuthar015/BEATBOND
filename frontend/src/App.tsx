@@ -1,6 +1,5 @@
 import { Route, Routes } from "react-router-dom";
 import { lazy, Suspense, useEffect } from "react";
-import HomePage from "./pages/home/HomePage";
 import HomeCollectionPage from "./pages/home/HomeCollectionPage";
 import AuthCallbackPage from "./pages/auth-callback/AuthCallbackPage";
 import { AuthenticateWithRedirectCallback } from "@clerk/clerk-react";
@@ -23,12 +22,15 @@ import AudioPlayer from "./layout/components/AudioPlayer";
 import PlaylistDetailPage from "./pages/playlists/PlaylistDetailPage";
 import LikedSongsPage from "./pages/playlists/LikedSongsPage";
 import RouteHistoryTracker from "./components/RouteHistoryTracker";
+import { PrivacyPolicyPage, TermsPage } from "./pages/legal/LegalPages";
+import CookieConsentManager from "./components/privacy/CookieConsentManager";
 
 // After a deployment the open app keeps running its current version until it
 // can restart unnoticed (see registerServiceWorker.ts). The deployment removes
-// the old files, so every lazy page is loaded in the background up front and
-// the running version never has to fetch one of them later.
+// the old files, so lazy pages are loaded in the background up front (except
+// the optional Mapbox route) and the running version avoids stale chunks.
 const pageLoaders = {
+  home: () => import("./pages/home/HomePage"),
   chat: () => import("./pages/chat/ChatPage"),
   admin: () => import("./pages/admin/AdminPage"),
   userSearch: () => import("./pages/users/UserSearchPage"),
@@ -38,6 +40,7 @@ const pageLoaders = {
   map: () => import("./pages/map/MapPage"),
   settings: () => import("./pages/settings/SettingsPage"),
 };
+const HomePage = lazy(pageLoaders.home);
 const ChatPage = lazy(pageLoaders.chat);
 const AdminPage = lazy(pageLoaders.admin);
 const UserSearchPage = lazy(pageLoaders.userSearch);
@@ -50,7 +53,9 @@ const SettingsPage = lazy(pageLoaders.settings);
 const preloadPages = () => {
   if (!import.meta.env.PROD) return;
   const whenIdle = window.requestIdleCallback ?? ((callback: () => void) => window.setTimeout(callback, 3000));
-  whenIdle(() => Object.values(pageLoaders).forEach((load) => void load().catch(() => undefined)));
+  // The map contains Mapbox's large third-party SDK. Fetch it only when the
+  // user opens the map, after they've chosen to allow that service.
+  whenIdle(() => Object.entries(pageLoaders).filter(([name]) => name !== "map").forEach(([, load]) => void load().catch(() => undefined)));
 };
 
 function App() {
@@ -61,6 +66,7 @@ function App() {
       {/* The media element is deliberately outside route layouts. Navigation must
           never create a second player or tear down the active stream. */}
       <AudioPlayer />
+      <CookieConsentManager />
       <RouteHistoryTracker />
       <Routes>
         <Route
@@ -72,6 +78,8 @@ function App() {
           }
         />
         <Route path="/auth-callback" element={<AuthCallbackPage />} />
+        <Route path="/privacy" element={<PrivacyPolicyPage />} />
+        <Route path="/terms" element={<TermsPage />} />
         <Route
           path="/admin"
           element={
@@ -82,7 +90,7 @@ function App() {
         />
 
         <Route element={<MainLayout />}>
-          <Route path="/" element={<HomePage />} />
+          <Route path="/" element={<Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading BeatBond...</div>}><HomePage /></Suspense>} />
           <Route path="/home/collection/:collectionId" element={<HomeCollectionPage />} />
           <Route
             path="/chat"

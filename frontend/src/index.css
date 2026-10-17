@@ -4,7 +4,7 @@
 
 @layer base {
 	:root {
-	  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+	  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 	  
 	  --background: 0 0% 100%;
 	  --foreground: 0 0% 0%;
@@ -82,6 +82,10 @@
 		-webkit-text-size-adjust: 100%;
 		text-size-adjust: 100%;
 	}
+	:focus-visible {
+		outline: 2px solid hsl(var(--ring));
+		outline-offset: 3px;
+	}
 	input, select, textarea { font-size: max(16px, 1em); }
 	/* Compact the supporting copy on phones while title utilities keep their
 	   own deliberate scale. This gives every screen the same baseline rhythm. */
@@ -94,6 +98,21 @@
 		html, body { overscroll-behavior-y: none; }
 	}
 }
+
+.skip-to-content {
+	position: fixed;
+	left: 1rem;
+	top: 1rem;
+	z-index: 100;
+	transform: translateY(-160%);
+	border-radius: 0.5rem;
+	background: hsl(var(--background));
+	padding: 0.75rem 1rem;
+	color: hsl(var(--foreground));
+	box-shadow: 0 0 0 2px hsl(var(--ring));
+}
+
+.skip-to-content:focus { transform: translateY(0); }
 
 /* Project-wide scrollbar styles */
 @layer utilities {

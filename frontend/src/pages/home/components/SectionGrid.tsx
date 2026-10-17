@@ -51,7 +51,14 @@ const SectionGrid = ({ songs, title, isLoading, collectionId }: SectionGridProps
           onClick={() => playAlbum(songs, index)}
           role="button"
           tabIndex={0}
-          onKeyDown={(event) => event.key === "Enter" && playAlbum(songs, index)}
+          aria-label={`Play ${song.title} by ${song.artist}`}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget) return;
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              playAlbum(songs, index);
+            }
+          }}
           className="bg-card/50 p-3 lg:p-4 rounded-lg hover:bg-secondary/50
                      transition-all duration-200 group cursor-pointer
                      border border-border/50 shadow-sm hover:shadow-md relative"
@@ -94,7 +101,14 @@ const SectionGrid = ({ songs, title, isLoading, collectionId }: SectionGridProps
               onClick={() => playAlbum(songs, index)}
               role="button"
               tabIndex={0}
-              onKeyDown={(event) => event.key === "Enter" && playAlbum(songs, index)}
+              aria-label={`Play ${song.title} by ${song.artist}`}
+              onKeyDown={(event) => {
+                if (event.target !== event.currentTarget) return;
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  playAlbum(songs, index);
+                }
+              }}
               className="bg-card/50 p-2.5 sm:p-3 rounded-lg hover:bg-secondary/50 
                        transition-all duration-200 group cursor-pointer
                        border border-border/50 shadow-sm hover:shadow-md

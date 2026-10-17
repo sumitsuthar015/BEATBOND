@@ -52,6 +52,13 @@ const ArtistGrid = ({ title, artists, isLoading }: ArtistGridProps) => {
           <div
             key={artist.id}
             onClick={() => handleArtistClick(artist.id)}
+            role="link"
+            tabIndex={0}
+            aria-label={`Open artist ${artist.name}`}
+            onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return;
+              if (event.key === "Enter") handleArtistClick(artist.id);
+            }}
             className="bg-zinc-800/40 p-2 sm:p-3 md:p-4 rounded-lg hover:bg-zinc-700/40 transition-all cursor-pointer group"
           >
             <div className="relative mb-2 sm:mb-3 md:mb-4">

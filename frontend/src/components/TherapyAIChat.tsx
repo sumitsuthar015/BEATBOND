@@ -23,12 +23,13 @@ export const TherapyAIChat = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      content: "Hi, I'm here to listen and support you. Feel free to share what's on your mind.",
+      content: "Hi, I'm an AI support assistant. I can offer general coping ideas, but I'm not a therapist or emergency service.",
       timestamp: new Date(),
     },
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [providerConsent, setProviderConsent] = useState(() => localStorage.getItem("beatbond:ai-provider-consent:v1") === "accepted");
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -54,6 +55,10 @@ export const TherapyAIChat = () => {
     // it. Now sending is blocked (with feedback) once over the limit,
     // matching what the counter promises.
     if (!trimmedInput || isLoading) return;
+    if (!providerConsent) {
+      toast.error("Review and accept the AI provider notice before sending a message.");
+      return;
+    }
     if (trimmedInput.length > MAX_CHARS) {
       toast.error(`Please keep messages under ${MAX_CHARS} characters.`);
       return;
@@ -76,6 +81,7 @@ export const TherapyAIChat = () => {
       const historyToSend = fullHistory.slice(-MAX_HISTORY_MESSAGES);
 
       const response = await axiosInstance.post("/chat", {
+        thirdPartyConsent: true,
         messages: historyToSend.map(msg => ({
           role: msg.role,
           content: msg.content
@@ -144,7 +150,7 @@ export const TherapyAIChat = () => {
             </AvatarFallback>
           </Avatar>
           <div>
-            <h2 className="font-semibold text-lg">AI Therapy Assistant</h2>
+            <h2 className="font-semibold text-lg">AI Support Assistant</h2>
             <p className="text-xs text-muted-foreground">
               {isLoading ? "Thinking..." : "Here to listen and support"}
             </p>
@@ -225,6 +231,20 @@ export const TherapyAIChat = () => {
 
       {/* Input */}
       <div className="p-4 border-t bg-muted/30">
+        <label className="mb-3 flex items-start gap-2 text-xs leading-5 text-muted-foreground">
+          <input
+            type="checkbox"
+            className="mt-1 size-4 shrink-0 accent-primary"
+            checked={providerConsent}
+            onChange={(event) => {
+              const allowed = event.target.checked;
+              setProviderConsent(allowed);
+              if (allowed) localStorage.setItem("beatbond:ai-provider-consent:v1", "accepted");
+              else localStorage.removeItem("beatbond:ai-provider-consent:v1");
+            }}
+          />
+          <span>I agree to send the message and recent chat context to Groq for a reply. This is not therapy or emergency care. Avoid sharing sensitive details. <a href="/privacy" target="_blank" rel="noreferrer" className="text-primary underline">Privacy details</a></span>
+        </label>
         <div className="flex gap-2 items-end">
           <div className="flex-1 relative">
             <Textarea
@@ -238,7 +258,7 @@ export const TherapyAIChat = () => {
               maxLength={MAX_CHARS}
               className="resize-none min-h-[44px] max-h-[120px] pr-12"
               rows={1}
-              disabled={isLoading}
+              disabled={isLoading || !providerConsent}
             />
             <div
               className={`absolute bottom-2 right-2 text-xs ${
@@ -250,7 +270,7 @@ export const TherapyAIChat = () => {
           </div>
           <Button
             onClick={sendMessage}
-            disabled={isLoading || !input.trim() || isOverLimit}
+            disabled={isLoading || !providerConsent || !input.trim() || isOverLimit}
             size="icon"
             className="h-11 w-11 rounded-full flex-shrink-0"
           >
@@ -262,7 +282,7 @@ export const TherapyAIChat = () => {
           </Button>
         </div>
         <p className="text-xs text-muted-foreground mt-2 text-center">
-          This is an AI assistant. For professional help, please contact a licensed therapist.
+          Messages stay in this page session and are sent to Groq only when you submit them. If you may be in immediate danger, contact local emergency services.
         </p>
       </div>
     </div>

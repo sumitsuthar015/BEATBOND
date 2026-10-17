@@ -201,7 +201,7 @@ export const FriendsActivity = ({
                       ? "ring-green-500/50 group-hover:ring-green-500/70"
                       : "ring-primary/10 group-hover:ring-primary/30"
                   )}>
-                    <AvatarImage src={friend.imageUrl} />
+                    <AvatarImage src={friend.imageUrl} alt={friend.fullName || "Friend"} />
                     <AvatarFallback>{friend.fullName[0]}</AvatarFallback>
                   </Avatar>
                   

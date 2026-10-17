@@ -41,22 +41,20 @@ const PORT = Number(process.env.PORT) || 5002;
 const httpServer = createServer(app);
 initializeWebSocket(httpServer);
 
-const allowedOrigins = [
-  "http://localhost:3000",
-  "http://localhost:5173",
-  "http://localhost:4173",
-  "https://beatbond-75ns.onrender.com",
+const allowedOrigins = new Set([
+  ...(process.env.NODE_ENV === "production"
+    ? ["https://beatbond-75ns.onrender.com"]
+    : ["http://localhost:3000", "http://localhost:5173", "http://localhost:4173"]),
   process.env.CLIENT_URL,
   process.env.FRONTEND_URL,
-].filter(Boolean);
+].filter(Boolean));
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== "production") {
+    if (!origin || allowedOrigins.has(origin) || (process.env.NODE_ENV !== "production" && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin))) {
       return callback(null, true);
     }
-    // Allow deployed custom domains while preserving credentials
-    return callback(null, true);
+    return callback(new Error("Origin is not allowed by CORS"));
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   credentials: true,

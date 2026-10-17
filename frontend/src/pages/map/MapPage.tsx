@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useUser } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
-import mapboxgl from "mapbox-gl";
-import "mapbox-gl/dist/mapbox-gl.css";
+import type { GeoJSONSource, Map as MapboxMap, Marker as MapboxMarker } from "mapbox-gl";
 import "./map.css";
 import { ArrowLeft, Loader2, LocateFixed, RefreshCw, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,12 +16,12 @@ import { PersonCard, ShareCard } from "./components/MapCards";
 import PlaceSearch from "./components/PlaceSearch";
 import { circlePolygon, clusterElement, glide, personElement, personRenderKey, placeElement, renderCluster, renderPerson, renderSelf, selfElement } from "./mapMarkers";
 import { isLiveNow, nowPlaying, type LiveLocation, type PlaceResult } from "./mapTypes";
+import { readCookieChoice } from "@/components/privacy/CookieConsentManager";
 
 const TOKEN = (import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined)?.trim();
 // Mapbox Standard draws 3D buildings and landmarks, here always in daylight.
 // Mapbox GL needs the token for any map, even a free style.
 const STYLE = "mapbox://styles/mapbox/standard";
-if (TOKEN) mapboxgl.accessToken = TOKEN;
 
 const INDIA = { lng: 78.9629, lat: 22.5 };
 const VIEW_KEY = "beatbond-map-view";
@@ -38,7 +37,8 @@ const REFRESH_MS = 60_000;
 const EMPTY = { type: "FeatureCollection" as const, features: [] };
 
 type View = { lng: number; lat: number; zoom: number; pitch: number; bearing: number };
-type MarkerEntry = { marker: mapboxgl.Marker; renderKey: string };
+type MapboxApi = typeof import("mapbox-gl").default;
+type MarkerEntry = { marker: MapboxMarker; renderKey: string };
 
 const readView = (): View | null => {
   try {
@@ -48,7 +48,7 @@ const readView = (): View | null => {
     return null;
   }
 };
-const saveView = (map: mapboxgl.Map) => {
+const saveView = (map: MapboxMap) => {
   const { lng, lat } = map.getCenter();
   try {
     localStorage.setItem(VIEW_KEY, JSON.stringify({ lng, lat, zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing() }));
@@ -70,10 +70,11 @@ const MapPage = () => {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<mapboxgl.Map | null>(null);
-  const selfRef = useRef<mapboxgl.Marker | null>(null);
+  const mapRef = useRef<MapboxMap | null>(null);
+  const mapboxRef = useRef<MapboxApi | null>(null);
+  const selfRef = useRef<MapboxMarker | null>(null);
   const markersRef = useRef(new Map<string, MarkerEntry>());
-  const placeMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const placeMarkerRef = useRef<MapboxMarker | null>(null);
   const peopleRef = useRef<LiveLocation[]>([]);
   const cardHeightRef = useRef(0);
   const followRef = useRef(false);
@@ -87,6 +88,13 @@ const MapPage = () => {
   const [mapState, setMapState] = useState<"loading" | "ready" | "error" | "unavailable">(TOKEN ? "loading" : "unavailable");
   const [layoutTick, setLayoutTick] = useState(0);
   const [cardHeight, setCardHeight] = useState(0);
+  const [mapboxAllowed, setMapboxAllowed] = useState(() => readCookieChoice()?.mapbox ?? false);
+
+  useEffect(() => {
+    const updateConsent = () => setMapboxAllowed(readCookieChoice()?.mapbox ?? false);
+    window.addEventListener("beatbond:cookie-choice-changed", updateConsent);
+    return () => window.removeEventListener("beatbond:cookie-choice-changed", updateConsent);
+  }, []);
 
   useEffect(() => {
     peopleRef.current = people;
@@ -120,18 +128,29 @@ const MapPage = () => {
 
   const showAccuracy = useCallback(() => {
     const current = useLocationStore.getState().fix;
-    const source = mapRef.current?.getSource("me-accuracy") as mapboxgl.GeoJSONSource | undefined;
+    const source = mapRef.current?.getSource("me-accuracy") as GeoJSONSource | undefined;
     source?.setData(current ? circlePolygon(current, current.accuracy) : EMPTY);
   }, []);
 
   // ---- The 3D map ----
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
+    if (!mapboxAllowed) return;
     if (!TOKEN) {
       console.error("The map needs VITE_MAPBOX_ACCESS_TOKEN (a public Mapbox token) at build time.");
       return;
     }
+    const container = containerRef.current;
+    if (!container) return;
+    let cancelled = false;
+    let disposeMap = () => {};
+    const initializeMap = async () => {
+      const [{ default: mapboxgl }] = await Promise.all([
+        import("mapbox-gl"),
+        import("mapbox-gl/dist/mapbox-gl.css"),
+      ]);
+      if (cancelled) return;
+      mapboxRef.current = mapboxgl;
+      mapboxgl.accessToken = TOKEN;
     const saved = readView();
     const startFix = useLocationStore.getState().fix;
     // Open where you are when that's already known; otherwise where you last
@@ -142,7 +161,7 @@ const MapPage = () => {
     centeredRef.current = Boolean(startFix);
     setMapState("loading");
 
-    let map: mapboxgl.Map;
+    let map: MapboxMap;
     try {
       map = new mapboxgl.Map({
         container,
@@ -203,7 +222,7 @@ const MapPage = () => {
     const observer = new ResizeObserver(() => map.resize());
     observer.observe(container);
     const markers = markersRef.current;
-    return () => {
+    disposeMap = () => {
       observer.disconnect();
       window.clearTimeout(failTimer);
       window.clearTimeout(saveTimer);
@@ -213,7 +232,19 @@ const MapPage = () => {
       placeMarkerRef.current = null;
       markers.clear();
     };
-  }, [mapKey, setFollow, showAccuracy]);
+    };
+    void initializeMap().catch((error) => {
+      if (!cancelled) {
+        console.error("Unable to initialize Mapbox:", error);
+        setMapState("error");
+      }
+    });
+    return () => {
+      cancelled = true;
+      disposeMap();
+      mapboxRef.current = null;
+    };
+  }, [mapKey, mapboxAllowed, setFollow, showAccuracy]);
 
   // The card's height decides where the camera centres things.
   useEffect(() => {
@@ -235,22 +266,24 @@ const MapPage = () => {
 
   // ---- You ----
   useEffect(() => {
+    if (!mapboxAllowed) return;
     void useLocationStore.getState().checkPermission();
-  }, []);
+  }, [mapboxAllowed]);
 
   // The map shows where you are as soon as it opens (the browser asks for
   // permission the first time) and keeps your marker live while it's open.
   const locationBlocked = permission === "denied" || permission === "unsupported";
   useEffect(() => {
-    if (locationBlocked) return;
+    if (!mapboxAllowed || locationBlocked) return;
     const { watch, unwatch } = useLocationStore.getState();
     watch("map");
     return () => unwatch("map");
-  }, [locationBlocked]);
+  }, [locationBlocked, mapboxAllowed]);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !fix) return;
+    const mapboxgl = mapboxRef.current;
+    if (!map || !mapboxgl || !fix) return;
     const target = { lat: fix.lat, lng: fix.lng };
     if (!selfRef.current) {
       selfRef.current = new mapboxgl.Marker({ element: selfElement(myPicture, user?.firstName ?? user?.fullName ?? "") })
@@ -279,6 +312,10 @@ const MapPage = () => {
 
   // ---- People ----
   const loadPeople = useCallback(async () => {
+    if (!mapboxAllowed) {
+      setPeople([]);
+      return;
+    }
     if (!isSignedIn) {
       setPeople([]);
       return;
@@ -289,7 +326,7 @@ const MapPage = () => {
     } catch {
       /* Keep showing the last known pins. */
     }
-  }, [isSignedIn]);
+  }, [isSignedIn, mapboxAllowed]);
 
   useEffect(() => {
     void loadPeople();
@@ -304,7 +341,7 @@ const MapPage = () => {
 
   // A socket signal names who changed: refresh just that pin, and group bursts.
   useEffect(() => {
-    if (!isSignedIn) return;
+    if (!mapboxAllowed || !isSignedIn) return;
     const pending = new Map<string, number>();
     const refreshPerson = async (userId: string) => {
       try {
@@ -335,7 +372,7 @@ const MapPage = () => {
       socket.off("live_location_updated", onLocationUpdate);
       pending.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [socket, loadPeople, isSignedIn, user?.id]);
+  }, [socket, loadPeople, isSignedIn, user?.id, mapboxAllowed]);
 
   useEffect(() => {
     if (selectedId && !selected) setSelectedId(null);
@@ -366,7 +403,8 @@ const MapPage = () => {
   // ---- People markers: grouped when they'd overlap, updated in place ----
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || mapState === "error" || mapState === "unavailable") return;
+    const mapboxgl = mapboxRef.current;
+    if (!map || !mapboxgl || mapState === "error" || mapState === "unavailable") return;
     const zoom = map.getZoom();
     const live = (person: LiveLocation) => isLiveNow(person, now);
     const ordered = [...people].sort((a, b) =>
@@ -467,7 +505,8 @@ const MapPage = () => {
 
   const pickPlace = useCallback((place: PlaceResult) => {
     const map = mapRef.current;
-    if (!map) return;
+    const mapboxgl = mapboxRef.current;
+    if (!map || !mapboxgl) return;
     setFollow(false);
     setSelectedId(null);
     centeredRef.current = true;
@@ -493,6 +532,16 @@ const MapPage = () => {
     if (!found) return setFollow(false);
     flyTo(found, { pitch: STREET.pitch });
   };
+
+  if (!mapboxAllowed) {
+    return <main className="grid h-full place-items-center bg-zinc-950 p-6 text-white">
+      <div className="max-w-md rounded-3xl border border-white/10 bg-zinc-900 p-6 text-center">
+        <h1 className="text-xl font-bold">Map service permission needed</h1>
+        <p className="mt-2 text-sm leading-6 text-zinc-300">Mapbox receives your IP address and map requests when the map is open. This is separate from location sharing. You can allow or reject it in service preferences.</p>
+        <Button className="mt-4" onClick={() => window.dispatchEvent(new Event("beatbond:open-cookie-settings"))}>Review map permission</Button>
+      </div>
+    </main>;
+  }
 
   return (
     <main

@@ -26,10 +26,9 @@ export const isUserOnline = (userId) => userSockets.has(userId) || clusterOnline
 export const getOnlineUserIds = () => Array.from(new Set([...clusterOnlineUsers, ...userSockets.keys()]));
 
 const SOCKET_ORIGINS = [
-  "http://localhost:3000",
-  "http://localhost:5173",
   "https://beatbond-75ns.onrender.com",
 ];
+const DEV_SOCKET_ORIGINS = ["http://localhost:3000", "http://localhost:5173", "http://localhost:4173"];
 
 const addUserSocket = (userId, socketId, isVisible) => {
   const sockets = userSockets.get(userId) ?? new Set();
@@ -258,10 +257,11 @@ export const initializeWebSocket = (server) => {
     const origin = request.headers.origin;
     const allowedOrigins = new Set([
       ...SOCKET_ORIGINS,
+      ...(process.env.NODE_ENV === "production" ? [] : DEV_SOCKET_ORIGINS),
       process.env.CLIENT_URL,
       process.env.FRONTEND_URL,
     ].filter(Boolean));
-    if (process.env.NODE_ENV === "production" && origin && !allowedOrigins.has(origin)) {
+    if (origin && !allowedOrigins.has(origin)) {
       networkSocket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
       networkSocket.destroy();
       return;

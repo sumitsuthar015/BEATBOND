@@ -236,12 +236,11 @@ export const getFriendLocations = async (req, res, next) => {
 
 export const disableMyLocation = async (req, res, next) => {
   try {
-    const saved = await UserLocation.findOneAndUpdate(
-      { userId: req.auth().userId },
-      { sharingEnabled: false, updatedAt: new Date() },
-      { new: true }
-    );
-    await emitLocationToFriends(req.auth().userId, saved);
+    const userId = req.auth().userId;
+    await UserLocation.deleteOne({ userId });
+    // Explicit stop means remove the saved coordinates too. The seven-day
+    // last-known pin is only for a closed or disconnected sharing session.
+    await emitLocationToFriends(userId, { visibility: "everyone" });
     res.status(204).end();
   } catch (error) { next(error); }
 };

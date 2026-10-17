@@ -19,6 +19,7 @@ import ProfileDetails from "@/components/profile/ProfileDetails";
 import ProfileMusic from "@/components/profile/ProfileMusic";
 import { blockedUsersQueryKey } from "@/components/profile/profileQueries";
 import { useChatStore } from "@/stores/useChatStore";
+import { readLegalConsent } from "@/lib/legalConsent";
 import { ShareToMessageDialog } from "@/components/ShareToMessageDialog";
 import {
   MessageCircle,
@@ -126,6 +127,7 @@ const UserProfilePage = () => {
               first_name: user.firstName,
               last_name: user.lastName,
               image_url: user.imageUrl,
+				legalConsent: readLegalConsent(),
             });
             const { data: retryData } = await axiosInstance.get(`/users/profile/${userId}`);
             return retryData;

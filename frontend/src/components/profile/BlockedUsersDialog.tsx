@@ -35,7 +35,7 @@ export const BlockedUsersDialog = ({ trigger }: { trigger: ReactNode }) => {
           <ul className="max-h-80 divide-y overflow-y-auto">
             {blocked.map((user) => (
               <li key={user.clerkId} className="flex items-center gap-3 py-3">
-                <Avatar className="size-10"><AvatarImage src={user.imageUrl} /><AvatarFallback>{user.fullName?.[0] ?? "U"}</AvatarFallback></Avatar>
+                <Avatar className="size-10"><AvatarImage src={user.imageUrl} alt={user.fullName || "Blocked person"} /><AvatarFallback>{user.fullName?.[0] ?? "U"}</AvatarFallback></Avatar>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold">{user.fullName}</span>
                   {user.username && <span className="block truncate text-xs text-muted-foreground">@{user.username}</span>}

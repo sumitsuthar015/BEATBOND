@@ -492,7 +492,6 @@ export const getUserProfile = async (req, res, next) => {
 			username: user.username,
 			imageUrl: user.imageUrl,
 			bio: user.bio || "",
-			email: user.email,
 			location: user.location,
 			website: user.website,
 			joinedDate: user.createdAt,
@@ -507,7 +506,7 @@ export const getUserProfile = async (req, res, next) => {
 			lastSeen: presenceShown ? user.lastSeen : undefined,
 			// ⭐ NEW FIELDS
 			...(profileUserId === currentUserId
-				? { musicPrivacy: user.musicPrivacy || "friends", historyPrivacy: user.historyPrivacy || "none", photo: publicPhoto(photoStateOf(user)),
+				? { musicPrivacy: user.musicPrivacy || "friends", historyPrivacy: user.historyPrivacy || "none", emailMarketingOptIn: user.emailMarketingOptIn === true, photo: publicPhoto(photoStateOf(user)),
 					chatSettings: { readReceipts: user.readReceipts !== false, showActivityStatus: user.showActivityStatus !== false } }
 				: { listeningHiddenFromThem: currentUser?.musicHiddenFrom?.includes(profileUserId) || false }),
 			canSeeMusicActivity,
@@ -694,6 +693,21 @@ export const updatePrivacy = async (req, res, next) => {
 		if (!user) return res.status(404).json({ message: "User not found" });
 		if (updates.musicPrivacy) await refreshActivityAudience(req.auth().userId);
 		res.json({ musicPrivacy: user.musicPrivacy, historyPrivacy: user.historyPrivacy });
+	} catch (error) { next(error); }
+};
+
+export const updateEmailPreferences = async (req, res, next) => {
+	try {
+		if (typeof req.body?.emailMarketingOptIn !== "boolean") {
+			return res.status(400).json({ message: "emailMarketingOptIn must be true or false" });
+		}
+		const user = await User.findOneAndUpdate(
+			{ clerkId: req.auth().userId },
+			{ emailMarketingOptIn: req.body.emailMarketingOptIn, emailMarketingConsentUpdatedAt: new Date() },
+			{ new: true },
+		).select("emailMarketingOptIn").lean();
+		if (!user) return res.status(404).json({ message: "User not found" });
+		res.json({ emailMarketingOptIn: user.emailMarketingOptIn });
 	} catch (error) { next(error); }
 };
 

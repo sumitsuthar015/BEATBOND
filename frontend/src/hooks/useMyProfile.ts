@@ -39,6 +39,7 @@ export type MyProfile = {
   historyPrivacy?: MusicPrivacy;
   photo?: PhotoChoice;
   chatSettings?: ChatSettings;
+  emailMarketingOptIn?: boolean;
 };
 
 export const myProfileQueryKey = (userId: string | undefined) => ["myProfile", userId];

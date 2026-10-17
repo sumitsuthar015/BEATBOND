@@ -159,7 +159,7 @@ export const SongCommentsModal = ({ song, trigger, open, onOpenChange }: SongCom
                 return (
                   <div key={comment._id} className="flex gap-3 group">
                     <Avatar className="size-8 shrink-0 border border-zinc-800">
-                      <AvatarImage src={comment.user?.imageUrl} />
+                      <AvatarImage src={comment.user?.imageUrl} alt={comment.user?.fullName || "Comment author"} />
                       <AvatarFallback className="bg-emerald-500/20 text-emerald-400 text-xs font-bold">
                         {comment.user?.fullName?.[0] || "U"}
                       </AvatarFallback>

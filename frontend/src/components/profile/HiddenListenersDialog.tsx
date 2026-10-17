@@ -79,7 +79,7 @@ export const HiddenListenersDialog = ({ trigger }: { trigger: ReactNode }) => {
                     onClick={() => toggle.mutate({ person, hide: !isHidden })}
                     className="flex w-full items-center gap-3 py-3 text-left"
                   >
-                    <Avatar className="size-10"><AvatarImage src={person.imageUrl} /><AvatarFallback>{person.fullName?.[0] ?? "U"}</AvatarFallback></Avatar>
+                    <Avatar className="size-10"><AvatarImage src={person.imageUrl} alt={person.fullName || "Listener"} /><AvatarFallback>{person.fullName?.[0] ?? "U"}</AvatarFallback></Avatar>
                     <span className="min-w-0 flex-1 truncate text-sm font-semibold">{person.fullName}</span>
                     <span className={cn(
                       "flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold",

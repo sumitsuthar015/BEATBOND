@@ -55,6 +55,9 @@ Remember to:
 - Use a warm, conversational tone`;
 
 export const chatWithAI = async (req, res) => {
+  if (req.body?.thirdPartyConsent !== true) {
+    return res.status(400).json({ message: "Accept the AI provider notice before sending chat messages." });
+  }
   // Check if Groq is available
   if (!isGroqAvailable) {
     console.log('❌ Groq not available, returning 503');
@@ -68,8 +71,7 @@ export const chatWithAI = async (req, res) => {
     const { messages } = req.body;
 
     // Validate input
-    if (!messages || !Array.isArray(messages)) {
-      console.log('❌ Invalid messages format:', messages);
+    if (!Array.isArray(messages)) {
       return res.status(400).json({ 
         error: 'Invalid messages format',
         message: 'Please provide a valid messages array'
@@ -83,15 +85,20 @@ export const chatWithAI = async (req, res) => {
       });
     }
 
+    if (messages.length > 20) {
+      return res.status(400).json({ error: "Too many messages", message: "Send at most the 20 most recent messages." });
+    }
+
     // Validate message structure
-    const isValid = messages.every(msg => 
-      msg.role && 
-      msg.content && 
+    const isValid = messages.every(msg =>
+      msg &&
+      typeof msg.content === "string" &&
+      msg.content.trim().length > 0 &&
+      msg.content.length <= 500 &&
       (msg.role === 'user' || msg.role === 'assistant')
     );
 
     if (!isValid) {
-      console.log('❌ Invalid message structure:', messages);
       return res.status(400).json({ 
         error: 'Invalid message structure',
         message: 'Each message must have role and content properties'

@@ -46,7 +46,14 @@ const FeaturedSection = () => {
             onClick={() => playAlbum(topSongs, index)}
             role="button"
             tabIndex={0}
-            onKeyDown={(event) => event.key === "Enter" && playAlbum(topSongs, index)}
+            aria-label={`Play ${song.title} by ${song.artist}`}
+            onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return;
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                playAlbum(topSongs, index);
+              }
+            }}
             className="flex items-center gap-2.5 sm:gap-3 lg:gap-4 bg-card/50 rounded-lg 
                      p-2.5 sm:p-3 lg:p-4 hover:bg-secondary/50 transition-all duration-200 
                      cursor-pointer group border border-border/50 shadow-sm hover:shadow-md relative"

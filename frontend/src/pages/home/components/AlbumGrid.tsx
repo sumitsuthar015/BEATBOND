@@ -69,11 +69,21 @@ const AlbumGrid = ({ title, albums, isLoading, collectionId }: AlbumGridProps) =
                                  transition-all duration-200 group border border-border/50 
                                  shadow-sm hover:shadow-md relative"
                         onClick={() => navigate(`/album/${album.id}`)}
+                        role="link"
+                        tabIndex={0}
+                        aria-label={`Open album ${album.name || album.title}`}
+                        onKeyDown={(event) => {
+                            if (event.target !== event.currentTarget) return;
+                            if (event.key === "Enter") {
+                                navigate(`/album/${album.id}`);
+                            }
+                        }}
                     >
                         <div className="relative mb-2 lg:mb-3 aspect-square rounded-lg overflow-hidden 
                                       shadow-lg bg-background">
                             <img
                                 src={album.image?.[2]?.url || album.imageUrl}
+                                alt={`${album.name || album.title} album cover`}
                                 loading="lazy"
                                 decoding="async"
                                 className="w-full h-full object-cover transition-transform 
@@ -106,11 +116,21 @@ const AlbumGrid = ({ title, albums, isLoading, collectionId }: AlbumGridProps) =
                                      transition-all duration-200 group border border-border/50 
                                      shadow-sm hover:shadow-md flex-shrink-0 w-32 sm:w-40 touch-manipulation relative"
                             onClick={() => navigate(`/album/${album.id}`)}
+                            role="link"
+                            tabIndex={0}
+                            aria-label={`Open album ${album.name || album.title}`}
+                            onKeyDown={(event) => {
+                                if (event.target !== event.currentTarget) return;
+                                if (event.key === "Enter") {
+                                    navigate(`/album/${album.id}`);
+                                }
+                            }}
                         >
                             <div className="relative mb-2 aspect-square rounded-lg overflow-hidden 
                                           shadow-lg bg-background">
                                 <img
                                     src={album.image?.[2]?.url || album.imageUrl}
+                                    alt={`${album.name || album.title} album cover`}
                                     loading="lazy"
                                     decoding="async"
                                     className="w-full h-full object-cover transition-transform 

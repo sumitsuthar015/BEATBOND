@@ -36,8 +36,9 @@ const MainLayout = () => {
   if ((isChatPage || isMapPage) && isMobile) {
     return (
       <div className="relative h-dvh min-h-0 overflow-hidden bg-background">
+        <a className="skip-to-content" href="#main-content">Skip to main content</a>
         <AnimatedBackground />
-        <div className="relative z-10 h-full min-h-0">
+        <div id="main-content" className="relative z-10 h-full min-h-0" tabIndex={-1} aria-label="Main content">
           <Outlet />
         </div>
       </div>
@@ -48,6 +49,7 @@ const MainLayout = () => {
     // Reserve space for the fixed player (and the mobile mini-player + nav)
     // so no page, lyrics card, or friends panel can render underneath it.
     <div className={`flex h-dvh min-h-0 flex-col ${isChatPage ? "pb-16 md:pb-0" : "pb-24 md:pb-[88px]"}`}>
+      <a className="skip-to-content" href="#main-content">Skip to main content</a>
       <AnimatedBackground />
       <OfflineBanner />
       <ResizablePanelGroup
@@ -67,7 +69,7 @@ const MainLayout = () => {
 
         {/* Main content */}
         <ResizablePanel defaultSize={isMobile ? 100 : 60} minSize={isMobile ? 100 : undefined}>
-          <div className="h-full">
+          <div id="main-content" className="h-full" tabIndex={-1} aria-label="Main content">
             <Outlet />
           </div>
         </ResizablePanel>

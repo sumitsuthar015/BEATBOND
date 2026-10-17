@@ -321,6 +321,16 @@ export const AlbumPage = () => {
                 <div
                   key={song._id}
                   onClick={() => song.audioUrl && playAlbumQueue(songs.filter((item) => item.audioUrl), songs.filter((item) => item.audioUrl).findIndex((item) => item._id === song._id))}
+                  role={song.audioUrl ? "button" : undefined}
+                  tabIndex={song.audioUrl ? 0 : undefined}
+                  aria-label={song.audioUrl ? `Play ${song.title} by ${song.artist}` : undefined}
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget || !song.audioUrl) return;
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      playAlbumQueue(songs.filter((item) => item.audioUrl), songs.filter((item) => item.audioUrl).findIndex((item) => item._id === song._id));
+                    }
+                  }}
                   className={`grid grid-cols-[16px_1fr_2fr_1fr_60px_40px] gap-4 px-4 py-3 rounded-md hover:bg-secondary/50 cursor-pointer transition-colors group items-center ${
                     !song.audioUrl ? "opacity-50 cursor-not-allowed" : ""
                   }`}
@@ -358,6 +368,16 @@ export const AlbumPage = () => {
               <div
                 key={song._id}
                 onClick={() => song.audioUrl && playAlbumQueue(songs.filter((item) => item.audioUrl), songs.filter((item) => item.audioUrl).findIndex((item) => item._id === song._id))}
+                role={song.audioUrl ? "button" : undefined}
+                tabIndex={song.audioUrl ? 0 : undefined}
+                aria-label={song.audioUrl ? `Play ${song.title} by ${song.artist}` : undefined}
+                onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget || !song.audioUrl) return;
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    playAlbumQueue(songs.filter((item) => item.audioUrl), songs.filter((item) => item.audioUrl).findIndex((item) => item._id === song._id));
+                  }
+                }}
                 className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 rounded-lg bg-card/50 hover:bg-secondary/50 transition-colors ${
                   !song.audioUrl ? "opacity-50" : "cursor-pointer"
                 }`}

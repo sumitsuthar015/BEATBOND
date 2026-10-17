@@ -107,7 +107,7 @@ const DaySeparator = ({ label }: { label: string }) => (
 
 const TypingBubble = ({ imageUrl, name }: { imageUrl: string; name: string }) => (
   <div className="flex items-end gap-2" aria-live="polite" aria-label={`${name} is typing`}>
-    <Avatar className="size-7"><AvatarImage src={imageUrl} /><AvatarFallback className="text-[10px]">{name[0]}</AvatarFallback></Avatar>
+    <Avatar className="size-7"><AvatarImage src={imageUrl} alt={name} /><AvatarFallback className="text-[10px]">{name[0]}</AvatarFallback></Avatar>
     <span className="flex items-center gap-1 rounded-2xl rounded-bl-md bg-secondary px-4 py-3">
       {[0, 150, 300].map((delay) => <span key={delay} className="size-1.5 animate-bounce rounded-full bg-muted-foreground" style={{ animationDelay: `${delay}ms` }} />)}
     </span>
@@ -341,7 +341,6 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const hasScrolledToLatestRef = useRef(false);
   const nearBottomRef = useRef(true);
   const restoreScrollRef = useRef<{ height: number; top: number } | null>(null);
@@ -353,11 +352,14 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
   const { ref: topRef, inView: isTopVisible } = useInView();
   const messagesKey = useMemo(() => ["messages", userId], [userId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const saved = localStorage.getItem(`beatbond:nickname:${userId}`) || "";
     setNickname(saved);
     setNicknameDraft(saved);
     hasScrolledToLatestRef.current = false;
+    nearBottomRef.current = true;
+    restoreScrollRef.current = null;
+    if (chatContainerRef.current) chatContainerRef.current.scrollTop = 0;
     setReplyingTo(null);
     setEditing(null);
     setFriendTyping(false);
@@ -432,7 +434,17 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
 
   // ---- Scrolling ----
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    requestAnimationFrame(() => messagesEndRef.current?.scrollIntoView({ behavior, block: "end" }));
+    requestAnimationFrame(() => {
+      const container = chatContainerRef.current;
+      if (!container) return;
+      if (behavior === "auto") {
+        // Keep the initial positioning inside the message scroller. scrollIntoView
+        // can also move the page or an ancestor when the chat is nested in a shell.
+        container.scrollTop = container.scrollHeight;
+      } else {
+        container.scrollTo({ top: container.scrollHeight, behavior });
+      }
+    });
   }, []);
 
   const onScroll = useCallback(() => {
@@ -447,7 +459,7 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
   useEffect(() => {
     // Only the first load jumps to the newest message; loading older pages
     // while scrolling up must not pull the reader back down.
-    if (!hasScrolledToLatestRef.current && !isLoadingMessages && messages?.pages?.[0]?.messages) {
+    if (!hasScrolledToLatestRef.current && !isLoadingMessages && messages?.pages?.length) {
       hasScrolledToLatestRef.current = true;
       scrollToBottom("auto");
     }
@@ -892,7 +904,6 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
             )))}
 
           {friendTyping && <div className="mt-3"><TypingBubble imageUrl={friend.imageUrl} name={friendName} /></div>}
-          <div ref={messagesEndRef} />
         </div>
       </div>
 
@@ -1012,7 +1023,7 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
                   }}
                   className="flex w-full items-center gap-3 rounded-xl border p-2 text-left hover:bg-secondary"
                 >
-                  <Avatar className="size-10 rounded-lg"><AvatarImage src={shared.sharedContent?.imageUrl} /><AvatarFallback className="rounded-lg">{shared.sharedContent?.title?.[0] || "M"}</AvatarFallback></Avatar>
+                  <Avatar className="size-10 rounded-lg"><AvatarImage src={shared.sharedContent?.imageUrl} alt={shared.sharedContent?.title || "Shared item"} /><AvatarFallback className="rounded-lg">{shared.sharedContent?.title?.[0] || "M"}</AvatarFallback></Avatar>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-semibold">{shared.sharedContent?.title}</span>
                     <span className="block truncate text-xs text-muted-foreground">{shared.sharedContent?.subtitle || "Song"} · shared by {shared.senderId === myId ? "you" : friendName}</span>

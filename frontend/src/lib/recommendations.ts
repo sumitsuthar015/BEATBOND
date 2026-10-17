@@ -2,6 +2,7 @@ import { Song } from "@/types";
 import { readListeningHistory } from "@/lib/listeningHistory";
 import { isVerifiedValidSong } from "@/lib/songUtils";
 import { axiosInstance } from "@/lib/axios";
+import { mapSaavnSong } from "@/lib/saavn";
 
 const normalise = (value?: string) => String(value || "").trim().toLowerCase();
 const artistTokens = (song: Song) => normalise(song.artist).split(/,|&| feat\.? | ft\.? /i).map((item) => item.trim()).filter(Boolean);
@@ -54,7 +55,6 @@ export const fetchRecommendations = async (song: Song, limit = 10): Promise<Song
       albumId: song.albumId || "",
     },
   });
-  const { mapSaavnSong } = await import("@/lib/saavn");
   return (data?.data?.recommendations || [])
     .map((item: { song?: unknown }) => mapSaavnSong(item.song))
     .filter((item: Song | null): item is Song => Boolean(item));

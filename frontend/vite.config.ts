@@ -11,8 +11,8 @@ export default defineConfig({
 		// A new deployment installs and takes over in the background on its own.
 		// The open app is not reloaded in front of the listener: it restarts onto
 		// the new version only when it is in the background with no music
-		// playing (src/registerServiceWorker.ts), and it preloads every lazy page
-		// at startup (App.tsx) so it never needs a file the deployment removed.
+		// playing (src/registerServiceWorker.ts), and it preloads the lazy pages
+		// at startup (App.tsx) except the consent-gated map SDK.
 		// Registration is handled in src/registerServiceWorker.ts so every open
 		// client checks for a deployment promptly instead of waiting for the next
 		// navigation or browser update cycle.
@@ -21,6 +21,9 @@ export default defineConfig({
 		workbox: {
 			importScripts: ["/push-handler.js"],
 			globPatterns: ["**/*.{js,css,html,ico,png,svg,jpg,jpeg,webp}"],
+			// Mapbox is large and optional. Download its chunks only after the user
+			// opens the map and allows the provider in service preferences.
+			globIgnores: ["**/mapbox-gl-*.js", "**/mapbox-gl-*.css"],
 			cleanupOutdatedCaches: true,
 			clientsClaim: true,
 			skipWaiting: true,
@@ -55,7 +58,12 @@ export default defineConfig({
 				// The 3D map library is large and rarely changes. In its own file its
 				// name stays the same between deployments, so installed apps keep
 				// their cached copy instead of downloading it again after every update.
-				manualChunks: (id) => (id.includes("node_modules/mapbox-gl") ? "mapbox-gl" : undefined),
+				manualChunks: (id) => {
+					if (id.includes("node_modules/mapbox-gl")) return "mapbox-gl";
+					if (id.includes("/node_modules/@clerk/")) return "clerk-vendor";
+					if (/\/node_modules\/(react|react-dom|react-router-dom|scheduler|@remix-run\/router)\//.test(id)) return "react-vendor";
+					return undefined;
+				},
 			},
 		},
 	},

@@ -4,6 +4,7 @@ import toast from "react-hot-toast";
 import { create } from "zustand";
 import { cacheHomeShelf, getCachedHomeShelf } from "@/lib/offlineLibrary";
 import { usePlayerStore } from "./usePlayerStore";
+import { recordPlaybackOutcome } from "@/lib/recommendations";
 
 // Add Artist type
 export interface Artist {
@@ -611,7 +612,6 @@ export const useMusicStore = create<MusicStore>((set, get) => ({
 			if (response.data.isLiked) {
 				const liked = get().songs.find((song) => song._id === id) || get().trendingSongs.find((song) => song._id === id);
 				if (liked) {
-					const { recordPlaybackOutcome } = await import("@/lib/recommendations");
 					recordPlaybackOutcome(liked, liked.duration || 1, liked.duration || 1);
 				}
 			}

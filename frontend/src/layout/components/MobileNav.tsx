@@ -1,20 +1,18 @@
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { SignedIn, SignedOut, useClerk, useUser } from "@clerk/clerk-react";
+import { SignedIn, SignedOut, useUser } from "@clerk/clerk-react";
 import {
   Home,
   Library,
-  LogIn,
   Search,
   Sparkles,
   Users,
 } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { memo } from "react";
+import SignInConsentButton from "@/components/privacy/SignInConsentButton";
 
 const MobileNav = memo(() => {
   const location = useLocation();
-  const { openSignIn } = useClerk();
   const { user } = useUser();
 
   const items = [
@@ -27,16 +25,10 @@ const MobileNav = memo(() => {
 
   return (
     <>
-      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-md md:hidden">
+      <nav aria-label="Main navigation" className="fixed bottom-0 left-0 right-0 z-40 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-md md:hidden">
         <SignedOut>
           <div className="flex h-16 items-center justify-center px-4">
-            <Button
-              onClick={() => openSignIn({ redirectUrl: "/" })}
-              className="w-full max-w-xs gap-2 bg-white text-zinc-900 hover:bg-zinc-200"
-            >
-              <LogIn className="h-4 w-4" />
-              Sign in
-            </Button>
+            <SignInConsentButton label="Sign in" className="w-full max-w-xs gap-2 bg-white text-zinc-900 hover:bg-zinc-200" />
           </div>
         </SignedOut>
 
@@ -48,9 +40,10 @@ const MobileNav = memo(() => {
                 <Link
                   key={item.path}
                   to={item.path}
+                  aria-current={isActive ? "page" : undefined}
                   className={cn(
                     "min-w-0 touch-manipulation flex flex-col items-center justify-center gap-1 rounded-md text-[10px] font-medium leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 sm:text-[11px]",
-                    isActive ? "text-white" : "text-zinc-500",
+                    isActive ? "text-white" : "text-zinc-300",
                   )}
                 >
                   <item.icon

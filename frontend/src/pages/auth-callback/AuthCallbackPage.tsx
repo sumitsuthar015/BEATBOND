@@ -5,6 +5,7 @@ import { Loader } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
+import { LEGAL_CONSENT_SESSION_KEY, readLegalConsent } from "@/lib/legalConsent";
 
 const AuthCallbackPage = () => {
 	const { isLoaded, user } = useUser();
@@ -19,15 +20,19 @@ const AuthCallbackPage = () => {
 			try {
 				syncAttempted.current = true;
 				const token = await getToken();
+				const legalConsent = readLegalConsent();
+				if (!legalConsent) throw new Error("Please accept the current Terms and Privacy Policy before signing in.");
 				const response = await axiosInstance.post("/auth/callback", {
 					email_addresses: user.primaryEmailAddress?.emailAddress,
 					username: user.username,
 					first_name: user.firstName,
 					last_name: user.lastName,
 					image_url: user.imageUrl,
+					legalConsent,
 				}, { headers: { Authorization: `Bearer ${token}` } });
 
 				if (response.data.success) {
+					sessionStorage.removeItem(LEGAL_CONSENT_SESSION_KEY);
 					toast.success("Successfully signed in!");
 				} else {
 					toast.error("Something went wrong during sign in");

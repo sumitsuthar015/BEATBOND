@@ -7,6 +7,7 @@ import { isVerifiedValidSong } from "@/lib/songUtils";
 import { isDownloaded } from "@/lib/offlineDownloads";
 import { usePreferencesStore } from "./usePreferencesStore";
 import toast from "react-hot-toast";
+import { mapSaavnSong, searchSaavnSongs } from "@/lib/saavn";
 
 export type RepeatMode = "off" | "one" | "all";
 
@@ -323,7 +324,6 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
           relatedSongs = rankRecommendations(currentSong, await fetchRecommendations(currentSong, 20), [...queue, ...playedSongs]);
         } catch {
           try {
-          const { mapSaavnSong, searchSaavnSongs } = await import("@/lib/saavn");
           // `searchSaavnSongs` returns raw JioSaavn records. They must be
           // normalized before the player can validate their audio URLs; using
           // raw records here was why the API batch was always discarded and
@@ -349,7 +349,6 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
         try {
           // Still use the external catalogue if the artist endpoint has a
           // temporary empty response. Do not fall back to the homepage shelf.
-          const { mapSaavnSong, searchSaavnSongs } = await import("@/lib/saavn");
           const fallbackQuery = currentSong.language && currentSong.language !== "Unknown"
             ? `${currentSong.language} songs`
             : `${currentSong.artist} songs`;

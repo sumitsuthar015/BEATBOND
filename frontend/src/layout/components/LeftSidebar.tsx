@@ -1,6 +1,6 @@
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { SignedIn, SignedOut, useClerk, useUser } from "@clerk/clerk-react";
+import { SignedIn, SignedOut, useUser } from "@clerk/clerk-react";
 import {
   Bell,
   Heart,
@@ -17,6 +17,7 @@ import {
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useMyProfile } from "@/hooks/useMyProfile";
+import SignInConsentButton from "@/components/privacy/SignInConsentButton";
 
 interface LeftSidebarProps {
   onNavigate?: () => void;
@@ -36,17 +37,9 @@ const mainNavItems = [
 const LeftSidebar = ({ onNavigate }: LeftSidebarProps) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { openSignIn } = useClerk();
   const { user } = useUser();
   const { data: profile } = useMyProfile();
   const handleNavigation = () => onNavigate?.();
-
-  const handleGoogleSignIn = () => {
-    openSignIn({
-      redirectUrl: "/",
-      appearance: { elements: { socialButtonsBlockButton: "gap-2" } },
-    });
-  };
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
@@ -61,23 +54,18 @@ const LeftSidebar = ({ onNavigate }: LeftSidebarProps) => {
                   Access playlists, friends, and more features
                 </p>
               </div>
-              <button
-                onClick={handleGoogleSignIn}
-                className={cn(
-                  buttonVariants({ className: "w-full justify-center gap-2" }),
-                )}
-              >
-                Continue with Google
-              </button>
+              <SignInConsentButton className={cn(buttonVariants({ className: "w-full justify-center gap-2" }))} />
             </div>
           </SignedOut>
 
           <SignedIn>
+            <nav aria-label="Main navigation">
             {mainNavItems.map((item) => (
               <Link
                 key={item.path}
                 to={item.path}
                 onClick={handleNavigation}
+                aria-current={location.pathname === item.path ? "page" : undefined}
                 className={cn(
                   buttonVariants({
                     variant: "ghost",
@@ -95,6 +83,7 @@ const LeftSidebar = ({ onNavigate }: LeftSidebarProps) => {
 
             <div className="hidden md:block">
               <button
+                type="button"
                 onClick={() => {
                   navigate("/library");
                   handleNavigation();
@@ -108,6 +97,7 @@ const LeftSidebar = ({ onNavigate }: LeftSidebarProps) => {
                     ),
                   }),
                 )}
+                aria-current={location.pathname === "/library" ? "page" : undefined}
               >
                 <Library className="mr-2 size-5" />
                 <span className="flex-1 text-left">Library</span>
@@ -115,6 +105,7 @@ const LeftSidebar = ({ onNavigate }: LeftSidebarProps) => {
               <Link
                 to="/liked-songs"
                 onClick={handleNavigation}
+                aria-current={location.pathname === "/liked-songs" ? "page" : undefined}
                 className={cn(
                   buttonVariants({
                     variant: "ghost",
@@ -129,6 +120,7 @@ const LeftSidebar = ({ onNavigate }: LeftSidebarProps) => {
                 <span className="flex-1 text-left">Liked Songs</span>
               </Link>
             </div>
+            </nav>
           </SignedIn>
         </div>
         <SignedIn>

@@ -12,6 +12,11 @@ export const protectRoute = async (req, res, next) => {
 		// Auto-ensure requesting user exists in MongoDB database
 		const existingUser = await User.findOne({ clerkId: req.auth().userId });
 		if (!existingUser) {
+			// The auth callback is the only account-provisioning path. Its route
+			// validates the user's current legal consent before reaching here.
+			if (req.baseUrl !== "/api/auth" || req.path !== "/callback") {
+				return res.status(409).json({ message: "Complete sign-in and accept the current Terms and Privacy Policy first." });
+			}
 			const clerkUser = await clerkClient.users.getUser(req.auth().userId);
 			if (clerkUser) {
 				const email = clerkUser.emailAddresses?.[0]?.emailAddress || "";

@@ -80,7 +80,7 @@ export function ShareToMessageDialog({ trigger, message, sharedContent }: { trig
           {sharedContent && (
             <div className="flex items-center gap-3 rounded-2xl border bg-card/60 p-3 shadow-inner">
               <Avatar className="size-12 rounded-xl">
-                <AvatarImage src={sharedContent.imageUrl} />
+                <AvatarImage src={sharedContent.imageUrl} alt={sharedContent.title || "Shared item"} />
                 <AvatarFallback className="rounded-xl">{sharedContent.title[0] || "S"}</AvatarFallback>
               </Avatar>
               <div className="min-w-0 flex-1">
@@ -101,7 +101,7 @@ export function ShareToMessageDialog({ trigger, message, sharedContent }: { trig
                   <div key={friend.clerkId} className="flex items-center justify-between rounded-xl p-2 transition-colors hover:bg-secondary/60">
                     <div className="flex items-center gap-2.5 min-w-0">
                       <Avatar className="size-9">
-                        <AvatarImage src={friend.imageUrl} />
+                        <AvatarImage src={friend.imageUrl} alt={friend.fullName || "Friend"} />
                         <AvatarFallback>{friend.fullName[0]}</AvatarFallback>
                       </Avatar>
                       <span className="truncate text-sm font-medium">{friend.fullName}</span>

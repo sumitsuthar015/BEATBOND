@@ -379,7 +379,7 @@ export const getMutualFriends = async (req, res, next) => {
 
     const mutualFriends = await User.find({
       clerkId: { $in: mutualIds }
-    }).select("clerkId fullName username imageUrl email isOnline lastSeen").lean();
+    }).select("clerkId fullName username imageUrl isOnline lastSeen").lean();
 
     res.status(200).json(
       mutualFriends.map((friend) => ({
