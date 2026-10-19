@@ -11,8 +11,8 @@ export default defineConfig({
 		// A new deployment installs and takes over in the background on its own.
 		// The open app is not reloaded in front of the listener: it restarts onto
 		// the new version only when it is in the background with no music
-		// playing (src/registerServiceWorker.ts), and it preloads the lazy pages
-		// at startup (App.tsx) except the consent-gated map SDK.
+		// playing (src/registerServiceWorker.ts). Route chunks stay lazy so mobile
+		// startup does not compete with a bulk preload.
 		// Registration is handled in src/registerServiceWorker.ts so every open
 		// client checks for a deployment promptly instead of waiting for the next
 		// navigation or browser update cycle.
@@ -20,7 +20,18 @@ export default defineConfig({
 		injectRegister: false,
 		workbox: {
 			importScripts: ["/push-handler.js"],
-			globPatterns: ["**/*.{js,css,html,ico,png,svg,jpg,jpeg,webp}"],
+			// Precache the app shell and the home route only. Precache of every
+			// route chunk (including large admin/chart code) made first install
+			// download several megabytes before the app could feel ready.
+			globPatterns: [
+				"**/*.{css,html}",
+				"**/assets/index-*.js",
+				"**/assets/react-vendor-*.js",
+				"**/assets/clerk-vendor-*.js",
+				"**/assets/motion-vendor-*.js",
+				"**/assets/HomePage-*.js",
+				"**/assets/Topbar-*.js",
+			],
 			// Mapbox is large and optional. Download its chunks only after the user
 			// opens the map and allows the provider in service preferences.
 			globIgnores: ["**/mapbox-gl-*.js", "**/mapbox-gl-*.css", "**/albums/**", "**/cover-images/**"],
@@ -30,6 +41,7 @@ export default defineConfig({
 			// Mood playlists must reflect the current curator. Do not let a failed
 			// cold backend request silently reuse a week-old mood response.
 			runtimeCaching: [
+				{ urlPattern: ({ request, url }) => request.destination === "script" && url.pathname.startsWith("/assets/"), handler: "CacheFirst", options: { cacheName: "beatbond-route-chunks", expiration: { maxEntries: 150, maxAgeSeconds: 60 * 60 * 24 * 30 }, cacheableResponse: { statuses: [0, 200] } } },
 				{ urlPattern: /\/api\/songs\/mood\//, handler: "NetworkOnly" },
 				// Search must be fresh and identical on web/mobile after deployment.
 				{ urlPattern: /\/api\/saavn\/search(?:\/|$)/, handler: "NetworkOnly" },

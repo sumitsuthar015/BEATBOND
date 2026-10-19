@@ -138,6 +138,10 @@ const AudioPlayer = () => {
           ? [{ src: currentSong.imageUrl, sizes: "512x512", type: "image/jpeg" }]
           : [],
       });
+      // Keep the OS media notification/lock-screen transport in sync. This is
+      // what lets supported mobile browsers treat background audio as active
+      // media when the installed PWA is moved out of the foreground.
+      navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
       navigator.mediaSession.setActionHandler("play", () => usePlayerStore.getState().setIsPlaying(true));
       navigator.mediaSession.setActionHandler("pause", () => usePlayerStore.getState().setIsPlaying(false));
       navigator.mediaSession.setActionHandler("nexttrack", () => void usePlayerStore.getState().playNext());
@@ -145,7 +149,7 @@ const AudioPlayer = () => {
     } catch (error) {
       console.warn("Media Session is unavailable in this browser:", error);
     }
-  }, [currentSong]);
+  }, [currentSong, isPlaying]);
 
   return (
     <audio

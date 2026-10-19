@@ -1,5 +1,5 @@
 import { Route, Routes } from "react-router-dom";
-import { lazy, Suspense, useEffect, type ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import { AuthenticateWithRedirectCallback } from "@clerk/clerk-react";
 import MainLayout from "./layout/MainLayout";
 
@@ -10,10 +10,8 @@ import RouteHistoryTracker from "./components/RouteHistoryTracker";
 import { PrivacyPolicyPage, TermsPage } from "./pages/legal/LegalPages";
 import CookieConsentManager from "./components/privacy/CookieConsentManager";
 
-// After a deployment the open app keeps running its current version until it
-// can restart unnoticed (see registerServiceWorker.ts). The deployment removes
-// the old files, so lazy pages are loaded in the background up front (except
-// the optional Mapbox route) and the running version avoids stale chunks.
+// Keep route modules lazy. Preloading every page at startup competed with the
+// first screen for bandwidth and made cold starts especially slow on phones.
 const pageLoaders = {
   authCallback: () => import("./pages/auth-callback/AuthCallbackPage"),
   notFound: () => import("./pages/404/NotFoundPage"),
@@ -67,17 +65,7 @@ const SettingsPage = lazy(pageLoaders.settings);
 const RouteLoading = () => <div className="flex h-full min-h-32 items-center justify-center text-sm text-muted-foreground" role="status">Loading…</div>;
 const withSuspense = (element: ReactNode) => <Suspense fallback={<RouteLoading />}>{element}</Suspense>;
 
-const preloadPages = () => {
-  if (!import.meta.env.PROD) return;
-  const whenIdle = window.requestIdleCallback ?? ((callback: () => void) => window.setTimeout(callback, 3000));
-  // The map contains Mapbox's large third-party SDK. Fetch it only when the
-  // user opens the map, after they've chosen to allow that service.
-  whenIdle(() => Object.entries(pageLoaders).filter(([name]) => name !== "map").forEach(([, load]) => void load().catch(() => undefined)));
-};
-
 function App() {
-  useEffect(preloadPages, []);
-
   return (
     <ThemeProvider defaultTheme="dark" storageKey="beatbond-theme">
       {/* The media element is deliberately outside route layouts. Navigation must

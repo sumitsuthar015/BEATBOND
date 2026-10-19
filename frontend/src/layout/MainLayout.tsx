@@ -15,14 +15,14 @@ import OfflineBanner from "@/components/OfflineBanner";
 
 const MainLayout = () => {
   const location = useLocation();
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 767px)").matches);
   const [isFloating, setIsFloating] = useState(false);
   const isChatPage = location.pathname === "/chat";
   const isMapPage = location.pathname === "/map";
 
   useEffect(() => {
     const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
+      setIsMobile(window.matchMedia("(max-width: 767px)").matches);
     };
 
     checkMobile();
@@ -35,7 +35,7 @@ const MainLayout = () => {
   // their viewport.
   if ((isChatPage || isMapPage) && isMobile) {
     return (
-      <div className="relative h-dvh min-h-0 overflow-hidden bg-background">
+      <div className="relative h-dvh min-h-0 min-w-0 overflow-hidden bg-background">
         <a className="skip-to-content" href="#main-content">Skip to main content</a>
         <AnimatedBackground />
         <div id="main-content" className="relative z-10 h-full min-h-0" tabIndex={-1} aria-label="Main content">
@@ -48,13 +48,13 @@ const MainLayout = () => {
   return (
     // Reserve space for the fixed player (and the mobile mini-player + nav)
     // so no page, lyrics card, or friends panel can render underneath it.
-    <div className={`flex h-dvh min-h-0 flex-col ${isChatPage ? "pb-16 md:pb-0" : "pb-24 md:pb-[88px]"}`}>
+    <div className={`flex h-dvh min-h-0 min-w-0 flex-col overflow-x-clip ${isChatPage ? "pb-16 md:pb-0" : "pb-24 md:pb-[88px]"}`}>
       <a className="skip-to-content" href="#main-content">Skip to main content</a>
       <AnimatedBackground />
       <OfflineBanner />
       <ResizablePanelGroup
         direction="horizontal"
-        className="z-10 flex min-h-0 flex-1 gap-2 p-2"
+        className="z-10 flex min-h-0 min-w-0 flex-1 gap-2 overflow-x-clip p-2"
       >
         {!isMobile && (
           <>
@@ -69,7 +69,7 @@ const MainLayout = () => {
 
         {/* Main content */}
         <ResizablePanel defaultSize={isMobile ? 100 : 60} minSize={isMobile ? 100 : undefined}>
-          <div id="main-content" className="h-full" tabIndex={-1} aria-label="Main content">
+          <div id="main-content" className="h-full min-w-0 overflow-x-clip" tabIndex={-1} aria-label="Main content">
             <Outlet />
           </div>
         </ResizablePanel>
