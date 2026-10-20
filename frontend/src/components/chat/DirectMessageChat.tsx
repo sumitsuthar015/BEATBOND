@@ -342,6 +342,7 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const messagesContentRef = useRef<HTMLDivElement>(null);
   const hasScrolledToLatestRef = useRef(false);
   const nearBottomRef = useRef(true);
   const restoreScrollRef = useRef<{ height: number; top: number } | null>(null);
@@ -457,6 +458,24 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
     setNearBottom(near);
     if (near) setUnseen(0);
   }, []);
+
+  // Keep the latest message visible while mobile images, fonts, or the visual
+  // viewport finish laying out. Once the reader scrolls up, size changes must
+  // not pull them back down.
+  useEffect(() => {
+    const container = chatContainerRef.current;
+    const content = messagesContentRef.current;
+    if (!container || !content || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(() => {
+      if (!hasScrolledToLatestRef.current || nearBottomRef.current) {
+        container.scrollTop = container.scrollHeight;
+      }
+    });
+    observer.observe(container);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [userId]);
 
   useLayoutEffect(() => {
     // Position after the latest page is committed to the DOM. Waiting an extra
@@ -876,7 +895,7 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
 
       {/* Messages */}
       <div ref={chatContainerRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: "touch" }}>
-        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-end px-3 pb-3 pt-2 sm:px-5">
+        <div ref={messagesContentRef} className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-end px-3 pb-3 pt-2 sm:px-5">
           {hasNextPage && <div ref={topRef} className="h-1" />}
           {isFetchingNextPage && <div className="flex justify-center py-2"><Loader2 className="size-4 animate-spin text-primary" /></div>}
 
