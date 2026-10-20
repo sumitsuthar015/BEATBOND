@@ -17,6 +17,7 @@ type SectionGridProps = {
 const SectionGrid = ({ songs, title, isLoading, collectionId }: SectionGridProps) => {
   const playAlbum = usePlayerStore((state) => state.playAlbum);
   const navigate = useNavigate();
+  const visibleSongs = collectionId === "trending" ? songs.slice(0, 10) : songs;
   if (isLoading && (!songs || songs.length === 0)) return <SectionGridSkeleton />;
 
   return (
@@ -36,7 +37,7 @@ const SectionGrid = ({ songs, title, isLoading, collectionId }: SectionGridProps
 
       {/* Desktop Grid (lg and above) */}
       <div className="hidden lg:grid lg:grid-cols-4 xl:grid-cols-5 gap-3 lg:gap-4">
-        {songs.map((song, index) => (
+        {visibleSongs.map((song, index) => (
           <motion.div
             key={song._id}
             initial={{ opacity: 0 }}
@@ -95,7 +96,7 @@ const SectionGrid = ({ songs, title, isLoading, collectionId }: SectionGridProps
           className="flex gap-2 sm:gap-3 pb-4 overflow-x-auto scroll-smooth 
                    scrollbar-custom horizontal-scroll-container"
         >
-          {songs.map((song, index) => (
+          {visibleSongs.map((song, index) => (
             <div
               key={song._id}
               onClick={() => playAlbum(songs, index)}

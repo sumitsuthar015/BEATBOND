@@ -1,5 +1,6 @@
 import { Song } from "../models/song.model.js";
 import { getMoodBasedSongs } from '../services/mood.service.js';
+import { getDailyTrendingSongs } from "../services/saavn.service.js";
 
 export const getAllSongs = async (req, res, next) => {
 	try {
@@ -71,26 +72,7 @@ export const getMadeForYouSongs = async (req, res, next) => {
 
 export const getTrendingSongs = async (req, res, next) => {
 	try {
-		const songs = await Song.aggregate([
-			{
-				$sample: { size: 5 },
-			},
-			{
-				$project: {
-					_id: 1,
-					title: 1,
-					artist: 1,
-					imageUrl: 1,
-					audioUrl: 1,
-					duration: 1,
-					albumId: 1,
-					createdAt: 1,
-					updatedAt: 1,
-					likedBy: 1,
-				},
-			},
-		]);
-
+		const songs = await getDailyTrendingSongs();
 		res.json(songs);
 	} catch (error) {
 		next(error);

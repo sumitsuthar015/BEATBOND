@@ -7,10 +7,12 @@ import { Comment } from "../models/comment.model.js";
 import { Message } from "../models/message.model.js";
 import { Playlist } from "../models/playlist.model.js";
 import { Notification } from "../models/notification.model.js";
+import { VerifiedArtist } from "../models/verifiedArtist.model.js";
 import cloudinary from "../lib/cloudinary.js";
 import { isDatabaseConnected } from "../lib/db.js";
 import { getOnlineUserIds, isUserOnline } from "../lib/realtime.js";
 import { isAdminUser } from "../middleware/auth.middleware.js";
+import { searchArtistCandidates } from "../services/saavn.service.js";
 
 // helper function for cloudinary uploads
 const uploadToCloudinary = async (file, isAudio = false) => {
@@ -453,6 +455,87 @@ export const deleteCommentAsAdmin = async (req, res, next) => {
 		res.status(200).json({ message: "Comment removed" });
 	} catch (error) {
 		console.log("Error in deleteCommentAsAdmin", error);
+		next(error);
+	}
+};
+
+export const getAdminArtists = async (req, res, next) => {
+	if (!isDatabaseConnected()) return databaseUnavailable(res);
+	try {
+		const search = String(req.query.search || "").trim().slice(0, 80);
+		const terms = search.toLowerCase().split(/\s+/).filter(Boolean);
+		const conditions = terms.map((term) => ({ name: { $regex: escapeRegex(term), $options: "i" } }));
+		const approved = await VerifiedArtist.find(conditions.length ? { $and: conditions } : {})
+			.sort({ name: 1 }).limit(1000).lean();
+		const candidates = search.length >= 2 ? await searchArtistCandidates(search, 20) : [];
+		const approvedById = new Map(approved.map((artist) => [artist.artistId, artist]));
+		const artists = [
+			...candidates.map((candidate) => {
+				const saved = approvedById.get(candidate.id);
+				return {
+					id: candidate.id,
+					name: saved?.name || candidate.name,
+					imageUrl: saved?.imageUrl || candidate.imageUrl || "",
+					followerCount: saved?.followerCount ?? candidate.followerCount ?? 0,
+					providerVerified: Boolean(candidate.isVerified),
+					isApproved: Boolean(saved),
+				};
+			}),
+			...approved
+				.filter((artist) => !candidates.some((candidate) => candidate.id === artist.artistId))
+				.map((artist) => ({
+					id: artist.artistId,
+					name: artist.name,
+					imageUrl: artist.imageUrl || "",
+					followerCount: artist.followerCount || 0,
+					providerVerified: Boolean(artist.providerVerified),
+					isApproved: true,
+				})),
+		];
+		res.status(200).json({ artists, approvedCount: await VerifiedArtist.countDocuments() });
+	} catch (error) {
+		console.error("Error in getAdminArtists", error);
+		next(error);
+	}
+};
+
+export const verifyArtistAsAdmin = async (req, res, next) => {
+	if (!isDatabaseConnected()) return databaseUnavailable(res);
+	const { artistId, name } = req.body || {};
+	if (typeof artistId !== "string" || !artistId.trim() || artistId.length > 160 || typeof name !== "string" || !name.trim() || name.length > 160) {
+		return res.status(400).json({ message: "A valid artist ID and name are required." });
+	}
+	try {
+		const artist = await VerifiedArtist.findOneAndUpdate(
+			{ artistId: artistId.trim() },
+			{ $set: {
+				name: name.trim(),
+				imageUrl: typeof req.body.imageUrl === "string" ? req.body.imageUrl.slice(0, 1000) : "",
+				followerCount: Math.max(0, Number(req.body.followerCount) || 0),
+				dominantLanguage: typeof req.body.dominantLanguage === "string" ? req.body.dominantLanguage.slice(0, 80) : "",
+				providerVerified: Boolean(req.body.providerVerified),
+				verifiedBy: req.auth().userId,
+				verifiedAt: new Date(),
+			} },
+			{ new: true, upsert: true, runValidators: true }
+		).lean();
+		res.status(200).json({ artist, message: "Artist approved for search." });
+	} catch (error) {
+		console.error("Error verifying artist", error);
+		next(error);
+	}
+};
+
+export const unverifyArtistAsAdmin = async (req, res, next) => {
+	if (!isDatabaseConnected()) return databaseUnavailable(res);
+	const artistId = String(req.params.id || "").trim();
+	if (!artistId) return res.status(400).json({ message: "Artist ID is required." });
+	try {
+		const result = await VerifiedArtist.findOneAndDelete({ artistId });
+		if (!result) return res.status(404).json({ message: "Approved artist not found." });
+		res.status(200).json({ message: "Artist removed from search." });
+	} catch (error) {
+		console.error("Error removing approved artist", error);
 		next(error);
 	}
 };

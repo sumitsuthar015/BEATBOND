@@ -27,6 +27,9 @@ const ArtistPage = () => {
   const artist = loadedArtist?.id === id ? loadedArtist : routeArtist ? { id: routeArtist.id, name: routeArtist.name, image: routeArtist.imageUrl ? [{ quality: "500x500", url: routeArtist.imageUrl }] : [], isVerified: routeArtist.isVerified, followerCount: routeArtist.followerCount, topSongs: [], topAlbums: [] } : null;
   const loading = useMusicStore((state) => state.artistDetailLoading);
   const fetchArtistById = useMusicStore((state) => state.fetchArtistById);
+  const loadMoreArtistSongs = useMusicStore((state) => state.loadMoreArtistSongs);
+  const artistSongsHasMore = useMusicStore((state) => state.artistSongsHasMore);
+  const artistSongsLoadingMore = useMusicStore((state) => state.artistSongsLoadingMore);
   const playAlbum = usePlayerStore((state) => state.playAlbum);
   const currentSong = usePlayerStore((state) => state.currentSong);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
@@ -66,16 +69,16 @@ const ArtistPage = () => {
     try { const result = await toggleSavedArtistRemote(artist); setIsSaved(result.saved); publishSavedArtists(result.artists); toast.success(result.saved ? `${artist.name} saved to Liked artists` : `${artist.name} removed from Liked artists`); } catch { toast.error("Could not update liked artists."); }
   };
 
-  if (loading) return <div className="h-full overflow-auto bg-[#101010]"><Topbar /><div className="mx-auto max-w-7xl animate-pulse p-6"><div className="h-56 rounded-2xl bg-zinc-800" /><div className="mt-6 h-8 w-1/3 rounded bg-zinc-800" /><div className="mt-8 h-80 rounded-xl bg-zinc-800/60" /></div></div>;
-  if (!artist) return <div className="h-full bg-[#101010]"><Topbar /><div className="flex h-3/4 items-center justify-center text-zinc-400">Artist not found.</div></div>;
+  if (loading) return <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#101010]"><Topbar /><div className="min-h-0 flex-1 overflow-y-auto overscroll-contain"><div className="mx-auto max-w-7xl animate-pulse p-6"><div className="h-56 rounded-2xl bg-zinc-800" /><div className="mt-6 h-8 w-1/3 rounded bg-zinc-800" /><div className="mt-8 h-80 rounded-xl bg-zinc-800/60" /></div></div></div>;
+  if (!artist) return <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#101010]"><Topbar /><div className="flex min-h-0 flex-1 items-center justify-center text-zinc-400">Artist not found.</div></div>;
 
   const image = artist.image?.[2]?.url || artist.image?.[1]?.url || artist.image?.[0]?.url || "/default-image.png";
   const tabs: { id: Tab; label: string }[] = [{ id: "overview", label: "Overview" }, { id: "songs", label: `Songs (${songs.length})` }, { id: "albums", label: "Albums" }];
   const collectionSummary = `${artist.name}'s BeatBond profile includes ${artist.topSongs?.length || "a selection of"} popular ${artist.topSongs?.length === 1 ? "track" : "tracks"} and ${artist.topAlbums?.length || "a collection of"} ${artist.topAlbums?.length === 1 ? "album" : "albums"} to explore.${artist.dominantLanguage && artist.dominantLanguage.toLowerCase() !== "unknown" ? ` The collection highlights ${artist.dominantLanguage} music.` : ""}${artist.fanCount || artist.followerCount ? ` Follow the profile to keep up with music enjoyed by ${artist.fanCount || artist.followerCount?.toLocaleString()} listeners.` : ""}`;
   const aboutText = artist.bio ? `${artist.bio} ${collectionSummary}` : collectionSummary;
 
-  return <div className="h-full overflow-hidden bg-[#101010] text-white"><Topbar />
-    <main className="h-[calc(100vh-124px)] overflow-y-auto pb-28">
+  return <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#101010] text-white"><Topbar />
+    <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-28">
       <div className="relative overflow-hidden border-b border-white/10 bg-gradient-to-br from-primary/30 via-[#1b1b1b] to-[#101010]">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-8 sm:flex-row sm:items-end sm:px-8 sm:py-12">
           <img src={image} alt={artist.name} className="mx-auto size-40 rounded-full object-cover shadow-2xl ring-4 ring-white/10 sm:mx-0 sm:size-52" onError={(e) => { (e.target as HTMLImageElement).src = "/default-image.png"; }} />
@@ -93,7 +96,9 @@ const ArtistPage = () => {
         {(tab === "overview" || tab === "songs") && <div className="py-6"><div className="mb-5 flex flex-wrap items-center justify-between gap-3"><h2 className="text-2xl font-bold">{tab === "overview" ? "Popular songs" : "All songs"}</h2><div className="flex gap-2">{(["popular", "date", "name"] as Sort[]).map((value) => <button key={value} onClick={() => setSort(value)} className={`rounded-full px-4 py-2 text-sm capitalize ${sort === value ? "bg-white text-black" : "bg-white/10 text-zinc-300"}`}>{value}</button>)}</div></div>
           <div className="hidden grid-cols-[36px_minmax(240px,2fr)_minmax(160px,1fr)_minmax(150px,1fr)_48px] gap-4 border-b border-white/10 px-3 py-3 text-xs font-medium uppercase tracking-wide text-zinc-500 lg:grid"><span>#</span><span>Title</span><span>Artist</span><span>Album</span><Clock3 className="size-4" /></div>
           <div>{songs.map((song, index) => { const active = currentSong?._id === song._id; return <button key={song._id} onClick={() => playAlbum(songs, index)} className={`grid w-full grid-cols-[30px_minmax(0,1fr)_45px] items-center gap-3 rounded-md px-2 py-2.5 text-left hover:bg-white/10 lg:grid-cols-[36px_minmax(240px,2fr)_minmax(160px,1fr)_minmax(150px,1fr)_48px] lg:gap-4 ${active ? "bg-primary/15" : ""}`}><span className="text-center text-sm text-zinc-400">{active && isPlaying ? <Music2 className="mx-auto size-4 text-primary" /> : index + 1}</span><span className="flex min-w-0 items-center gap-3"><img src={song.imageUrl || image} alt="" className="size-11 rounded object-cover" /><span className="min-w-0"><span className={`block truncate font-semibold ${active ? "text-primary" : "text-white"}`}>{song.title}</span><span className="block truncate text-xs text-zinc-400 lg:hidden">{song.artist}</span></span></span><span className="hidden truncate text-sm text-zinc-400 lg:block">{song.artist}</span><span className="hidden truncate text-sm text-zinc-400 lg:block">{(song as any).albumName || "Single"}</span><span className="text-right text-xs text-zinc-400">{duration(song.duration)}</span></button>; })}</div>
-          {!songs.length && <p className="py-10 text-center text-zinc-400">No playable songs are available from this artist yet.</p>}</div>}
+          {!songs.length && <p className="py-10 text-center text-zinc-400">No playable songs are available from this artist yet.</p>}
+          {artistSongsHasMore && <div className="flex justify-center pt-5"><button type="button" onClick={() => void loadMoreArtistSongs(artist.id)} disabled={artistSongsLoadingMore} className="rounded-full border border-white/15 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-wait disabled:opacity-60">{artistSongsLoadingMore ? "Loading songs…" : "Load more songs"}</button></div>}
+        </div>}
         {(tab === "overview" || tab === "albums") && (
           <div className="pb-10">
             <h2 className="mb-5 text-2xl font-bold">Albums</h2>

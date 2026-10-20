@@ -4,10 +4,11 @@ import { axiosInstance } from "@/lib/axios";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useMusicStore } from "@/stores/useMusicStore";
 import { useQuery } from "@tanstack/react-query";
-import { Album, LayoutDashboard, Loader2, Music, ShieldAlert, ShieldCheck, Users2 } from "lucide-react";
+import { Album, BadgeCheck, LayoutDashboard, Loader2, Music, ShieldAlert, ShieldCheck, Users2 } from "lucide-react";
 import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import AlbumsTabContent from "./components/AlbumsTabContent";
+import ArtistsTabContent from "./components/ArtistsTabContent";
 import DashboardStats from "./components/DashboardStats";
 import Header from "./components/Header";
 import ModerationTabContent from "./components/ModerationTabContent";
@@ -23,6 +24,7 @@ const tabs = [
 	{ value: "overview", label: "Overview", icon: LayoutDashboard },
 	{ value: "songs", label: "Songs", icon: Music },
 	{ value: "albums", label: "Albums", icon: Album },
+	{ value: "artists", label: "Artists", icon: BadgeCheck },
 	{ value: "users", label: "Users", icon: Users2 },
 	{ value: "moderation", label: "Moderation", icon: ShieldCheck },
 ];
@@ -120,6 +122,9 @@ const AdminPage = () => {
 					</TabsContent>
 					<TabsContent value='albums'>
 						<AlbumsTabContent />
+					</TabsContent>
+					<TabsContent value='artists'>
+						<ArtistsTabContent />
 					</TabsContent>
 					<TabsContent value='users'>
 						<UsersTabContent />

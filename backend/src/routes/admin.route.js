@@ -7,6 +7,9 @@ import {
 	deleteCommentAsAdmin,
 	deleteSong,
 	getAdminUsers,
+	getAdminArtists,
+	verifyArtistAsAdmin,
+	unverifyArtistAsAdmin,
 	getDashboardOverview,
 	getModerationFeed,
 } from "../controller/admin.controller.js";
@@ -23,6 +26,9 @@ router.use(protectRoute, requireAdmin);
 
 router.get("/overview", getDashboardOverview);
 router.get("/users", getAdminUsers);
+router.get("/artists", getAdminArtists);
+router.post("/artists/verify", verifyArtistAsAdmin);
+router.delete("/artists/:id/verify", unverifyArtistAsAdmin);
 
 router.post("/songs", createSong);
 router.delete("/songs/:id", deleteSong);

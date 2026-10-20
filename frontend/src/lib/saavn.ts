@@ -7,6 +7,7 @@ export const SAAVN_API_BASE = "/api/saavn";
 
 const searchCache = new Map<string, { expiresAt: number; request: Promise<any[]> }>();
 const SEARCH_CACHE_MS = 5 * 60 * 1000;
+const ARTIST_SEARCH_CACHE_MS = 5 * 1000;
 
 /** Deduplicated, short-lived Saavn song search used by every search surface. */
 const searchSaavn = async (type: "songs" | "artists" | "albums", query: string, limit: number) => {
@@ -29,7 +30,7 @@ const searchSaavn = async (type: "songs" | "artists" | "albums", query: string, 
       throw error;
     });
 
-  searchCache.set(key, { expiresAt: Date.now() + SEARCH_CACHE_MS, request });
+  searchCache.set(key, { expiresAt: Date.now() + (type === "artists" ? ARTIST_SEARCH_CACHE_MS : SEARCH_CACHE_MS), request });
   return request;
 };
 
@@ -301,12 +302,13 @@ export type SaavnPlaylistResult = {
 
 export const mapSaavnArtist = (artist: any): SaavnArtistResult | null => {
   if (!artist?.id || !(artist?.name || artist?.title)) return null;
+  const verifiedValue = artist.isVerified ?? artist.is_verified ?? artist.verified ?? artist.flags?.isVerified;
   return {
     id: String(artist.id),
     name: decodeText(String(artist.name || artist.title)),
     imageUrl: getImageUrl(artist.image) || "/default-image.png",
-    isVerified: Boolean(artist.isVerified),
-    followerCount: Number(artist.followerCount) || undefined,
+    isVerified: verifiedValue === true || verifiedValue === 1 || String(verifiedValue).toLowerCase() === "true",
+    followerCount: Number(artist.followerCount || artist.follower_count || artist.stats?.followerCount) || undefined,
   };
 };
 

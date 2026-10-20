@@ -378,31 +378,35 @@ export const AlbumPage = () => {
                     playAlbumQueue(songs.filter((item) => item.audioUrl), songs.filter((item) => item.audioUrl).findIndex((item) => item._id === song._id));
                   }
                 }}
-                className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 rounded-lg bg-card/50 hover:bg-secondary/50 transition-colors ${
+                className={`grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-2 rounded-lg bg-card/50 p-2.5 transition-colors hover:bg-secondary/50 sm:gap-3 sm:p-3 ${
                   !song.audioUrl ? "opacity-50" : "cursor-pointer"
                 }`}
               >
-                <span className="text-muted-foreground text-xs sm:text-sm w-5 sm:w-6 text-center">
+                <span className="w-5 text-center text-xs text-muted-foreground sm:w-6 sm:text-sm">
                   {index + 1}
                 </span>
-                {song.imageUrl && (
-                  <img
-                    src={song.imageUrl}
-                    alt={song.title}
-                    className="w-11 h-11 sm:w-12 sm:h-12 rounded object-cover flex-shrink-0"
-                  />
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium truncate text-xs sm:text-sm">{song.title}</p>
-                  <p className="text-muted-foreground text-[10px] sm:text-xs truncate mt-0.5">
-                    {song.artist}
-                  </p>
+                <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                  {song.imageUrl && (
+                    <img
+                      src={song.imageUrl}
+                      alt={song.title}
+                      className="size-11 shrink-0 rounded object-cover sm:size-12"
+                    />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-medium sm:text-sm">{song.title}</p>
+                    <p className="mt-0.5 truncate text-[10px] text-muted-foreground sm:text-xs">
+                      {song.artist}
+                    </p>
+                  </div>
                 </div>
-                <span className="text-muted-foreground text-[10px] sm:text-xs flex-shrink-0">
-                  {formatDuration(song.duration)}
-                </span>
-                <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                  <SongOptionsMenu song={song} />
+                <div className="flex shrink-0 items-center gap-1">
+                  <span className="whitespace-nowrap text-[10px] text-muted-foreground sm:text-xs">
+                    {formatDuration(song.duration)}
+                  </span>
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <SongOptionsMenu song={song} />
+                  </div>
                 </div>
               </div>
             ))}

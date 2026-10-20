@@ -162,7 +162,7 @@ const NotificationsPage = () => {
   const unreadCount = notificationsList.filter(n => !n.read).length;
 
   return (
-    <div className="container max-w-4xl mx-auto py-4 sm:py-8 px-3 sm:px-4">
+    <div className="container mx-auto flex h-full min-h-0 max-w-4xl flex-col overflow-hidden px-3 py-4 sm:px-4 sm:py-8">
       <div className="flex items-center justify-between mb-4 sm:mb-6 gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl font-semibold flex items-center gap-2">
@@ -207,7 +207,7 @@ const NotificationsPage = () => {
         </div>
       </div>
 
-      <ScrollArea className="h-[calc(100vh-10rem)] sm:h-[calc(100vh-12rem)] rounded-lg border bg-card">
+      <ScrollArea className="min-h-0 flex-1 rounded-lg border bg-card">
         <div className="p-3 sm:p-4">
           {isLoading || requestsLoading ? (
             <div className="flex justify-center py-8">

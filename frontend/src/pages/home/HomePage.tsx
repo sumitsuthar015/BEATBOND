@@ -22,6 +22,7 @@ const HomePage = () => {
     madeForYouAlbums,
     fetchMadeForYouAlbums,
     artists,
+    artistsLoading,
     fetchArtists,
     isLoading,
   } = useMusicStore();
@@ -59,10 +60,10 @@ const HomePage = () => {
   ]);
 
   useEffect(() => {
-    if (!trendingSongs.length || artists.length) return;
+    if (artists.length) return;
     const timer = window.setTimeout(() => void fetchArtists(), 1_500);
     return () => window.clearTimeout(timer);
-  }, [trendingSongs.length, artists.length, fetchArtists]);
+  }, [artists.length, fetchArtists]);
 
   const getGreetings = () => {
     const hour = new Date().getHours();
@@ -116,7 +117,7 @@ const HomePage = () => {
             <ArtistGrid
               title="Popular Artists"
               artists={artists}
-              isLoading={isLoading}
+              isLoading={artistsLoading}
             />
           </div>
         </div>

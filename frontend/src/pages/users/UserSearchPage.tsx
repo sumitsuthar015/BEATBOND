@@ -138,8 +138,9 @@ const UserSearchPage = () => {
       {/* Fixed Header */}
       <div className="sticky top-0 z-10 bg-zinc-900/95 backdrop-blur-sm border-b border-zinc-800">
         <div className="p-3 sm:p-4 md:p-6 max-w-4xl mx-auto w-full">
-          <div className="relative mb-3 flex items-center justify-between pl-20 sm:mb-4 md:pl-0">
-            <div className="w-full text-center">
+          <div className="relative mb-3 grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center sm:mb-4">
+            <div aria-hidden="true" />
+            <div className="min-w-0 text-center">
               <h1 className="text-xl sm:text-2xl md:text-3xl font-bold">Find Users</h1>
               <p className="text-zinc-400 text-xs sm:text-sm mt-1 hidden sm:block">
                 Search for people to connect with
@@ -148,8 +149,10 @@ const UserSearchPage = () => {
             <Button
               variant="ghost"
               size="icon"
-              className="absolute right-0 md:hidden"
+              className="justify-self-end md:invisible"
               onClick={() => setShowFilters(!showFilters)}
+              aria-label={showFilters ? "Hide filters" : "Show filters"}
+              aria-expanded={showFilters}
             >
               <Filter className="h-4 w-4" />
             </Button>
@@ -248,7 +251,7 @@ const UserSearchPage = () => {
                       className="hover:bg-zinc-800/50 transition-all hover:scale-[1.01] active:scale-[0.99] border-zinc-800"
                     >
                       <CardContent className="p-3 sm:p-4">
-                        <div className="flex items-start sm:items-center gap-3">
+                        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-2 sm:flex sm:items-center">
                           <div
                             className="cursor-pointer hover:opacity-80 transition-opacity"
                             onClick={() => handleProfileClick(user.clerkId)}
@@ -311,7 +314,7 @@ const UserSearchPage = () => {
                             </div>
                           </div>
 
-                          <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1 sm:gap-2">
+                          <div className="col-span-2 flex items-center justify-end gap-2 sm:col-span-auto sm:ml-auto">
                             <Button
                               variant="ghost"
                               size="icon"

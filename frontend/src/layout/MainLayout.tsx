@@ -38,7 +38,7 @@ const MainLayout = () => {
       <div className="relative h-dvh min-h-0 min-w-0 overflow-hidden bg-background">
         <a className="skip-to-content" href="#main-content">Skip to main content</a>
         <AnimatedBackground />
-        <div id="main-content" className="relative z-10 h-full min-h-0" tabIndex={-1} aria-label="Main content">
+        <div id="main-content" className="relative z-10 h-full min-h-0 overflow-hidden" tabIndex={-1} aria-label="Main content">
           <Outlet />
         </div>
       </div>
@@ -69,7 +69,7 @@ const MainLayout = () => {
 
         {/* Main content */}
         <ResizablePanel defaultSize={isMobile ? 100 : 60} minSize={isMobile ? 100 : undefined}>
-          <div id="main-content" className="h-full min-w-0 overflow-x-clip" tabIndex={-1} aria-label="Main content">
+          <div id="main-content" className="h-full min-h-0 min-w-0 overflow-hidden" tabIndex={-1} aria-label="Main content">
             <Outlet />
           </div>
         </ResizablePanel>

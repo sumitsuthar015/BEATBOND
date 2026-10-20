@@ -51,7 +51,8 @@ export const handleGetArtistById = async (req, res) => {
 
 export const handleGetArtistSongs = async (req, res) => {
   const { id } = req.params;
-  const result = await getArtistSongs(id);
+  const { page = 1, limit = 50 } = req.query;
+  const result = await getArtistSongs(id, page, limit);
   res.status(200).json(result);
 };
 

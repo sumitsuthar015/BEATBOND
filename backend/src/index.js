@@ -1,5 +1,5 @@
+import "./lib/loadEnv.js";
 import express from "express";
-import dotenv from "dotenv";
 import { clerkMiddleware } from "@clerk/express";
 import fileUpload from "express-fileupload";
 import path from "path";
@@ -29,8 +29,6 @@ import postRoutes from "./routes/post.route.js";
 import saavnRoutes from "./routes/saavn.route.js";
 import commentRoutes from "./routes/comment.route.js";
 import musicRoutes from "./routes/music.route.js";
-
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

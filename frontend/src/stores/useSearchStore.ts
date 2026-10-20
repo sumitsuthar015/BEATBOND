@@ -13,7 +13,6 @@ import {
 import { Album, Song } from "@/types";
 import { axiosInstance } from "@/lib/axios";
 import { create } from "zustand";
-import Fuse from "fuse.js";
 
 let latestSearchRequest = 0;
 
@@ -211,7 +210,10 @@ const rankArtists = (artists: SaavnArtistResult[], query: string) => {
   }
   
   // Filter out junk ("altu faltu") artists
-  let validArtists = [...nameMap.values()].filter(isTrueArtist);
+  // Only show artists that JioSaavn explicitly marks as verified. Song
+  // credits often contain many incidental collaborators and are not a safe
+  // source for presenting artist profiles.
+  let validArtists = [...nameMap.values()].filter((artist) => isTrueArtist(artist) && artist.isVerified);
 
   // If a clean or exact artist match exists, filter out collaboration strings and alias names
   const cleanMatchExists = validArtists.some(
@@ -236,21 +238,9 @@ const rankArtists = (artists: SaavnArtistResult[], query: string) => {
     return (name === phrase ? 1000 : name.startsWith(phrase) ? 700 : 400) + popularity + (artist.isVerified ? 50 : 0) + hasPhoto;
   };
 
-  if (direct.length) return direct.sort((left, right) => score(right) - score(left));
-
-  const threshold = phrase.length <= 3 ? 0.15 : 0.32;
-  const fuzzy = new Fuse(validArtists, {
-    keys: ["name"],
-    includeScore: true,
-    threshold,
-    ignoreLocation: true,
-    minMatchCharLength: Math.min(3, phrase.length),
-  }).search(phrase);
-
-  return fuzzy
-    .filter((result) => (result.score ?? 1) <= threshold)
-    .sort((left, right) => (left.score ?? 1) - (right.score ?? 1) || score(right.item) - score(left.item))
-    .map((result) => result.item);
+  // Do not fill the artist section with fuzzy, unrelated profiles when there
+  // is no meaningful name match. Song results remain available separately.
+  return direct.sort((left, right) => score(right) - score(left));
 };
 
 interface SearchFilters {
@@ -510,6 +500,35 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
       const mappedArtists: SaavnArtistResult[] = rawArtists
         .map((artist: any) => mapSaavnArtist(artist))
         .filter((artist: SaavnArtistResult | null): artist is SaavnArtistResult => Boolean(artist));
+      const rankedSongs = rankSongs(rawSongs.map((song: any) => mapSaavnSong(song)).filter(Boolean) as Song[], normalizedQuery);
+      // A song title query usually does not match its singer's name. Resolve
+      // primary song credits against the admin-approved artist directory and
+      // put those exact verified profiles first in the Artists section.
+      const topSongIds = new Set(rankedSongs.slice(0, 5).map((song) => String(song._id)));
+      const primaryArtistNames = [...new Set<string>(rawSongs
+        .filter((song: any) => topSongIds.has(String(song?.id || song?._id || "")))
+        .flatMap((song: any) => {
+          const primary = song?.artists?.primary;
+          if (Array.isArray(primary) && primary.length) return primary;
+          const primaryName = song?.primaryArtists || song?.artist || "";
+          return typeof primaryName === "string"
+            ? primaryName.split(/,|&|\bfeat\.?\b|\bft\.?\b|\bwith\b/i).slice(0, 1).map((name: string) => ({ name: name.trim() }))
+            : [];
+        })
+        .map((artist: any) => String(artist?.name || artist?.title || "").trim())
+        .filter((name: string) => name.length > 1)
+        .filter((name: string, index: number, names: string[]) => names.findIndex((candidate) => normalise(candidate) === normalise(name)) === index)
+        .slice(0, 5))];
+      const approvedSongArtists = (await Promise.allSettled(
+        primaryArtistNames.map((name) => searchSaavnArtists(name, 5)),
+      )).flatMap((lookup, index) => {
+        if (lookup.status !== "fulfilled") return [];
+        const requestedName = normalise(primaryArtistNames[index]);
+        return lookup.value
+          .map((artist: any) => mapSaavnArtist(artist))
+          .filter((artist: SaavnArtistResult | null): artist is SaavnArtistResult => Boolean(artist))
+          .filter((artist: SaavnArtistResult) => artist.isVerified && normalise(artist.name) === requestedName);
+      });
       // Some Saavn deployments return songs but an empty artist collection.
       // Use the artists embedded in those song results as a safe fallback so
       // searching an artist never produces an empty Artists section.
@@ -529,9 +548,17 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
         .map((artist: any) => mapSaavnArtist(artist))
         .filter((artist: SaavnArtistResult | null): artist is SaavnArtistResult => Boolean(artist));
       const discoveredArtists = [...mappedArtists, ...artistsFromSongs];
-      const uniqueArtists: SaavnArtistResult[] = rankArtists(discoveredArtists, normalizedQuery);
+      const rankedArtistResults = rankArtists(discoveredArtists, normalizedQuery);
+      const promotedSongArtists = [...new Map(approvedSongArtists
+        .filter(isTrueArtist)
+        .map((artist) => [normalise(artist.name), artist])).values()];
+      const promotedKeys = new Set(promotedSongArtists.map((artist) => `${artist.id}:${normalise(artist.name)}`));
+      const uniqueArtists: SaavnArtistResult[] = [
+        ...promotedSongArtists,
+        ...rankedArtistResults.filter((artist) => !promotedKeys.has(`${artist.id}:${normalise(artist.name)}`)),
+      ];
       set({
-        searchResults: rankSongs(rawSongs.map((song: any) => mapSaavnSong(song)).filter(Boolean) as Song[], normalizedQuery),
+        searchResults: rankedSongs,
         artistResults: uniqueArtists,
         albumResults: rawAlbums.map((album: any) => mapSaavnAlbum(album)).filter(Boolean) as Album[],
         playlistResults: rawPlaylists

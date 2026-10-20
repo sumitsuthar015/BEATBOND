@@ -335,6 +335,7 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
   const [friendTyping, setFriendTyping] = useState(false);
   const [nearBottom, setNearBottom] = useState(true);
   const [unseen, setUnseen] = useState(0);
+  const [initialPositionReady, setInitialPositionReady] = useState(false);
   const [dialog, setDialog] = useState<null | "remove" | "clear" | "block" | "nickname" | "shared">(null);
   const [nickname, setNickname] = useState(() => localStorage.getItem(`beatbond:nickname:${userId}`) || "");
   const [nicknameDraft, setNicknameDraft] = useState(nickname);
@@ -357,6 +358,7 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
     setNickname(saved);
     setNicknameDraft(saved);
     hasScrolledToLatestRef.current = false;
+    setInitialPositionReady(false);
     nearBottomRef.current = true;
     restoreScrollRef.current = null;
     if (chatContainerRef.current) chatContainerRef.current.scrollTop = 0;
@@ -456,21 +458,33 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
     if (near) setUnseen(0);
   }, []);
 
-  useEffect(() => {
-    // Only the first load jumps to the newest message; loading older pages
-    // while scrolling up must not pull the reader back down.
-    if (!hasScrolledToLatestRef.current && !isLoadingMessages && messages?.pages?.length) {
-      hasScrolledToLatestRef.current = true;
-      scrollToBottom("auto");
-    }
-  }, [isLoadingMessages, messages?.pages, scrollToBottom]);
+  useLayoutEffect(() => {
+    // Position after the latest page is committed to the DOM. Waiting an extra
+    // frame also accounts for layout changes from avatars and shared content.
+    if (hasScrolledToLatestRef.current || isLoadingMessages || !messages?.pages?.length) return;
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        const container = chatContainerRef.current;
+        if (container) container.scrollTop = container.scrollHeight;
+        hasScrolledToLatestRef.current = true;
+        nearBottomRef.current = true;
+        setNearBottom(true);
+        setInitialPositionReady(true);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      if (secondFrame) cancelAnimationFrame(secondFrame);
+    };
+  }, [isLoadingMessages, messages?.pages]);
 
   useEffect(() => {
-    if (!isTopVisible || !hasNextPage || isFetchingNextPage) return;
+    if (!initialPositionReady || !isTopVisible || !hasNextPage || isFetchingNextPage) return;
     const container = chatContainerRef.current;
     if (container) restoreScrollRef.current = { height: container.scrollHeight, top: container.scrollTop };
     void fetchNextPage();
-  }, [isTopVisible, hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [initialPositionReady, isTopVisible, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   // Older messages are added above: keep what the reader was looking at in place.
   useLayoutEffect(() => {

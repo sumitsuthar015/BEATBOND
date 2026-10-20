@@ -33,6 +33,7 @@ export interface ArtistDetail {
 	bio?: string;
 	topSongs?: Song[];
 	topAlbums?: Album[];
+	hasMoreSongs?: boolean;
 }
 
 interface MusicStore {
@@ -60,6 +61,9 @@ interface MusicStore {
 	madeForYouAlbumsId: string[];
 	artists: Artist[];
 	currentArtist: ArtistDetail | null;
+	artistSongsPage: number;
+	artistSongsHasMore: boolean;
+	artistSongsLoadingMore: boolean;
 
 	fetchAlbums: () => Promise<void>;
 	fetchAlbumById: (id: string) => Promise<void>;
@@ -76,6 +80,7 @@ interface MusicStore {
 	toggleLike: (id: string) => Promise<void>;
 	fetchArtists: (force?: boolean) => Promise<void>;
 	fetchArtistById: (id: string) => Promise<void>;
+	loadMoreArtistSongs: (id: string) => Promise<void>;
 	// Used by the Topbar search: resolves a typed name to a real, verified
 	// artist plus a handful of their trending songs, or null if nothing
 	// confident was found (so the UI never shows a random/unknown artist).
@@ -89,7 +94,9 @@ interface MusicStore {
 // instead of being duplicated (and drifting) across call sites.
 // ---------------------------------------------------------------------------
 
-const SAAVN_BASE = "/api/saavn";
+// axiosInstance applies VITE_API_URL in production and the local API origin in
+// development. Keep this path relative to its /api base URL.
+const SAAVN_BASE = "/saavn";
 type HomeShelf = "featured" | "made-for-you" | "trending";
 const homeShelfRequests = new Map<HomeShelf, Promise<Song[]>>();
 const MADE_FOR_YOU_ALBUMS_CACHE_KEY = "beatbond:made-for-you-albums";
@@ -142,9 +149,8 @@ const namesLooselyMatch = (a: string, b: string) => {
 
 const safeFetchJson = async (url: string): Promise<any | null> => {
 	try {
-		const res = await fetch(url);
-		if (!res.ok) return null;
-		return await res.json();
+		const { data } = await axiosInstance.get(url);
+		return data;
 	} catch (err) {
 		console.error(`Saavn request failed: ${url}`, err);
 		return null;
@@ -307,10 +313,9 @@ const mapArtistAlbum = (album: any, fallbackArtist: string): Album | null => {
 const resolvedArtistCache = new Map<string, { artist: Artist; topSongs: Song[] } | null>();
 
 const resolveArtistWithSongs = async (
-	query: string,
-	minFollowers = 5000
+	query: string
 ): Promise<{ artist: Artist; topSongs: Song[] } | null> => {
-	const cacheKey = `${query.toLowerCase().trim()}:${minFollowers}`;
+	const cacheKey = query.toLowerCase().trim();
 	if (resolvedArtistCache.has(cacheKey)) {
 		return resolvedArtistCache.get(cacheKey)!;
 	}
@@ -326,22 +331,24 @@ const resolveArtistWithSongs = async (
 		const detail = await fetchArtistDetailRaw(candidate.id);
 		if (!detail) continue;
 
-		// This is the actual "no unknown artists" filter: only accept
-		// artists that Saavn itself marks verified, or that have a
-		// meaningful follower count.
-		const isTrending = detail.isVerified === true || (detail.followerCount || 0) >= minFollowers;
-		if (!isTrending) continue;
+		// Popularity is not proof of identity. Keep only profiles that the
+		// provider explicitly marks as verified.
+		if (detail.isVerified !== true) continue;
 
 		let rawSongs = await fetchArtistSongsRaw(candidate.id);
 
 		if (rawSongs.length === 0) {
 			const searchResults = await searchSongsRaw(detail.name);
-			rawSongs = searchResults.filter((s: any) =>
-				(s.artists?.primary || s.artists?.all || []).some((a: any) => namesLooselyMatch(a.name, detail.name))
+			rawSongs = searchResults.filter((song: any) =>
+				rawSongIsCreditedToArtist(song, detail.name, candidate.id)
 			);
 		}
 
-		const topSongs = uniqueArtistSongs(rawSongs.map(mapSaavnSong).filter((song) => Boolean(song.audioUrl))).slice(0, 15);
+		const topSongs = uniqueArtistSongs(rawSongs
+			.filter((song: any) => rawSongIsCreditedToArtist(song, detail.name, candidate.id))
+			.map(mapSaavnSong)
+			.filter((song) => Boolean(song.audioUrl)))
+			.slice(0, 15);
 		// Never render an artist card/page that cannot actually play music.
 		if (topSongs.length < 2) continue;
 
@@ -389,6 +396,9 @@ export const useMusicStore = create<MusicStore>((set, get) => ({
 	madeForYouAlbumsId: [],
 	artists: [],
 	currentArtist: null,
+	artistSongsPage: 1,
+	artistSongsHasMore: false,
+	artistSongsLoadingMore: false,
 	stats: {
 		totalSongs: 0,
 		totalAlbums: 0,
@@ -400,29 +410,24 @@ export const useMusicStore = create<MusicStore>((set, get) => ({
 		if (get().artistsLoading || (!force && get().artists.length > 0)) return;
 		set({ artistsLoading: true, error: null });
 		try {
-			// The rail is based exclusively on tracks that are trending in this
-			// app right now—there is no synthetic or hand-maintained artist list.
-			const trending = get().trendingSongs.length
-				? get().trendingSongs
-				: await fetchHomeShelf("/songs/trending", "trending");
-			const names = [...new Set(trending
-				.flatMap((song) => song.artist.split(/,|&| feat\.? /i))
-				.map((name) => name.trim())
-				.filter(Boolean))].slice(0, 4);
-			const resolved = await Promise.all(names.map((name) => resolveArtistWithSongs(name)));
-
-			const seenIds = new Set<string>();
-			const artists: Artist[] = [];
-			for (const result of resolved) {
-				if (!result) continue; // no verified/trending match -> skip, never show unknowns
-				if (seenIds.has(result.artist.id)) continue;
-				seenIds.add(result.artist.id);
-				// Keep the popular hits first. These are guaranteed playable and
-				// credited to the artist by the upstream artist endpoint.
-				artists.push({ ...result.artist, topSongs: result.topSongs });
-			}
-
-			set({ artists: artists.slice(0, 4) });
+			// The verified artist directory is the source of truth for this shelf.
+			// Resolving only the trending-song credits hid curated approved artists
+			// whenever Saavn lacked a standalone profile or a real profile image.
+			const response = await safeFetchJson(`${SAAVN_BASE}/search/artists?limit=50`);
+			const results = response?.data?.results || [];
+			const artists: Artist[] = results
+				.filter((artist: any) => artist?.isVerified && artist?.id && artist?.name)
+				.map((artist: any) => ({
+					id: String(artist.id),
+					name: String(artist.name),
+					role: "Artist",
+					image: Array.isArray(artist.image) ? artist.image : [],
+					imageUrl: artist.imageUrl || artist.image?.[2]?.url || artist.image?.[0]?.url || "/default-image.png",
+					type: "artist",
+					url: "",
+					topSongs: [],
+				}));
+			set({ artists: artists.slice(0, 8) });
 		} catch (err: any) {
 			console.error("Error fetching artists:", err);
 			set({ error: err.message });
@@ -434,28 +439,26 @@ export const useMusicStore = create<MusicStore>((set, get) => ({
 
 	searchArtistWithTrending: async (query: string) => {
 		if (!query || query.trim().length === 0) return null;
-		// Lower follower threshold than the homepage rail: if someone
-		// explicitly typed this artist's name, we trust the query more.
-		return resolveArtistWithSongs(query.trim(), 1000);
+		return resolveArtistWithSongs(query.trim());
 	},
 
 	fetchArtistById: async (id: string) => {
-		set({ artistDetailLoading: true, error: null });
+		set({ artistDetailLoading: true, artistSongsPage: 1, artistSongsHasMore: false, artistSongsLoadingMore: false, error: null });
 		try {
 			// Fetch artist details
-			const artistRes = await fetch(
-				`/api/saavn/artists/${id}`
-			);
-			
-			if (!artistRes.ok) throw new Error("Failed to fetch artist details");
-			
-			const artistData = await artistRes.json();
+			const { data: artistData } = await axiosInstance.get(`/saavn/artists/${encodeURIComponent(id)}`);
+			if (artistData?.status !== "SUCCESS" || !artistData?.data) {
+				throw new Error("Artist details are unavailable right now");
+			}
 			
 			// The artist detail payload contains topSongs even when the
 			// dedicated endpoint is empty (notably for several English artists).
 			// Use it as a reliable fallback before doing a broad song search.
-			const endpointSongs = await fetchArtistSongsRaw(id);
 			const detailTopSongs = artistData?.data?.topSongs || [];
+			// The details response already contains fully mapped songs. Avoid
+			// calling the dedicated songs route unless the provider omitted them;
+			// that route itself has to resolve artist details again.
+			const endpointSongs = detailTopSongs.length ? [] : await fetchArtistSongsRaw(id);
 			let rawSongs = [...detailTopSongs, ...endpointSongs].filter(
 				(song, index, all) => all.findIndex((item) => item?.id === song?.id) === index
 			);
@@ -471,8 +474,13 @@ export const useMusicStore = create<MusicStore>((set, get) => ({
 				);
 			}
 
-			let fetchedSongs = uniqueArtistSongs(rawSongs.map(mapSaavnSong).filter((song) => Boolean(song.audioUrl)));
-			if (fetchedSongs.length < 15 && artistData?.data?.name) {
+			// Provider artist pages can contain noisy related tracks. Keep only
+			// songs whose artist credit contains this exact artist ID or name.
+			const creditedSongs = rawSongs.filter((song: any) =>
+				rawSongIsCreditedToArtist(song, artistData.data.name, id)
+			);
+			let fetchedSongs = uniqueArtistSongs(creditedSongs.map(mapSaavnSong).filter((song) => Boolean(song.audioUrl)));
+			if (fetchedSongs.length < 50 && artistData?.data?.name) {
 				const searchResults = await searchSongsRaw(artistData.data.name);
 				const additionalSongs = searchResults
 					.filter((song: any) => rawSongIsCreditedToArtist(song, artistData.data.name, id))
@@ -483,22 +491,19 @@ export const useMusicStore = create<MusicStore>((set, get) => ({
 			// The home card is admitted only after its hits were verified playable.
 			// Reuse those hits if the detail endpoint is temporarily incomplete.
 			const cachedSongs = get().artists.find((artist) => artist.id === id)?.topSongs || [];
-			const topSongs = uniqueArtistSongs(fetchedSongs.length ? fetchedSongs : cachedSongs).slice(0, 15);
+			const topSongs = uniqueArtistSongs(fetchedSongs.length ? fetchedSongs : cachedSongs);
 
-			// Fetch artist albums
-			const albumsRes = await fetch(
-				`/api/saavn/artists/${id}/albums`
-			);
-			
-			let topAlbums: Album[] = [];
-			if (albumsRes.ok) {
-				const albumsData = await albumsRes.json();
-				const rawAlbumList = albumsData.data?.albums || albumsData.data?.results || (Array.isArray(albumsData.data) ? albumsData.data : []);
-				topAlbums = rawAlbumList
-					.slice(0, 12)
-					.map((album: any) => mapArtistAlbum(album, artistData?.data?.name || "Unknown Artist"))
-					.filter((album: Album | null): album is Album => Boolean(album));
+			// Artist details include albums too. Reuse them to avoid another
+			// expensive provider lookup; request the albums route only as fallback.
+			let rawAlbumList = artistData?.data?.topAlbums || [];
+			if (!rawAlbumList.length) {
+				const albumsData = await safeFetchJson(`${SAAVN_BASE}/artists/${encodeURIComponent(id)}/albums`);
+				rawAlbumList = albumsData?.data?.albums || albumsData?.data?.results || (Array.isArray(albumsData?.data) ? albumsData.data : []);
 			}
+			let topAlbums = rawAlbumList
+				.slice(0, 12)
+				.map((album: any) => mapArtistAlbum(album, artistData?.data?.name || "Unknown Artist"))
+				.filter((album: Album | null): album is Album => Boolean(album));
 
 			if (topAlbums.length === 0 && artistData?.data?.topAlbums?.length) {
 				topAlbums = artistData.data.topAlbums
@@ -529,15 +534,42 @@ export const useMusicStore = create<MusicStore>((set, get) => ({
 				bio: typeof artistData.data.bio === "string" ? artistData.data.bio.trim() : "",
 				topSongs,
 				topAlbums,
+				hasMoreSongs: Boolean(artistData.data.hasMoreSongs || artistData.data.hasMore || topSongs.length >= 50),
 			};
 
-			set({ currentArtist: artist });
+			set({ currentArtist: artist, artistSongsHasMore: Boolean(artist.hasMoreSongs) });
 		} catch (err: any) {
 			console.error("Error fetching artist details:", err);
 			set({ error: err.message });
 			toast.error("Failed to fetch artist details");
 		} finally {
 			set({ artistDetailLoading: false });
+		}
+	},
+	loadMoreArtistSongs: async (id: string) => {
+		const { currentArtist, artistSongsPage, artistSongsHasMore, artistSongsLoadingMore } = get();
+		if (!currentArtist || currentArtist.id !== id || !artistSongsHasMore || artistSongsLoadingMore) return;
+		set({ artistSongsLoadingMore: true });
+		try {
+			const page = artistSongsPage + 1;
+			const { data } = await axiosInstance.get(`/saavn/artists/${encodeURIComponent(id)}/songs`, { params: { page, limit: 50 } });
+			const payload = data?.data || {};
+			const moreSongs = (payload.songs || payload.results || [])
+				.filter((song: any) => rawSongIsCreditedToArtist(song, currentArtist.name, id))
+				.map(mapSaavnSong)
+				.filter((song: Song) => Boolean(song.audioUrl));
+			const latestArtist = get().currentArtist;
+			if (!latestArtist || latestArtist.id !== id) return;
+			set({
+				currentArtist: { ...latestArtist, topSongs: uniqueArtistSongs([...(latestArtist.topSongs || []), ...moreSongs]) },
+				artistSongsPage: page,
+				artistSongsHasMore: Boolean(payload.hasMore),
+			});
+		} catch (err: any) {
+			console.error("Error loading more artist songs:", err);
+			toast.error("Could not load more songs. Please try again.");
+		} finally {
+			set({ artistSongsLoadingMore: false });
 		}
 	},
 
@@ -767,12 +799,19 @@ export const useMusicStore = create<MusicStore>((set, get) => ({
 	fetchTrendingSongs: async (force = false) => {
 		if (!force && get().trendingSongs.length > 0) return;
 		set({ isLoading: true, error: null });
+		const cached = getCachedHomeShelf("trending");
 		try {
-			const songs = await fetchHomeShelf("/songs/trending", "trending", force);
+			// Always ask the backend for the current provider chart on a fresh app
+			// load; the persistent offline shelf is a fallback only, not the source
+			// of today's trending order.
+			const { data } = await axiosInstance.get<any[]>("/songs/trending");
+			const songs = (Array.isArray(data) ? data : []).map(mapSaavnSong).filter((song) => Boolean(song._id && song.audioUrl));
+			cacheHomeShelf("trending", songs);
 			set({ trendingSongs: songs });
 			if (songs.length) usePlayerStore.getState().initializeDefaultSong(songs);
 		} catch (error: any) {
-			set({ error: error.response?.data?.message || error.message });
+			if (cached?.length) set({ trendingSongs: cached });
+			else set({ error: error.response?.data?.message || error.message });
 		} finally {
 			set({ isLoading: false });
 		}
