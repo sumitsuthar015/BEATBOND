@@ -17,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { usePlaylistStore } from "@/stores/usePlaylistStore";
 import { PlaylistCard } from "@/components/PlaylistCard";
+import { PageBackButton } from "@/components/PageBackButton";
 
 const PlaylistsPage = () => {
   const { user } = useUser();
@@ -78,10 +79,11 @@ const PlaylistsPage = () => {
   }
 
   return (
-    <main className="h-full overflow-y-auto px-4 pb-28 pt-[calc(env(safe-area-inset-top)+4.5rem)] sm:px-6 sm:pt-8 md:pb-8">
+    <main className="h-full overflow-y-auto px-4 pb-28 pt-[env(safe-area-inset-top)] sm:px-6 sm:pt-8 md:pb-8">
       <div className="mx-auto max-w-5xl">
-        <header className="mb-5 flex items-end justify-between gap-3">
-          <div className="flex-1 text-center">
+        <header className="mb-5 grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3">
+          <PageBackButton className="mb-0" />
+          <div className="min-w-0 text-center">
             <p className="text-xs font-semibold uppercase tracking-wider text-primary">
               Your library
             </p>

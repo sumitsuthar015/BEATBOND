@@ -13,6 +13,7 @@ import { removeAllDownloads, removeDownloadedSong } from "@/lib/offlineDownloads
 import { usePlayerStore } from "@/stores/usePlayerStore";
 import { usePlaylistStore } from "@/stores/usePlaylistStore";
 import type { Song } from "@/types";
+import { PageBackButton } from "@/components/PageBackButton";
 
 const PlaylistDetailPage = ({ downloadsOnly = false }: { downloadsOnly?: boolean }) => {
   const { playlistId } = useParams();
@@ -74,6 +75,7 @@ const PlaylistDetailPage = ({ downloadsOnly = false }: { downloadsOnly?: boolean
   return (
     <main className="h-full overflow-y-auto px-4 pb-28 pt-[calc(env(safe-area-inset-top)+1rem)] sm:px-6 sm:pt-8 md:pb-8">
       <div className="mx-auto max-w-3xl">
+        <PageBackButton />
         <header className="rounded-3xl border bg-card/80 p-5 shadow-sm sm:p-7">
           <div className="flex items-end gap-4">
             {downloadsOnly ? (

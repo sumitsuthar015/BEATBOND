@@ -66,7 +66,9 @@ const streamCache = new Map();
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const searchResultCache = new Map();
 const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
-const DAILY_TRENDING_TTL_MS = 4 * 60 * 60 * 1000;
+// Charts move throughout the day, so keep this shared server cache short
+// enough to refresh regularly while avoiding a provider request per visitor.
+const DAILY_TRENDING_TTL_MS = 30 * 60 * 1000;
 let dailyTrendingCache = { fetchedAt: 0, songs: [] };
 
 // Keep matching independent of accents, punctuation, spacing, and HTML

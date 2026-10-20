@@ -9,6 +9,7 @@ import { useChatStore } from "@/stores/useChatStore";
 import { Music, Users, Loader2, AlertCircle, Check, X, UserPlus, MapPin, MessageCircle, Search } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "react-hot-toast";
+import { PageBackButton } from "@/components/PageBackButton";
 
 interface Friend {
   _id: string;
@@ -110,6 +111,7 @@ const FriendsActivityPage = () => {
       <div className="mx-auto max-w-xl">
         {/* Header */}
         <header className="mb-6 pt-2 text-center">
+          <div className="mb-2 text-left"><PageBackButton className="mb-0" /></div>
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Friends</h1>
           <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
             {onlineFriendsCount} of {friends.length} friends online
@@ -120,7 +122,7 @@ const FriendsActivityPage = () => {
         <section className="mb-6 grid grid-cols-3 gap-2.5" aria-label="Friend tools">
           {[
             { icon: Search, label: "Find people", to: "/users", color: "from-sky-500/20 to-blue-600/10 text-sky-400" },
-            { icon: MessageCircle, label: "Messages", to: "/chat", color: "from-emerald-500/20 to-teal-600/10 text-emerald-400" },
+            { icon: MessageCircle, label: "Messages", to: "/chat", color: "from-[#B266FF]/20 to-[#E5CCFF]/10 text-[#E5CCFF]" },
             { icon: MapPin, label: "Friends map", to: "/map", color: "from-purple-500/20 to-indigo-600/10 text-purple-400" },
           ].map(({ icon: Icon, label, to, color }) => (
             <Link
@@ -180,7 +182,7 @@ const FriendsActivityPage = () => {
                       </Avatar>
                       <span
                         className={`absolute bottom-0 right-0 size-3 rounded-full border-2 border-card ${
-                          isOnline ? "bg-emerald-500" : "bg-muted-foreground/60"
+                          isOnline ? "bg-[#B266FF]" : "bg-muted-foreground/60"
                         }`}
                       />
                     </div>
@@ -188,12 +190,12 @@ const FriendsActivityPage = () => {
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-sm truncate">{nickname}</p>
                       {isOnline && hasActivity ? (
-                        <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-medium mt-0.5">
+                        <div className="flex items-center gap-1.5 text-xs text-[#E5CCFF] font-medium mt-0.5">
                           <Music className="size-3 shrink-0 animate-pulse" />
                           <span className="truncate">{activity}</span>
                         </div>
                       ) : (
-                        <p className={`text-xs mt-0.5 ${isOnline ? "text-emerald-500 font-medium" : "text-muted-foreground"}`}>
+                        <p className={`text-xs mt-0.5 ${isOnline ? "text-[#B266FF] font-medium" : "text-muted-foreground"}`}>
                           {isOnline ? "Online" : "Offline"}
                         </p>
                       )}

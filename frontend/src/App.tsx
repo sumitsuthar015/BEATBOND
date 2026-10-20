@@ -9,6 +9,7 @@ import AudioPlayer from "./layout/components/AudioPlayer";
 import RouteHistoryTracker from "./components/RouteHistoryTracker";
 import { PrivacyPolicyPage, TermsPage } from "./pages/legal/LegalPages";
 import CookieConsentManager from "./components/privacy/CookieConsentManager";
+import { IncomingMessagePopup } from "./components/notifications/IncomingMessagePopup";
 
 // Keep route modules lazy. Preloading every page at startup competed with the
 // first screen for bandwidth and made cold starts especially slow on phones.
@@ -72,6 +73,7 @@ function App() {
           never create a second player or tear down the active stream. */}
       <AudioPlayer />
       <CookieConsentManager />
+      <IncomingMessagePopup />
       <RouteHistoryTracker />
       <Routes>
         <Route

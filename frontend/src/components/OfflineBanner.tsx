@@ -46,7 +46,7 @@ const OfflineBanner = () => {
   // Opened offline, sign-in never loaded; a reload brings everything back.
   if (wasOffline && !isLoaded) {
     return (
-      <div role="status" className="relative z-20 mx-2 mt-2 flex items-center gap-3 rounded-xl px-4 py-2 border border-emerald-500/30 bg-emerald-500/15 text-sm">
+      <div role="status" className="relative z-20 mx-2 mt-2 flex items-center gap-3 rounded-xl px-4 py-2 border border-[#B266FF]/30 bg-[#B266FF]/15 text-sm">
         <p className="min-w-0 flex-1">
           <span className="font-semibold">You're back online.</span>{" "}
           <span className="text-muted-foreground">Reload to sign in and see everything again.</span>
@@ -54,7 +54,7 @@ const OfflineBanner = () => {
         <button
           type="button"
           onClick={() => window.location.reload()}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-black hover:bg-emerald-400"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[#B266FF] px-3 py-1 text-xs font-semibold text-black hover:bg-[#E5CCFF]"
         >
           <RefreshCw className="size-3.5" aria-hidden />
           Reload

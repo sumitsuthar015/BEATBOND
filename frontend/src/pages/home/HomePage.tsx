@@ -29,11 +29,12 @@ const HomePage = () => {
 
   useEffect(() => {
     if (isInitialAppLoad) {
-      // Prefer the local shelf cache for an immediate first paint. A missing
-      // shelf still fetches normally, and normal store invalidations keep data fresh.
+      // Refresh once per app launch. The shelf actions paint local cache
+      // immediately, then replace it with a fresh server selection. The module
+      // flag keeps route changes within this app session stable.
       isInitialAppLoad = false;
-      void fetchFeaturedSongs();
-      void fetchMadeForYouSongs();
+      void fetchFeaturedSongs(true);
+      void fetchMadeForYouSongs(true);
       void fetchTrendingSongs();
       // Songs paint first; album discovery can make several upstream requests,
       // so start it just after the initial shelf requests have had a head start.
@@ -58,6 +59,14 @@ const HomePage = () => {
     fetchTrendingSongs,
     fetchMadeForYouAlbums,
   ]);
+
+  useEffect(() => {
+    // Refresh the chart while the app remains open. The backend shares a
+    // 30-minute provider cache, so this gets the latest chart without making
+    // an upstream request for every client render or route change.
+    const timer = window.setInterval(() => void fetchTrendingSongs(true), 31 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [fetchTrendingSongs]);
 
   useEffect(() => {
     if (artists.length) return;

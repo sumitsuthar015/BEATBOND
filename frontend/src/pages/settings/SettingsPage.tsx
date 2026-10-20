@@ -16,6 +16,7 @@ import {
 import { EditProfileDialog } from "@/components/profile/EditProfileDialog";
 import { BlockedUsersDialog } from "@/components/profile/BlockedUsersDialog";
 import { HiddenListenersDialog } from "@/components/profile/HiddenListenersDialog";
+import { PageBackButton } from "@/components/PageBackButton";
 import { profileMusicQueryKey, useBlockedUsers, useHiddenListeners } from "@/components/profile/profileQueries";
 import { useMyProfile, type ChatSettings, type MusicPrivacy } from "@/hooks/useMyProfile";
 import { axiosInstance } from "@/lib/axios";
@@ -231,6 +232,7 @@ const SettingsPage = () => {
   return (
     <main className="h-full overflow-y-auto px-4 pb-28 pt-[calc(env(safe-area-inset-top)+1rem)] md:pb-8">
       <div className="mx-auto max-w-xl">
+        <PageBackButton />
         <header className="mb-6"><h1 className="text-3xl font-bold">Settings</h1><p className="mt-1 text-sm text-muted-foreground">Your profile, privacy and how BeatBond plays.</p></header>
 
         <section className="mb-6 rounded-3xl border bg-card p-4">
@@ -249,7 +251,7 @@ const SettingsPage = () => {
 
         {isAdmin && (
           <Section title="Admin">
-            <LinkRow to="/admin" icon={LayoutDashboard} tone="bg-emerald-500/15 text-emerald-500" title="Admin dashboard" detail="Songs, users and comments" />
+            <LinkRow to="/admin" icon={LayoutDashboard} tone="bg-[#B266FF]/15 text-[#B266FF]" title="Admin dashboard" detail="Songs, users and comments" />
           </Section>
         )}
 
@@ -263,7 +265,7 @@ const SettingsPage = () => {
         <Section title="Privacy">
           <ChoiceRow
             icon={Radio}
-            tone="bg-emerald-500/15 text-emerald-500"
+            tone="bg-[#B266FF]/15 text-[#B266FF]"
             title="Listening now"
             detail={NOW_PLAYING_PRIVACY.find((option) => option.value === musicPrivacy)?.detail}
             label="Who can see the song you're playing"
@@ -347,7 +349,7 @@ const SettingsPage = () => {
           <div className={rowClass}>
             <RowBody
               icon={CircleDot}
-              tone="bg-emerald-500/15 text-emerald-500"
+              tone="bg-[#B266FF]/15 text-[#B266FF]"
               title="Show when I'm online"
               detail="When off, friends won't see you online or your last seen, and you won't see theirs."
               end={<Switch checked={chatSettings.showActivityStatus} onChange={(value) => void changeChatSetting("showActivityStatus", value)} label="Show when I'm online" />}
@@ -384,7 +386,7 @@ const SettingsPage = () => {
         <Section title="More">
           <LinkRow to="/notifications" icon={Bell} tone="bg-amber-500/15 text-amber-500" title="Notifications" detail="Friend requests and activity" />
           <LinkRow to="/downloads" icon={Download} tone="bg-sky-500/15 text-sky-500" title="Downloads" detail={downloads ? `${downloads} ${downloads === 1 ? "song" : "songs"} saved for offline` : "Songs you save play offline"} />
-          <LinkRow to="/dashboard" icon={ListMusic} tone="bg-emerald-500/15 text-emerald-500" title="Listening dashboard" detail="Your stats and saved music" />
+          <LinkRow to="/dashboard" icon={ListMusic} tone="bg-[#B266FF]/15 text-[#B266FF]" title="Listening dashboard" detail="Your stats and saved music" />
         </Section>
 
         <Section title="Privacy & security">

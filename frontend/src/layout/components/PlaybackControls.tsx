@@ -24,6 +24,7 @@ import {
   ListVideo,
   ListMusic,
   MessageSquare,
+  Disc3,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -163,7 +164,7 @@ const LyricsModal = ({
         <div className="p-6 overflow-y-auto max-h-[calc(90vh-80px)] md:max-h-[calc(80vh-80px)] scrollbar-custom">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-20">
-              <div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+              <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
               <p className="text-zinc-400">Loading lyrics...</p>
             </div>
           ) : error ? (
@@ -215,6 +216,9 @@ export const PlaybackControls = () => {
   const setCurrentSongLiked = usePlayerStore((state) => state.setCurrentSongLiked);
   const addToQueue = usePlayerStore((state) => state.addToQueue);
   const addPlayNext = usePlayerStore((state) => state.addPlayNext);
+  const queue = usePlayerStore((state) => state.queue);
+  const currentIndex = usePlayerStore((state) => state.currentIndex);
+  const playFromQueue = usePlayerStore((state) => state.playFromQueue);
 
   const playlists = usePlaylistStore((state) => state.playlists);
   const createPlaylist = usePlaylistStore((state) => state.createPlaylist);
@@ -326,7 +330,7 @@ export const PlaybackControls = () => {
   const downloadIcon = (className: string) => download.downloading
     ? <Loader2 className={`${className} animate-spin`} />
     : download.downloaded
-      ? <CircleCheck className={`${className} text-green-500`} />
+      ? <CircleCheck className={`${className} text-primary`} />
       : <Download className={className} />;
 
   if (!currentSong) {
@@ -368,13 +372,6 @@ export const PlaybackControls = () => {
                 align="end"
                 className="bg-zinc-800 border-zinc-700 text-white w-56"
               >
-                <DropdownMenuItem
-                  onClick={handleAddToLikedSongs}
-                  className="text-zinc-300 focus:text-white focus:bg-zinc-700 cursor-pointer"
-                >
-                  <Heart className={`w-4 h-4 mr-2 ${isLiked ? 'fill-green-500 text-green-500' : ''}`} />
-                  {isLiked ? 'Remove from Liked Songs' : 'Add to Liked Songs'}
-                </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={handleLyricsOpen}
                   className="text-zinc-300 focus:text-white focus:bg-zinc-700 cursor-pointer"
@@ -459,19 +456,30 @@ export const PlaybackControls = () => {
           </div>
 
           {/* Song Info */}
-          <div className="mb-6">
-            <div className="overflow-hidden mb-2">
-              <h1
-                className="text-3xl font-bold text-white cursor-pointer hover:underline whitespace-nowrap animate-marquee"
-                onClick={() => setIsSongDetailsOpen(true)}
-                style={{
-                  animation: currentSong.title.length > 20 ? 'marquee 10s linear infinite' : 'none',
-                }}
-              >
-                {currentSong.title}
-              </h1>
+          <div className="mb-6 flex items-center gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="overflow-hidden mb-2">
+                <h1
+                  className="text-3xl font-bold text-white cursor-pointer hover:underline whitespace-nowrap animate-marquee"
+                  onClick={() => setIsSongDetailsOpen(true)}
+                  style={{
+                    animation: currentSong.title.length > 20 ? 'marquee 10s linear infinite' : 'none',
+                  }}
+                >
+                  {currentSong.title}
+                </h1>
+              </div>
+              <p className="truncate text-zinc-400 text-base">{currentSong.artist}</p>
             </div>
-            <p className="text-zinc-400 text-base">{currentSong.artist}</p>
+            <button
+              type="button"
+              onClick={handleAddToLikedSongs}
+              aria-label={isLiked ? "Remove from Liked Songs" : "Add to Liked Songs"}
+              aria-pressed={isLiked}
+              className="grid size-11 shrink-0 place-items-center rounded-full text-white transition hover:bg-white/10"
+            >
+              <Heart className={`size-6 transition-colors ${isLiked ? "fill-[#B266FF] text-[#B266FF]" : "text-white"}`} />
+            </button>
           </div>
 
           {/* Progress Bar */}
@@ -481,7 +489,7 @@ export const PlaybackControls = () => {
               max={duration || 100}
               step={1}
               onValueChange={handleSeek}
-              className="cursor-pointer [&_[role=slider]]:bg-white [&_[role=slider]]:border-0 [&_[role=slider]]:h-3 [&_[role=slider]]:w-3 [&_[role=slider]]:shadow-lg hover:[&_[role=slider]]:scale-110 [&>span]:bg-white"
+              className="cursor-pointer [&>span:first-child]:bg-white [&>span:first-child>span]:bg-[#B266FF] [&_[role=slider]]:rounded-full [&_[role=slider]]:bg-[#B266FF] [&_[role=slider]]:border-0 [&_[role=slider]]:h-3 [&_[role=slider]]:w-3 [&_[role=slider]]:shadow-lg hover:[&_[role=slider]]:scale-110"
             />
             <div className="flex justify-between text-xs text-zinc-400 font-medium">
               <span>{formatTime(progress)}</span>
@@ -523,6 +531,54 @@ export const PlaybackControls = () => {
 
           {/* Mobile lyrics replace the volume controls, like Spotify's now-playing screen. */}
           <LyricsPanel className="h-[360px]" />
+
+          <section className="mt-5 rounded-2xl border border-white/10 bg-black/35 p-4 text-white backdrop-blur">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="grid size-11 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#B266FF] to-[#6D28D9]">
+                <Disc3 className="size-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-medium uppercase tracking-wider text-zinc-400">Artist</p>
+                <p className="truncate font-semibold">{currentSong.artist}</p>
+              </div>
+            </div>
+            <p className="text-sm leading-relaxed text-zinc-300">
+              You’re listening to <span className="font-medium text-white">{currentSong.title}</span> by {currentSong.artist}.
+            </p>
+          </section>
+
+          <section className="mt-4 rounded-2xl border border-white/10 bg-black/35 p-4 text-white backdrop-blur">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-base font-bold">Up next</h2>
+              <span className="text-xs text-zinc-400">{Math.max(0, queue.length - currentIndex - 1)} songs</span>
+            </div>
+            {queue.slice(currentIndex + 1, currentIndex + 5).length ? (
+              <div className="space-y-1">
+                {queue.slice(currentIndex + 1, currentIndex + 5).map((song, index) => {
+                  const songIndex = currentIndex + index + 1;
+                  return (
+                    <button
+                      key={`${song._id}-${songIndex}`}
+                      type="button"
+                      onClick={() => playFromQueue(songIndex)}
+                      className="flex w-full min-w-0 items-center gap-3 rounded-xl p-2 text-left transition hover:bg-white/10"
+                    >
+                      <img src={song.imageUrl} alt="" className="size-11 shrink-0 rounded-lg object-cover" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">{song.title}</span>
+                        <span className="block truncate text-xs text-zinc-400">{song.artist}</span>
+                      </span>
+                      <Play className="size-4 shrink-0 text-zinc-300" />
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="rounded-xl bg-white/5 px-3 py-4 text-sm text-zinc-400">
+                Your queue is empty. Play an album or playlist to line up more songs.
+              </p>
+            )}
+          </section>
         </div>
 
         {/* Modals */}
@@ -544,12 +600,12 @@ export const PlaybackControls = () => {
                       handleCreateAndAddToPlaylist();
                     }
                   }}
-                  className="bg-zinc-800 border-zinc-700 text-white focus:border-green-500"
+                  className="bg-zinc-800 border-zinc-700 text-white focus:border-primary"
                 />
               </div>
               <Button
                 onClick={handleCreateAndAddToPlaylist}
-                className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold"
+                className="w-full bg-primary hover:bg-primary/90 text-white font-semibold"
               >
                 Create and Add Song
               </Button>
@@ -590,85 +646,52 @@ export const PlaybackControls = () => {
             background: `linear-gradient(90deg, ${bgColor} 0%, rgb(30, 30, 30) 100%)`
           }}
         >
-          <div
-            className="px-3 py-2 cursor-pointer"
-            onClick={() => setIsExpanded(true)}
-          >
-            <div className="flex items-center gap-3 mb-2">
+          <div className="px-3 pb-2 pt-2">
+            <div
+              className="flex min-h-14 cursor-pointer items-center gap-3"
+              onClick={() => setIsExpanded(true)}
+            >
               <img
                 src={currentSong.imageUrl || "/api/placeholder/48/48"}
                 alt={currentSong.title}
-                className="w-12 h-12 rounded object-cover shadow-lg"
+                className="size-11 shrink-0 rounded object-cover shadow-lg"
               />
-              <div className="flex-1 min-w-0">
-                <div className="overflow-hidden">
-                  <p
-                    className="text-white font-semibold text-sm truncate whitespace-nowrap"
-                    style={{
-                      animation: currentSong.title.length > 25 ? 'marquee-compact 8s linear infinite' : 'none',
-                    }}
-                  >
-                    {currentSong.title}
-                  </p>
-                </div>
-                <p className="text-zinc-400 text-xs truncate">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-white">
+                  {currentSong.title}
+                </p>
+                <p className="truncate text-xs text-zinc-300">
                   {currentSong.artist}
                 </p>
               </div>
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDownload();
-                }}
-                disabled={isDownloading}
-                aria-label={downloadLabel}
-                title={downloadLabel}
-                className="text-zinc-400 hover:text-white transition-colors p-2 disabled:opacity-50"
-              >
-                {downloadIcon("w-4 h-4")}
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleAddToLikedSongs();
-                }}
-                className="text-zinc-400 hover:text-white transition-colors p-2"
-              >
-                <Heart className={`w-5 h-5 ${isLiked ? 'fill-green-500 text-green-500' : ''}`} />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsCommentsOpen(true);
-                }}
-                aria-label="Comment on current song"
-                title="Comments"
-                className="text-zinc-400 hover:text-white transition-colors p-2"
-              >
-                <MessageSquare className="w-4 h-4" />
-              </button>
-              <button
+                type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   togglePlay();
                 }}
-                className="text-white hover:scale-110 transition-transform p-2"
+                aria-label={isPlaying ? "Pause" : "Play"}
+                className="grid size-11 shrink-0 place-items-center rounded-full text-white transition-colors hover:bg-white/10"
               >
                 {isPlaying ? (
-                  <Pause className="w-8 h-8 fill-current" />
+                  <Pause className="size-7 fill-current" />
                 ) : (
-                  <Play className="w-8 h-8 fill-current" />
+                  <Play className="ml-0.5 size-7 fill-current" />
                 )}
               </button>
             </div>
-
-            {/* Mini Progress Bar */}
-            <div className="h-1 bg-zinc-700 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-white transition-all duration-100"
-                style={{
-                  width: `${duration > 0 ? (progress / duration) * 100 : 0}%`,
-                }}
+            <div
+              className="pt-0.5"
+              onClick={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <Slider
+                value={[progress]}
+                max={duration || 100}
+                step={1}
+                onValueChange={handleSeek}
+                aria-label="Seek through song"
+                className="h-5 cursor-pointer [&>span:first-child]:h-1.5 [&>span:first-child]:bg-white [&>span:first-child>span]:bg-[#B266FF] [&_[role=slider]]:size-3 [&_[role=slider]]:rounded-full [&_[role=slider]]:border-0 [&_[role=slider]]:bg-[#B266FF]"
               />
             </div>
           </div>
@@ -718,7 +741,7 @@ export const PlaybackControls = () => {
               onClick={handleAddToLikedSongs}
               className="text-zinc-400 hover:text-white transition-colors hover:scale-110"
             >
-              <Heart className={`w-4 h-4 ${isLiked ? 'fill-green-500 text-green-500' : ''}`} />
+              <Heart className={`w-4 h-4 ${isLiked ? 'fill-primary text-primary' : ''}`} />
             </button>
           </div>
 
@@ -764,7 +787,7 @@ export const PlaybackControls = () => {
                 max={duration || 100}
                 step={1}
                 onValueChange={handleSeek}
-                className="flex-1 cursor-pointer [&_[role=slider]]:bg-white [&_[role=slider]]:border-0 [&_[role=slider]]:h-3 [&_[role=slider]]:w-3 [&_[role=slider]]:opacity-0 hover:[&_[role=slider]]:opacity-100 [&_[role=slider]]:shadow-md [&>span]:bg-zinc-600 [&>span]:h-1 hover:[&>span]:bg-green-500 group"
+                className="flex-1 cursor-pointer [&>span:first-child]:h-1 [&>span:first-child]:bg-white [&>span:first-child>span]:bg-[#B266FF] [&_[role=slider]]:rounded-full [&_[role=slider]]:bg-[#B266FF] [&_[role=slider]]:border-0 [&_[role=slider]]:h-3 [&_[role=slider]]:w-3 [&_[role=slider]]:opacity-0 hover:[&_[role=slider]]:opacity-100 [&_[role=slider]]:shadow-md group"
               />
               <span className="text-xs text-zinc-400 font-medium w-10">
                 {formatTime(duration)}
@@ -811,13 +834,6 @@ export const PlaybackControls = () => {
                 align="end"
                 className="bg-zinc-800 border-zinc-700 text-white w-48"
               >
-                <DropdownMenuItem
-                  onClick={handleAddToLikedSongs}
-                  className="text-zinc-300 focus:text-white focus:bg-zinc-700 cursor-pointer"
-                >
-                  <Heart className={`w-4 h-4 mr-2 ${isLiked ? 'fill-green-500 text-green-500' : ''}`} />
-                  {isLiked ? 'Remove from Liked' : 'Add to Liked Songs'}
-                </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={handleLyricsOpen}
                   className="text-zinc-300 focus:text-white focus:bg-zinc-700 cursor-pointer"
@@ -932,12 +948,12 @@ export const PlaybackControls = () => {
                     handleCreateAndAddToPlaylist();
                   }
                 }}
-                className="bg-zinc-800 border-zinc-700 text-white focus:border-green-500"
+                className="bg-zinc-800 border-zinc-700 text-white focus:border-primary"
               />
             </div>
             <Button
               onClick={handleCreateAndAddToPlaylist}
-              className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold"
+              className="w-full bg-primary hover:bg-primary/90 text-white font-semibold"
             >
               Create and Add Song
             </Button>

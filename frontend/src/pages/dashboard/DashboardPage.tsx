@@ -12,6 +12,7 @@ import { ListeningEvent, readListeningHistory } from "@/lib/listeningHistory";
 import { axiosInstance } from "@/lib/axios";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useMyProfile } from "@/hooks/useMyProfile";
+import { PageBackButton } from "@/components/PageBackButton";
 
 interface DashboardStats {
   hoursListened: number;
@@ -215,6 +216,7 @@ const DashboardPage = () => {
   return (
     <ScrollArea className="h-full">
       <div className="p-4 sm:p-6 space-y-6 pb-24 sm:pb-6">
+        <PageBackButton className="mb-0" />
         {/* Welcome Section */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3"><Avatar className="size-12 border border-primary/30"><AvatarImage src={profile ? profile.imageUrl : user?.imageUrl} alt="Your profile" /><AvatarFallback>{(profile?.fullName || user?.fullName || "U")[0]}</AvatarFallback></Avatar><div className="space-y-1"><h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">Your Dashboard</h1><p className="text-sm sm:text-base text-muted-foreground">Welcome back, {profile?.fullName || user?.firstName || user?.fullName || "Music Lover"} 👋</p></div></div>
@@ -266,10 +268,10 @@ const DashboardPage = () => {
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-green-500/10 to-green-600/5 border-green-500/20 hover:border-green-500/40 transition-all duration-300 hover:shadow-lg hover:shadow-green-500/10">
+          <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20 hover:border-primary/40 transition-all duration-300 hover:shadow-lg hover:shadow-primary/10">
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
               <CardTitle className="text-xs sm:text-sm font-medium">Plays</CardTitle>
-              <TrendingUp className="h-4 w-4 text-green-500" />
+              <TrendingUp className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent>
               <div className="text-xl sm:text-2xl font-bold">{stats.totalPlays}</div>

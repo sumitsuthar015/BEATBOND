@@ -253,7 +253,7 @@ export const SongDetailsModal = ({ isOpen, onClose }: SongDetailsModalProps) => 
           <div className="relative flex min-h-0 flex-1 flex-col items-center justify-between gap-2 overflow-hidden px-4 py-3 sm:gap-3 sm:px-6 sm:py-4">
             {/* Album Art */}
             <div className="relative group">
-              <div className="absolute inset-0 rounded-full bg-gradient-to-r from-green-400 via-blue-500 to-purple-600 blur-xl opacity-75 group-hover:opacity-100 animate-pulse transition-opacity duration-300" />
+              <div className="absolute inset-0 rounded-full bg-gradient-to-r from-[#E5CCFF] via-blue-500 to-purple-600 blur-xl opacity-75 group-hover:opacity-100 animate-pulse transition-opacity duration-300" />
 
               <div
                 className={cn(
@@ -310,7 +310,7 @@ export const SongDetailsModal = ({ isOpen, onClose }: SongDetailsModalProps) => 
                 max={duration || 100}
                 step={1}
                 onValueChange={handleSeek}
-                className="cursor-pointer [&_[role=slider]]:h-3 [&_[role=slider]]:w-3 [&_[role=slider]]:border-2 [&_[role=slider]]:border-green-500 [&_[role=slider]]:bg-white [&_[role=slider]]:shadow-lg [&_[role=slider]]:transition-transform hover:[&_[role=slider]]:scale-125"
+                className="cursor-pointer [&>span:first-child]:bg-white [&>span:first-child>span]:bg-[#B266FF] [&_[role=slider]]:h-3 [&_[role=slider]]:w-3 [&_[role=slider]]:rounded-full [&_[role=slider]]:border-2 [&_[role=slider]]:border-[#E5CCFF] [&_[role=slider]]:bg-[#B266FF] [&_[role=slider]]:shadow-lg [&_[role=slider]]:transition-transform hover:[&_[role=slider]]:scale-125"
               />
               <div className="flex justify-between text-xs sm:text-sm text-white/70 font-medium">
                 <span>{formatTime(progress)}</span>
@@ -371,7 +371,7 @@ export const SongDetailsModal = ({ isOpen, onClose }: SongDetailsModalProps) => 
                 onClick={() => toggleLike(currentSong._id)}
                 className={cn(
                   "h-auto flex flex-col items-center gap-1 py-1.5 text-xs hover:bg-white/10 transition-all duration-200 hover:scale-105 sm:py-2",
-                  isLiked ? "text-green-500" : "text-white/80"
+                  isLiked ? "text-primary" : "text-white/80"
                 )}
               >
                 <Heart
@@ -445,7 +445,7 @@ export const SongDetailsModal = ({ isOpen, onClose }: SongDetailsModalProps) => 
                 onClick={() => setShowLyrics(!showLyrics)}
                 className={cn(
                   "col-span-1 h-auto flex flex-col items-center gap-1 py-1.5 text-xs hover:bg-white/10 transition-all duration-200 hover:scale-105 sm:py-2",
-                  showLyrics ? "text-green-500" : "text-white/80"
+                  showLyrics ? "text-primary" : "text-white/80"
                 )}
               >
                 <Mic2 className="h-5 w-5" />
@@ -480,7 +480,7 @@ export const SongDetailsModal = ({ isOpen, onClose }: SongDetailsModalProps) => 
 
           {isLoadingLyrics ? (
             <div className="flex flex-col items-center justify-center h-full space-y-4">
-              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500"></div>
+              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
               <p className="text-white/70 text-sm">Loading lyrics...</p>
             </div>
           ) : lyricsError ? (
@@ -493,7 +493,7 @@ export const SongDetailsModal = ({ isOpen, onClose }: SongDetailsModalProps) => 
               </div>
               <Button
                 onClick={() => currentSong && fetchLyrics(currentSong)}
-                className="bg-green-500 hover:bg-green-600 text-white transition-all duration-200"
+                className="bg-primary hover:bg-primary text-white transition-all duration-200"
               >
                 Try Again
               </Button>
@@ -524,7 +524,7 @@ export const SongDetailsModal = ({ isOpen, onClose }: SongDetailsModalProps) => 
               </div>
               <Button
                 onClick={() => currentSong && fetchLyrics(currentSong)}
-                className="bg-green-500 hover:bg-green-600 text-white transition-all duration-200"
+                className="bg-primary hover:bg-primary text-white transition-all duration-200"
               >
                 Try Again
               </Button>

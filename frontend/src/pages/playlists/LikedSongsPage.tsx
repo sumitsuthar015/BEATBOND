@@ -5,6 +5,7 @@ import { SongListRow } from "@/components/SongListRow";
 import { useOfflineDownloads } from "@/hooks/useOfflineDownloads";
 import { useMusicStore } from "@/stores/useMusicStore";
 import { usePlayerStore } from "@/stores/usePlayerStore";
+import { PageBackButton } from "@/components/PageBackButton";
 
 const LikedSongsPage = () => {
   const likedSongs = useMusicStore((state) => state.likedSongs);
@@ -28,6 +29,7 @@ const LikedSongsPage = () => {
   return (
     <main className="h-full overflow-y-auto px-4 pb-28 pt-[calc(env(safe-area-inset-top)+1rem)] sm:px-6 sm:pt-8 md:pb-8">
       <div className="mx-auto max-w-3xl">
+        <PageBackButton />
         <header className="rounded-3xl border bg-card/80 p-5 shadow-sm sm:p-7">
           <div className="flex items-end gap-4">
             <div className="grid size-24 shrink-0 place-items-center overflow-hidden rounded-2xl bg-gradient-to-br from-rose-500 via-primary to-secondary shadow-lg sm:size-32">

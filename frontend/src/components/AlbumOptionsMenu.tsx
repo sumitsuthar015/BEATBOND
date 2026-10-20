@@ -107,7 +107,7 @@ export const AlbumOptionsMenu: React.FC<AlbumOptionsMenuProps> = ({
         >
           {isSaved ? (
             <>
-              <BookmarkCheck className="size-4 text-green-500" />
+              <BookmarkCheck className="size-4 text-primary" />
               Remove from Saved
             </>
           ) : (

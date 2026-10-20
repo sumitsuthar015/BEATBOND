@@ -143,7 +143,7 @@ export const SongCommentsModal = ({ song, trigger, open, onOpenChange }: SongCom
         <ScrollArea className="h-80 max-h-[50vh] p-4">
           {isLoading ? (
             <div className="flex items-center justify-center h-full py-12 text-zinc-400 gap-2 text-sm">
-              <Loader2 className="size-4 animate-spin text-emerald-400" />
+              <Loader2 className="size-4 animate-spin text-[#E5CCFF]" />
               Loading comments…
             </div>
           ) : comments.length === 0 ? (
@@ -160,7 +160,7 @@ export const SongCommentsModal = ({ song, trigger, open, onOpenChange }: SongCom
                   <div key={comment._id} className="flex gap-3 group">
                     <Avatar className="size-8 shrink-0 border border-zinc-800">
                       <AvatarImage src={comment.user?.imageUrl} alt={comment.user?.fullName || "Comment author"} />
-                      <AvatarFallback className="bg-emerald-500/20 text-emerald-400 text-xs font-bold">
+                      <AvatarFallback className="bg-[#B266FF]/20 text-[#E5CCFF] text-xs font-bold">
                         {comment.user?.fullName?.[0] || "U"}
                       </AvatarFallback>
                     </Avatar>
@@ -202,13 +202,13 @@ export const SongCommentsModal = ({ song, trigger, open, onOpenChange }: SongCom
               value={newComment}
               onChange={(e) => setNewComment(e.target.value)}
               placeholder="Add a comment on this song…"
-              className="flex-1 bg-zinc-900 border border-zinc-800 rounded-full px-4 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-emerald-500 transition-colors"
+              className="flex-1 bg-zinc-900 border border-zinc-800 rounded-full px-4 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-[#B266FF] transition-colors"
             />
             <Button
               type="submit"
               size="icon"
               disabled={!newComment.trim() || addMutation.isPending}
-              className="rounded-full size-8 bg-emerald-500 hover:bg-emerald-600 text-black shrink-0"
+              className="rounded-full size-8 bg-[#B266FF] hover:bg-[#B266FF] text-black shrink-0"
             >
               {addMutation.isPending ? (
                 <Loader2 className="size-3.5 animate-spin" />

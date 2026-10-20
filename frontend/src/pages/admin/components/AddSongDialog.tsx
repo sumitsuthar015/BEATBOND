@@ -123,7 +123,7 @@ const AddSongDialog = () => {
 	return (
 		<Dialog open={songDialogOpen} onOpenChange={(open) => !isLoading && setSongDialogOpen(open)}>
 			<DialogTrigger asChild>
-				<Button className='shrink-0 bg-emerald-600 text-white hover:bg-emerald-700'>
+				<Button className='shrink-0 bg-[#B266FF] text-white hover:bg-[#B266FF]'>
 					<Plus className='size-4' />
 					Add song
 				</Button>
@@ -158,7 +158,7 @@ const AddSongDialog = () => {
 						<button
 							type='button'
 							onClick={() => imageInputRef.current?.click()}
-							className='group relative flex aspect-square items-center justify-center overflow-hidden rounded-lg border-2 border-dashed transition-colors hover:border-emerald-500'
+							className='group relative flex aspect-square items-center justify-center overflow-hidden rounded-lg border-2 border-dashed transition-colors hover:border-[#B266FF]'
 							aria-label={files.image ? "Change artwork" : "Upload artwork"}
 						>
 							{imagePreview ? (
@@ -245,7 +245,7 @@ const AddSongDialog = () => {
 					<Button
 						onClick={handleSubmit}
 						disabled={isLoading || !canSubmit}
-						className='bg-emerald-600 text-white hover:bg-emerald-700'
+						className='bg-[#B266FF] text-white hover:bg-[#B266FF]'
 					>
 						{isLoading && <Loader2 className='size-4 animate-spin' />}
 						{isLoading ? "Uploading..." : "Add song"}

@@ -22,7 +22,7 @@ const RecentSignups = ({ users }: { users: RecentUser[] }) => (
 									<AvatarFallback>{user.fullName?.[0]?.toUpperCase() || "?"}</AvatarFallback>
 								</Avatar>
 								{user.isOnline && (
-									<span className='absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-card bg-emerald-500' aria-hidden />
+									<span className='absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-card bg-[#B266FF]' aria-hidden />
 								)}
 							</div>
 							<div className='min-w-0 flex-1'>

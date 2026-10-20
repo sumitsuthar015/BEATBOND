@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useUser } from "@clerk/clerk-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronLeft, ChevronRight, RotateCcw, Sparkles, UserRound } from "lucide-react";
+import { PageBackButton } from "@/components/PageBackButton";
 import { axiosInstance } from "@/lib/axios";
 import { avatarUrl, type AvatarConfig } from "@/lib/avatar";
 import { Button } from "@/components/ui/button";
@@ -93,10 +94,10 @@ const AvatarCreatorPage = () => {
   };
 
   return <main className="flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground">
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-4 sm:px-6">
-      <span className="size-10" aria-hidden="true" />
+    <header className="grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-border bg-card px-4 sm:px-6">
+      <PageBackButton className="mb-0 justify-self-start" />
       <div className="text-center"><p className="text-sm font-bold">My Avatar</p><p className="text-[10px] text-zinc-500">Make it look like you</p></div>
-      <Button size="sm" className="rounded-full px-4" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
+      <Button size="sm" className="justify-self-end rounded-full px-4" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
     </header>
 
     <section className="relative flex min-h-[270px] flex-1 items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_50%_15%,#444_0%,#171717_48%,#000_100%)]">

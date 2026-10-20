@@ -71,7 +71,7 @@ const AddAlbumDialog = () => {
 	return (
 		<Dialog open={albumDialogOpen} onOpenChange={(open) => !isLoading && setAlbumDialogOpen(open)}>
 			<DialogTrigger asChild>
-				<Button className='shrink-0 bg-emerald-600 text-white hover:bg-emerald-700'>
+				<Button className='shrink-0 bg-[#B266FF] text-white hover:bg-[#B266FF]'>
 					<Plus className='size-4' />
 					Add album
 				</Button>
@@ -95,7 +95,7 @@ const AddAlbumDialog = () => {
 					<button
 						type='button'
 						onClick={() => fileInputRef.current?.click()}
-						className='mx-auto flex size-40 items-center justify-center overflow-hidden rounded-lg border-2 border-dashed transition-colors hover:border-emerald-500'
+						className='mx-auto flex size-40 items-center justify-center overflow-hidden rounded-lg border-2 border-dashed transition-colors hover:border-[#B266FF]'
 						aria-label={imageFile ? "Change album artwork" : "Upload album artwork"}
 					>
 						{imagePreview ? (
@@ -144,7 +144,7 @@ const AddAlbumDialog = () => {
 					</Button>
 					<Button
 						onClick={handleSubmit}
-						className='bg-emerald-600 text-white hover:bg-emerald-700'
+						className='bg-[#B266FF] text-white hover:bg-[#B266FF]'
 						disabled={isLoading || !canSubmit}
 					>
 						{isLoading && <Loader2 className='size-4 animate-spin' />}

@@ -31,7 +31,7 @@ export const SongListRow = ({ song, index, onPlay, downloaded, onRemove, removeL
         <span className="min-w-0">
           <span className={cn("block truncate text-sm font-semibold", isCurrent && "text-primary")}>{song.title}</span>
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            {downloaded && <ArrowDownCircle className="size-3.5 shrink-0 text-green-500" aria-label="Downloaded" />}
+            {downloaded && <ArrowDownCircle className="size-3.5 shrink-0 text-primary" aria-label="Downloaded" />}
             <span className="truncate">{song.artist}</span>
           </span>
         </span>

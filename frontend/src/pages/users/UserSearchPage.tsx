@@ -21,6 +21,7 @@ import {
   Clock
 } from "lucide-react";
 import { axiosInstance } from "@/lib/axios";
+import { PageBackButton } from "@/components/PageBackButton";
 
 // Custom debounce hook
 function useDebounce<T>(value: T, delay: number): T {
@@ -138,6 +139,7 @@ const UserSearchPage = () => {
       {/* Fixed Header */}
       <div className="sticky top-0 z-10 bg-zinc-900/95 backdrop-blur-sm border-b border-zinc-800">
         <div className="p-3 sm:p-4 md:p-6 max-w-4xl mx-auto w-full">
+          <PageBackButton className="mb-2 text-zinc-200 hover:bg-white/10 hover:text-white" />
           <div className="relative mb-3 grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center sm:mb-4">
             <div aria-hidden="true" />
             <div className="min-w-0 text-center">
@@ -264,7 +266,7 @@ const UserSearchPage = () => {
                                 </AvatarFallback>
                               </Avatar>
                               {user.isOnline && (
-                                <div className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 rounded-full border-2 border-zinc-900" />
+                                <div className="absolute bottom-0 right-0 h-3 w-3 bg-[#B266FF] rounded-full border-2 border-zinc-900" />
                               )}
                             </div>
                           </div>

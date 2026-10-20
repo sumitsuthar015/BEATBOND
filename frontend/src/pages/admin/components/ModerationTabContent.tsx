@@ -66,7 +66,7 @@ const ModerationTabContent = () => {
 		<Card>
 			<CardHeader>
 				<CardTitle className='flex items-center gap-2 text-base'>
-					<MessageCircle className='size-4 text-emerald-600 dark:text-emerald-400' />
+					<MessageCircle className='size-4 text-[#B266FF] dark:text-[#E5CCFF]' />
 					Recent song comments
 				</CardTitle>
 				<CardDescription>Remove spam or abusive comments</CardDescription>

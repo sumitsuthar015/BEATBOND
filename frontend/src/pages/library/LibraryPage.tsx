@@ -12,6 +12,7 @@ import { useChatStore } from "@/stores/useChatStore";
 
 import { PlaylistCard } from "@/components/PlaylistCard";
 import { AlbumOptionsMenu } from "@/components/AlbumOptionsMenu";
+import { PageBackButton } from "@/components/PageBackButton";
 
 const LibraryPage = () => {
   const navigate = useNavigate();
@@ -37,9 +38,9 @@ const LibraryPage = () => {
   useEffect(() => { const update = (event: Event) => setSavedArtists((event as CustomEvent<SavedArtist[]>).detail); window.addEventListener(LIKED_ARTISTS_UPDATED_EVENT, update); return () => window.removeEventListener(LIKED_ARTISTS_UPDATED_EVENT, update); }, []);
 
   return (
-    <main className="h-full overflow-y-auto px-4 pb-28 pt-[calc(env(safe-area-inset-top)+4.5rem)] sm:px-6 sm:pt-8 md:pb-8">
+    <main className="h-full overflow-y-auto px-4 pb-28 pt-[env(safe-area-inset-top)] sm:px-6 sm:pt-8 md:pb-8">
       <div className="mx-auto max-w-6xl space-y-8">
-        <header className="text-center"><p className="text-xs font-semibold uppercase tracking-wider text-primary">Your music</p><h1 className="mt-1 text-3xl font-bold tracking-tight">Library</h1><p className="mt-1 text-sm text-muted-foreground">Liked music, artists, playlists, and offline downloads in one place.</p></header>
+        <header className="grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center text-center"><PageBackButton className="mb-0" /><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Your music</p><h1 className="mt-1 text-3xl font-bold tracking-tight">Library</h1><p className="mt-1 text-sm text-muted-foreground">Liked music, artists, playlists, and offline downloads in one place.</p></div><span aria-hidden="true" /></header>
 
         <section>
           <div className="mb-3 flex items-center gap-2"><Library className="size-5 text-primary" /><h2 className="text-xl font-bold">Your playlists</h2></div>

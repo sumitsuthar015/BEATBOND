@@ -770,6 +770,10 @@ export const useMusicStore = create<MusicStore>((set, get) => ({
 
 	fetchFeaturedSongs: async (force = false) => {
 		if (!force && get().featuredSongs.length > 0) return;
+		if (force && !get().featuredSongs.length) {
+			const cached = getCachedHomeShelf("featured");
+			if (cached?.length) set({ featuredSongs: cached });
+		}
 		set({ isLoading: true, error: null });
 		try {
 			const songs = await fetchHomeShelf("/songs/featured", "featured", force);
@@ -784,6 +788,10 @@ export const useMusicStore = create<MusicStore>((set, get) => ({
 
 	fetchMadeForYouSongs: async (force = false) => {
 		if (!force && get().madeForYouSongs.length > 0) return;
+		if (force && !get().madeForYouSongs.length) {
+			const cached = getCachedHomeShelf("made-for-you");
+			if (cached?.length) set({ madeForYouSongs: cached });
+		}
 		set({ isLoading: true, error: null });
 		try {
 			const songs = await fetchHomeShelf("/songs/made-for-you", "made-for-you", force);
@@ -800,6 +808,7 @@ export const useMusicStore = create<MusicStore>((set, get) => ({
 		if (!force && get().trendingSongs.length > 0) return;
 		set({ isLoading: true, error: null });
 		const cached = getCachedHomeShelf("trending");
+		if (cached?.length && !get().trendingSongs.length) set({ trendingSongs: cached });
 		try {
 			// Always ask the backend for the current provider chart on a fresh app
 			// load; the persistent offline shelf is a fallback only, not the source

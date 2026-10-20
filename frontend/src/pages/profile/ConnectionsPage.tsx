@@ -7,6 +7,7 @@ import { axiosInstance } from "@/lib/axios";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import FriendRequestButton from "@/components/friends/FriendRequestButton";
+import { PageBackButton } from "@/components/PageBackButton";
 
 type Friend = { clerkId: string; fullName: string; username?: string; imageUrl: string; isOnline?: boolean };
 
@@ -37,6 +38,7 @@ const ConnectionsPage = () => {
   return (
     <main className="h-full overflow-y-auto px-4 pb-28 pt-[calc(env(safe-area-inset-top)+1rem)] sm:px-6 md:pb-8">
       <div className="mx-auto max-w-xl">
+        <PageBackButton />
         <header className="mb-5 pt-2">
           <p className="text-xs font-semibold uppercase tracking-wider text-primary">Social</p>
           <h1 className="text-2xl font-bold">{title}</h1>
@@ -65,7 +67,7 @@ const ConnectionsPage = () => {
                       </AvatarFallback>
                     </Avatar>
                     {friend.isOnline && (
-                      <span className="absolute bottom-0 right-0 size-3 rounded-full border-2 border-card bg-emerald-500" />
+                      <span className="absolute bottom-0 right-0 size-3 rounded-full border-2 border-card bg-[#B266FF]" />
                     )}
                   </div>
  

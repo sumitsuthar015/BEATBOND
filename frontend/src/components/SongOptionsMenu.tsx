@@ -144,7 +144,7 @@ export const SongOptionsMenu: React.FC<SongOptionsMenuProps> = ({
             onClick={handlePlaySong}
             className="flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 focus:bg-white/10 focus:text-white rounded-lg cursor-pointer font-medium"
           >
-            <Play className="size-4 text-green-500 fill-current" />
+            <Play className="size-4 text-primary fill-current" />
             Play Now
           </DropdownMenuItem>
 
@@ -190,7 +190,7 @@ export const SongOptionsMenu: React.FC<SongOptionsMenuProps> = ({
                   e.preventDefault();
                   setIsCreateDialogOpen(true);
                 }}
-                className="flex items-center gap-2 px-3 py-2 text-sm text-green-400 focus:bg-white/10 focus:text-green-300 rounded-lg cursor-pointer font-medium"
+                className="flex items-center gap-2 px-3 py-2 text-sm text-[#E5CCFF] focus:bg-white/10 focus:text-[#E5CCFF] rounded-lg cursor-pointer font-medium"
               >
                 <Plus className="size-4" />
                 Create New Playlist
@@ -216,7 +216,7 @@ export const SongOptionsMenu: React.FC<SongOptionsMenuProps> = ({
             {download.downloading ? (
               <Loader2 className="size-4 animate-spin text-blue-400" />
             ) : download.downloaded ? (
-              <CircleCheck className="size-4 text-green-500" />
+              <CircleCheck className="size-4 text-primary" />
             ) : (
               <Download className="size-4 text-blue-400" />
             )}
@@ -257,7 +257,7 @@ export const SongOptionsMenu: React.FC<SongOptionsMenuProps> = ({
             }}
             className="flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 focus:bg-white/10 focus:text-white rounded-lg cursor-pointer"
           >
-            <MessageSquare className="size-4 text-emerald-400" />
+            <MessageSquare className="size-4 text-[#E5CCFF]" />
             Comments
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -283,12 +283,12 @@ export const SongOptionsMenu: React.FC<SongOptionsMenuProps> = ({
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleCreateAndAddToPlaylist();
                 }}
-                className="bg-zinc-800 border-zinc-700 text-white focus:border-green-500 rounded-xl"
+                className="bg-zinc-800 border-zinc-700 text-white focus:border-primary rounded-xl"
               />
             </div>
             <Button
               onClick={handleCreateAndAddToPlaylist}
-              className="w-full bg-green-600 hover:bg-green-500 text-white font-semibold rounded-xl"
+              className="w-full bg-primary hover:bg-primary text-white font-semibold rounded-xl"
             >
               Create & Add "{song.title}"
             </Button>

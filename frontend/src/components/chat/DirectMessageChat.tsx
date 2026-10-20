@@ -874,7 +874,7 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
         <button type="button" onClick={() => navigate(`/profile/${userId}`)} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl p-1 text-left transition-colors hover:bg-secondary/60">
           <span className="relative shrink-0">
             <Avatar className="size-10"><AvatarImage src={friend.imageUrl} alt="" /><AvatarFallback className="bg-primary/10 text-primary">{friend.fullName[0]}</AvatarFallback></Avatar>
-            {isFriendOnline && <span className="absolute bottom-0 right-0 size-3 rounded-full border-2 border-background bg-emerald-500" />}
+            {isFriendOnline && <span className="absolute bottom-0 right-0 size-3 rounded-full border-2 border-background bg-[#B266FF]" />}
           </span>
           <span className="min-w-0">
             <span className="flex items-center gap-1.5">

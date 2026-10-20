@@ -16,7 +16,7 @@ const AlbumsTabContent = () => {
 				<div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
 					<div>
 						<CardTitle className='flex items-center gap-2'>
-							<Library className='size-5 text-emerald-600 dark:text-emerald-400' />
+							<Library className='size-5 text-[#B266FF] dark:text-[#E5CCFF]' />
 							Albums library
 						</CardTitle>
 						<CardDescription>

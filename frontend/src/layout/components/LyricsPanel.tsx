@@ -18,6 +18,7 @@ export const LyricsPanel = ({ className, showHeader = true }: LyricsPanelProps) 
   const [error, setError] = useState("");
   const [currentTime, setCurrentTime] = useState(0);
   const activeLineRef = useRef<HTMLParagraphElement | null>(null);
+  const lyricsScrollRef = useRef<HTMLDivElement | null>(null);
   const lyricRequestRef = useRef(0);
 
   const fetchLyrics = useCallback(async () => {
@@ -65,10 +66,21 @@ export const LyricsPanel = ({ className, showHeader = true }: LyricsPanelProps) 
     return -1;
   }, [currentTime, hasTiming, lines]);
 
-  // Keep the current line in view in every LyricsPanel instance (desktop
-  // sidebar and mobile now-playing). Users no longer need to chase lyrics.
+  // Keep the current line in the lyrics pane itself. scrollIntoView() can
+  // scroll every ancestor too, which makes the mobile full-screen player jump
+  // whenever a synced lyric line changes.
   useEffect(() => {
-    activeLineRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+    const container = lyricsScrollRef.current;
+    const line = activeLineRef.current;
+    if (!container || !line) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const lineRect = line.getBoundingClientRect();
+    const lineCenter = container.scrollTop + lineRect.top - containerRect.top + lineRect.height / 2;
+    container.scrollTo({
+      top: lineCenter - container.clientHeight / 2,
+      behavior: "smooth",
+    });
   }, [activeIndex, song?._id]);
 
   return (
@@ -82,12 +94,12 @@ export const LyricsPanel = ({ className, showHeader = true }: LyricsPanelProps) 
         </header>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 scrollbar-custom">
+      <div ref={lyricsScrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4 scrollbar-custom">
         {!song ? (
           <p className="py-8 text-center text-sm text-zinc-400">Play a song to see its lyrics.</p>
         ) : loading ? (
           <div className="flex flex-col items-center py-10 text-sm text-zinc-400">
-            <div className="mb-3 h-6 w-6 animate-spin rounded-full border-2 border-green-400 border-t-transparent" />
+            <div className="mb-3 h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             Loading lyrics…
           </div>
         ) : error ? (
@@ -106,7 +118,7 @@ export const LyricsPanel = ({ className, showHeader = true }: LyricsPanelProps) 
                 ref={index === activeIndex ? activeLineRef : null}
                 className={cn(
                   "text-base font-semibold leading-6 transition-colors duration-300 sm:text-lg sm:leading-7",
-                  index === activeIndex ? "text-green-500" : "text-white"
+                  index === activeIndex ? "text-[#B266FF]" : "text-white"
                 )}
               >
                 {line.text}

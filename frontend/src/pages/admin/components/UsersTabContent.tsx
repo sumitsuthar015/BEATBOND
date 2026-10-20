@@ -44,7 +44,7 @@ const UsersTabContent = () => {
 				<div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
 					<div>
 						<CardTitle className='flex items-center gap-2'>
-							<Users2 className='size-5 text-emerald-600 dark:text-emerald-400' />
+							<Users2 className='size-5 text-[#B266FF] dark:text-[#E5CCFF]' />
 							Users
 						</CardTitle>
 						<CardDescription>
@@ -116,8 +116,8 @@ const UsersTabContent = () => {
 											</TableCell>
 											<TableCell>
 												{user.isOnline ? (
-													<Badge className='gap-1.5 border-transparent bg-emerald-500/15 text-emerald-700 shadow-none hover:bg-emerald-500/15 dark:text-emerald-400'>
-														<span className='size-1.5 rounded-full bg-emerald-500' aria-hidden />
+													<Badge className='gap-1.5 border-transparent bg-[#B266FF]/15 text-[#B266FF] shadow-none hover:bg-[#B266FF]/15 dark:text-[#E5CCFF]'>
+														<span className='size-1.5 rounded-full bg-[#B266FF]' aria-hidden />
 														Online
 													</Badge>
 												) : (

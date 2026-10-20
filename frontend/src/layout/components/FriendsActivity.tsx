@@ -198,7 +198,7 @@ export const FriendsActivity = ({
                   <Avatar className={cn(
                     "ring-2 ring-offset-2 ring-offset-background transition-all duration-300",
                     isUserOnline(friend.clerkId) 
-                      ? "ring-green-500/50 group-hover:ring-green-500/70"
+                      ? "ring-[#B266FF]/50 group-hover:ring-[#B266FF]/70"
                       : "ring-primary/10 group-hover:ring-primary/30"
                   )}>
                     <AvatarImage src={friend.imageUrl} alt={friend.fullName || "Friend"} />
@@ -213,7 +213,7 @@ export const FriendsActivity = ({
                       <span className={cn(
                         "flex-shrink-0 w-2 h-2 rounded-full transition-colors duration-300",
                         isUserOnline(friend.clerkId) 
-                          ? "bg-green-500 animate-pulse"
+                          ? "bg-[#B266FF] animate-pulse"
                           : "bg-gray-400"
                       )} />
                     </div>
@@ -234,7 +234,7 @@ export const FriendsActivity = ({
                         ) : (
                           <p className="text-xs text-muted-foreground/60">
                             {isUserOnline(friend.clerkId) ? (
-                              <span className="text-green-500">Online</span>
+                              <span className="text-[#B266FF]">Online</span>
                             ) : (
                               "Offline"
                             )}

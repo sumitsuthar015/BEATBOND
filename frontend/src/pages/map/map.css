@@ -209,7 +209,7 @@
   font-weight: 800;
 }
 
-.map-cluster__body.has-friend .map-cluster__count { background: #10b981; }
+.map-cluster__body.has-friend .map-cluster__count { background: #B266FF; }
 
 /* ---- You: your photo in a blue ring, with a "You" tag ---- */
 /* No position here: Mapbox positions the marker element absolutely. */

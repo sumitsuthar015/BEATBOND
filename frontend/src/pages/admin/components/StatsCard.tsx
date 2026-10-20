@@ -13,7 +13,7 @@ type StatsCardProps = {
 };
 
 const trendStyles = {
-	up: { icon: ArrowUpRight, className: "text-emerald-700 dark:text-emerald-400" },
+	up: { icon: ArrowUpRight, className: "text-[#B266FF] dark:text-[#E5CCFF]" },
 	down: { icon: ArrowDownRight, className: "text-red-600 dark:text-red-400" },
 	flat: { icon: Minus, className: "text-muted-foreground" },
 };
@@ -22,12 +22,12 @@ const StatsCard = ({ icon: Icon, label, value, hint, trend }: StatsCardProps) =>
 	const TrendIcon = trend ? trendStyles[trend.direction].icon : null;
 
 	return (
-		<Card className='transition-colors hover:border-emerald-500/40'>
+		<Card className='transition-colors hover:border-[#B266FF]/40'>
 			<CardContent className='p-5'>
 				<div className='flex items-start justify-between gap-3'>
 					<p className='text-sm font-medium text-muted-foreground'>{label}</p>
-					<div className='rounded-lg bg-emerald-500/10 p-2'>
-						<Icon className='size-4 text-emerald-600 dark:text-emerald-400' aria-hidden />
+					<div className='rounded-lg bg-[#B266FF]/10 p-2'>
+						<Icon className='size-4 text-[#B266FF] dark:text-[#E5CCFF]' aria-hidden />
 					</div>
 				</div>
 				<p className='mt-2 text-3xl font-semibold tracking-tight'>{value}</p>

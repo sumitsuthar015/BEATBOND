@@ -21,6 +21,7 @@ import { blockedUsersQueryKey } from "@/components/profile/profileQueries";
 import { useChatStore } from "@/stores/useChatStore";
 import { readLegalConsent } from "@/lib/legalConsent";
 import { ShareToMessageDialog } from "@/components/ShareToMessageDialog";
+import { PageBackButton } from "@/components/PageBackButton";
 import {
   MessageCircle,
   Settings,
@@ -298,7 +299,7 @@ const UserProfilePage = () => {
           </p>
           <div className="flex flex-col gap-2">
             {!is404 && (
-              <Button onClick={() => refetch()} className="w-full bg-emerald-500 text-black hover:bg-emerald-400">
+              <Button onClick={() => refetch()} className="w-full bg-[#B266FF] text-black hover:bg-[#E5CCFF]">
                 Try again
               </Button>
             )}
@@ -310,6 +311,7 @@ const UserProfilePage = () => {
 
   return (
     <div className="h-full overflow-y-auto bg-[#09090b] p-4 pb-28 text-zinc-100 sm:p-6 sm:pb-28 lg:p-8 lg:pb-10">
+      <div className="mx-auto max-w-5xl"><PageBackButton className="text-zinc-200 hover:bg-white/10 hover:text-white" /></div>
       {/* Cover Section - Fixed */}
       <motion.section
         className="relative mx-auto w-full max-w-5xl overflow-hidden rounded-2xl border border-white/10 bg-zinc-950 shadow-2xl shadow-black/30"
@@ -338,7 +340,7 @@ const UserProfilePage = () => {
             </Avatar>
             {profile.isOnline && (
               <div className="absolute bottom-1 right-1 sm:bottom-2 sm:right-2">
-                <div className="h-4 w-4 rounded-full border-2 border-zinc-950 bg-green-500 ring-2 ring-green-500/30 sm:h-5 sm:w-5" />
+                <div className="h-4 w-4 rounded-full border-2 border-zinc-950 bg-[#B266FF] ring-2 ring-[#B266FF]/30 sm:h-5 sm:w-5" />
               </div>
             )}
             {isOwnProfile && (
@@ -366,8 +368,8 @@ const UserProfilePage = () => {
               {!isOwnProfile && (
                 <div className="text-xs text-zinc-500">
                   {profile.isOnline ? (
-                    <span className="flex items-center gap-1.5 text-green-500">
-                      <span className="h-1.5 w-1.5 bg-green-500 rounded-full animate-pulse"></span>
+                    <span className="flex items-center gap-1.5 text-[#B266FF]">
+                      <span className="h-1.5 w-1.5 bg-[#B266FF] rounded-full animate-pulse"></span>
                       Active now
                     </span>
                   ) : profile.lastSeen ? (

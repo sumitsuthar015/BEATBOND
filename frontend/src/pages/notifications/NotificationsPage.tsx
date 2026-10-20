@@ -9,6 +9,7 @@ import { toast } from "react-hot-toast";
 import { useUser } from "@clerk/clerk-react";
 import { useEffect } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { PageBackButton } from "@/components/PageBackButton";
 
 interface Notification {
   _id: string;
@@ -163,6 +164,7 @@ const NotificationsPage = () => {
 
   return (
     <div className="container mx-auto flex h-full min-h-0 max-w-4xl flex-col overflow-hidden px-3 py-4 sm:px-4 sm:py-8">
+      <PageBackButton className="mb-1" />
       <div className="flex items-center justify-between mb-4 sm:mb-6 gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl font-semibold flex items-center gap-2">

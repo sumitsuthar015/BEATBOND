@@ -10,6 +10,7 @@ import { Play, Clock, Bookmark, BookmarkCheck, Share2 } from "lucide-react";
 import { axiosInstance } from "@/lib/axios";
 import { ShareToMessageDialog } from "@/components/ShareToMessageDialog";
 import { cn } from "@/lib/utils";
+import { PageBackButton } from "@/components/PageBackButton";
 
 const isMongoId = (id: string) => /^[a-f\d]{24}$/i.test(id);
 
@@ -190,7 +191,8 @@ export const AlbumPage = () => {
               }
             />
 
-            <div className="relative px-3 pb-4 pt-[calc(env(safe-area-inset-top)+4.5rem)] sm:px-4 sm:pb-6 sm:pt-6 md:px-6">
+            <div className="relative px-3 pb-4 pt-[calc(env(safe-area-inset-top)+1rem)] sm:px-4 sm:pb-6 sm:pt-6 md:px-6">
+              <PageBackButton className="mb-3 text-white/80 hover:bg-white/10 hover:text-white" />
               <div className="mx-auto flex max-w-3xl flex-col items-center gap-4 lg:flex-row lg:items-end lg:gap-6">
                 {albumMeta.imageUrl && (
                   <div className="w-full shrink-0 lg:w-auto">
@@ -266,11 +268,11 @@ export const AlbumPage = () => {
                       className={cn(
                         "flex items-center gap-2 rounded-full border px-5 py-2.5 text-sm font-semibold transition-all shadow-md active:scale-95",
                         isSaved
-                          ? "border-green-500/50 bg-green-500/20 text-green-400 hover:bg-green-500/30"
+                          ? "border-primary/50 bg-primary/20 text-[#E5CCFF] hover:bg-primary/30"
                           : "border-white/20 bg-white/10 text-white hover:bg-white/20"
                       )}
                     >
-                      {isSaved ? <BookmarkCheck className="w-4 h-4 text-green-400" /> : <Bookmark className="w-4 h-4 text-amber-400" />}
+                      {isSaved ? <BookmarkCheck className="w-4 h-4 text-[#E5CCFF]" /> : <Bookmark className="w-4 h-4 text-amber-400" />}
                       <span>{isSaved ? "Saved" : "Save Album"}</span>
                     </button>
 

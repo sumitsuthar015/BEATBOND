@@ -25,7 +25,7 @@ export const ShareCard = ({ isSignedIn }: { isSignedIn: boolean }) => {
   return (
     <div className={card}>
       <div className="flex items-center gap-3">
-        <span className={cn("grid size-10 shrink-0 place-items-center rounded-full", isSharing ? "bg-emerald-400/15 text-emerald-300" : "bg-white/10 text-zinc-300")}>
+        <span className={cn("grid size-10 shrink-0 place-items-center rounded-full", isSharing ? "bg-[#E5CCFF]/15 text-[#E5CCFF]" : "bg-white/10 text-zinc-300")}>
           <Radio className={cn("size-5", isSharing && "animate-pulse")} />
         </span>
         <div className="min-w-0 flex-1">
@@ -42,7 +42,7 @@ export const ShareCard = ({ isSignedIn }: { isSignedIn: boolean }) => {
           aria-checked={isSharing}
           aria-label="Share live location"
           onClick={() => (isSharing ? void stopSharing() : startSharing())}
-          className={cn("relative h-7 w-12 shrink-0 rounded-full transition-colors", isSharing ? "bg-emerald-500" : "bg-zinc-700")}
+          className={cn("relative h-7 w-12 shrink-0 rounded-full transition-colors", isSharing ? "bg-[#B266FF]" : "bg-zinc-700")}
         >
           <span className={cn("absolute left-0 top-1 size-5 rounded-full bg-white shadow transition-transform", isSharing ? "translate-x-6" : "translate-x-1")} />
         </button>
@@ -87,14 +87,14 @@ export const PersonCard = ({ person, now, activity, onClose }: PersonCardProps) 
       </button>
       <div className="flex items-center gap-3 pr-10">
         <span className="relative shrink-0">
-          <span className={cn("grid size-12 place-items-center overflow-hidden rounded-full bg-violet-500/20 font-bold text-violet-200 ring-2", person.isFriend ? "ring-emerald-400/80" : "ring-violet-400/70", !live && "opacity-70 grayscale")}>
+          <span className={cn("grid size-12 place-items-center overflow-hidden rounded-full bg-violet-500/20 font-bold text-violet-200 ring-2", person.isFriend ? "ring-[#E5CCFF]/80" : "ring-violet-400/70", !live && "opacity-70 grayscale")}>
             {image ? <img src={image} alt="" className="size-full object-cover" /> : displayName(person)[0]?.toUpperCase()}
           </span>
-          {live && <span className="absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full border-2 border-zinc-950 bg-emerald-400" aria-hidden />}
+          {live && <span className="absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full border-2 border-zinc-950 bg-[#E5CCFF]" aria-hidden />}
         </span>
         <div className="min-w-0">
           <p className="truncate font-bold">{displayName(person)}</p>
-          <p className={cn("truncate text-xs", live ? "text-emerald-400" : "text-zinc-400")}>
+          <p className={cn("truncate text-xs", live ? "text-[#E5CCFF]" : "text-zinc-400")}>
             {[live ? "Live now" : `Last seen ${formatAgo(person.updatedAt, now)}`, distance && `${distance} away`].filter(Boolean).join(" · ")}
           </p>
         </div>

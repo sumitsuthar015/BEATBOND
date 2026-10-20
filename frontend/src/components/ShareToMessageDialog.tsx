@@ -123,7 +123,7 @@ export function ShareToMessageDialog({ trigger, message, sharedContent }: { trig
                 <span className="truncate">More</span>
               </button>
               <button onClick={() => openShareWindow(`https://wa.me/?text=${encodedMessage}%20${encodeURIComponent(shareUrl)}`)} className="flex flex-col items-center gap-1.5 rounded-xl border p-2.5 hover:bg-secondary/60">
-                <MessageCircle className="size-5 text-emerald-500" />
+                <MessageCircle className="size-5 text-[#B266FF]" />
                 <span className="truncate">WhatsApp</span>
               </button>
               <button onClick={() => openShareWindow(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`)} className="flex flex-col items-center gap-1.5 rounded-xl border p-2.5 hover:bg-secondary/60">

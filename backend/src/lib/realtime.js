@@ -8,6 +8,8 @@ import { Message } from "../models/message.model.js";
 import { User } from "../models/user.model.js";
 import { PRIVACY_FIELDS, canSeeLiveActivity, liveActivityViewers } from "../services/privacy.service.js";
 import { sendsReadReceipts } from "../services/chat.service.js";
+import { Notification } from "../models/notification.model.js";
+import { sendPushToUser } from "../services/push.service.js";
 
 const userSockets = new Map();
 const socketsById = new Map();
@@ -310,10 +312,10 @@ export const initializeWebSocket = (server) => {
       }
       emitOnlineUsers(io);
 
-    socket.on("client_visibility", ({ visible } = {}) => {
-      socket.clientVisible = visible === true;
-      setSocketVisibility(userId, socket.id, socket.clientVisible);
-    });
+      socket.on("client_visibility", ({ visible } = {}) => {
+        socket.clientVisible = visible === true;
+        setSocketVisibility(userId, socket.id, socket.clientVisible);
+      });
 
       const activityUsers = await User.find({
         clerkId: { $in: Array.from(userActivities.keys()) },
@@ -408,11 +410,11 @@ export const initializeWebSocket = (server) => {
           const rawType = data.sharedContent.type;
           const allowedTypes = ["song", "profile", "playlist", "post", "album"];
           const type = allowedTypes.includes(rawType) ? rawType : "song";
-          
+
           const title = typeof data.sharedContent.title === "string" && data.sharedContent.title.trim()
             ? data.sharedContent.title.trim().slice(0, 200)
             : "Shared Item";
-            
+
           const subtitle = typeof data.sharedContent.subtitle === "string"
             ? data.sharedContent.subtitle.slice(0, 300)
             : "";
@@ -479,20 +481,55 @@ export const initializeWebSocket = (server) => {
           try {
             message = await Message.findOneAndUpdate(
               { senderId: userId, clientMessageId },
-              { $setOnInsert: {
-                senderId: userId,
-                receiverId,
-                clientMessageId,
-                content,
-                replyTo,
-                sharedContent,
-                status: receiverIsOnline ? "delivered" : "sent",
-              } },
+              {
+                $setOnInsert: {
+                  senderId: userId,
+                  receiverId,
+                  clientMessageId,
+                  content,
+                  replyTo,
+                  sharedContent,
+                  status: receiverIsOnline ? "delivered" : "sent",
+                }
+              },
               { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true },
             );
             const persistedPayload = { clientMessageId, message: message.toObject() };
             emitToUser(io, userId, "messagePersisted", persistedPayload);
             if (receiverIsOnline) emitToUser(io, receiverId, "messagePersisted", persistedPayload);
+
+            // Persist the notification only after the message itself is saved.
+            // Notification and push failures must not roll back or hide a chat
+            // message that has already been delivered and persisted.
+            try {
+              const notification = await Notification.create({
+                userId: receiverId,
+                message: content.slice(0, 4000),
+                type: "message",
+                metadata: { messageId: message._id.toString(), senderId: userId },
+              });
+              emitToUser(io, receiverId, "notificationReceived", {
+                ...notification.toObject(),
+                sender: {
+                  clerkId: userId,
+                  fullName: sender.fullName || "BeatBond user",
+                  imageUrl: sender.imageUrl || "",
+                },
+              });
+            } catch (notificationError) {
+              console.error("Unable to save chat notification:", notificationError);
+            }
+
+            // Web Push is already a backend dependency; it is sent only to
+            // registered devices and the service worker suppresses alerts
+            // while BeatBond is visible.
+            void sendPushToUser(receiverId, {
+              title: sender.fullName || "New message",
+              body: content.slice(0, 160),
+              url: `/chat?userId=${encodeURIComponent(userId)}`,
+              tag: `beatbond-message-${userId}`,
+              data: { senderId: userId, messageId: message._id.toString() },
+            }).catch((pushError) => console.error("Unable to send chat push notification:", pushError));
           } catch (persistError) {
             console.error("Unable to persist realtime message:", persistError);
             const failedPayload = { clientMessageId, senderId: userId, receiverId, message: "Message could not be saved. Please retry." };

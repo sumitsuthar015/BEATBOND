@@ -10,6 +10,7 @@ import { useChatStore } from "@/stores/useChatStore";
 import { isVerifiedValidSong } from "@/lib/songUtils";
 import toast from "react-hot-toast";
 import { ShareToMessageDialog } from "@/components/ShareToMessageDialog";
+import { PageBackButton } from "@/components/PageBackButton";
 
 type Tab = "overview" | "songs" | "albums";
 type Sort = "popular" | "name" | "date";
@@ -79,6 +80,7 @@ const ArtistPage = () => {
 
   return <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#101010] text-white"><Topbar />
     <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-28">
+      <div className="mx-auto max-w-7xl px-4 pt-3 sm:px-8"><PageBackButton className="text-white/80 hover:bg-white/10 hover:text-white" /></div>
       <div className="relative overflow-hidden border-b border-white/10 bg-gradient-to-br from-primary/30 via-[#1b1b1b] to-[#101010]">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-8 sm:flex-row sm:items-end sm:px-8 sm:py-12">
           <img src={image} alt={artist.name} className="mx-auto size-40 rounded-full object-cover shadow-2xl ring-4 ring-white/10 sm:mx-0 sm:size-52" onError={(e) => { (e.target as HTMLImageElement).src = "/default-image.png"; }} />

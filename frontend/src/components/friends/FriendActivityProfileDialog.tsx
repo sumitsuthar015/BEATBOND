@@ -82,10 +82,10 @@ export function FriendActivityProfileDialog({
               </AvatarFallback>
             </Avatar>
             <span
-              className={`mb-1 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${isOnline ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}
+              className={`mb-1 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${isOnline ? "bg-[#B266FF]/15 text-[#B266FF] dark:text-[#E5CCFF]" : "bg-muted text-muted-foreground"}`}
             >
               <span
-                className={`h-2 w-2 rounded-full ${isOnline ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground"}`}
+                className={`h-2 w-2 rounded-full ${isOnline ? "bg-[#B266FF] animate-pulse" : "bg-muted-foreground"}`}
               />
               {isOnline ? "Online now" : "Offline"}
             </span>
@@ -147,7 +147,7 @@ export function FriendActivityProfileDialog({
             </button>
             <div className="rounded-xl border bg-background/50 p-3">
               <span
-                className={`mb-2 block h-4 w-4 rounded-full ${isOnline ? "bg-emerald-500" : "bg-muted-foreground"}`}
+                className={`mb-2 block h-4 w-4 rounded-full ${isOnline ? "bg-[#B266FF]" : "bg-muted-foreground"}`}
               />
               <p className="text-sm font-bold">
                 {isOnline ? "Online" : "Offline"}

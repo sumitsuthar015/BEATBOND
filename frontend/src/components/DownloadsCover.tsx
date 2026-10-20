@@ -4,13 +4,13 @@ import type { Song } from "@/types";
 
 /**
  * The Downloads playlist cover: a framed picture of what you've saved (a 2×2
- * grid once there are four covers) on a green backdrop with a download badge.
+ * grid once there are four covers) on a purple gradient backdrop with a download badge.
  */
 export const DownloadsCover = ({ songs, className }: { songs: Song[]; className?: string }) => {
   const covers = [...new Set(songs.map((song) => song.imageUrl).filter(Boolean))].slice(0, 4);
 
   return (
-    <div className={cn("relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-400 via-teal-600 to-sky-800 shadow-lg", className)}>
+    <div className={cn("brand-accent-gradient relative overflow-hidden rounded-2xl shadow-lg", className)}>
       <span className="pointer-events-none absolute -left-1/4 -top-1/4 size-3/4 rounded-full bg-white/15 blur-2xl" aria-hidden />
       {/* Insets (not padding) so the frame scales with the cover itself: padding
           percentages follow the parent's width. */}
@@ -28,7 +28,7 @@ export const DownloadsCover = ({ songs, className }: { songs: Song[]; className?
         )}
       </div>
       {covers.length > 0 && (
-        <span className="absolute bottom-[5%] right-[5%] grid size-[26%] place-items-center rounded-full bg-emerald-500 text-white shadow-lg ring-[3px] ring-white/90">
+        <span className="absolute bottom-[5%] right-[5%] grid size-[26%] place-items-center rounded-full bg-[#B266FF] text-white shadow-lg ring-[3px] ring-white/90">
           <ArrowDown className="size-1/2" strokeWidth={3} />
         </span>
       )}
