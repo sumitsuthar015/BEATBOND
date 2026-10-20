@@ -475,17 +475,23 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
     observer.observe(container);
     observer.observe(content);
     return () => observer.disconnect();
-  }, [userId]);
+  }, [isLoadingUser, userId]);
 
   useLayoutEffect(() => {
-    // Position after the latest page is committed to the DOM. Waiting an extra
-    // frame also accounts for layout changes from avatars and shared content.
+    // Messages and the friend's profile load independently. Don't consume the
+    // initial-scroll attempt while the chat UI is still showing its profile
+    // loading state and the message scroller has not mounted yet.
     if (hasScrolledToLatestRef.current || isLoadingMessages || !messages?.pages?.length) return;
+    if (!chatContainerRef.current) return;
+
     let secondFrame = 0;
     const firstFrame = requestAnimationFrame(() => {
       secondFrame = requestAnimationFrame(() => {
         const container = chatContainerRef.current;
-        if (container) container.scrollTop = container.scrollHeight;
+        // The user can switch conversations while the animation frame is
+        // pending. Only mark the attempt complete if its target still exists.
+        if (!container) return;
+        container.scrollTop = container.scrollHeight;
         hasScrolledToLatestRef.current = true;
         nearBottomRef.current = true;
         setNearBottom(true);
@@ -496,7 +502,7 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
       cancelAnimationFrame(firstFrame);
       if (secondFrame) cancelAnimationFrame(secondFrame);
     };
-  }, [isLoadingMessages, messages?.pages]);
+  }, [isLoadingMessages, isLoadingUser, messages?.pages, userId]);
 
   useEffect(() => {
     if (!initialPositionReady || !isTopVisible || !hasNextPage || isFetchingNextPage) return;
