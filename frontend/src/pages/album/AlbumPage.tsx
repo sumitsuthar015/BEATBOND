@@ -396,8 +396,8 @@ export const AlbumPage = () => {
                     />
                   )}
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-medium sm:text-sm">{song.title}</p>
-                    <p className="mt-0.5 truncate text-[10px] text-muted-foreground sm:text-xs">
+                    <p className="truncate text-sm font-medium">{song.title}</p>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
                       {song.artist}
                     </p>
                   </div>

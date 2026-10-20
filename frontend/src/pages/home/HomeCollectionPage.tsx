@@ -109,8 +109,8 @@ const HomeCollectionPage = () => {
                 <span className="w-6 shrink-0 text-center text-sm text-muted-foreground">{index + 1}</span>
                 <img src={song.imageUrl} alt="" className="size-12 shrink-0 rounded-lg object-cover" />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-semibold">{song.title}</span>
-                  <span className="block truncate text-sm text-muted-foreground">{song.artist}</span>
+                  <span className="block truncate text-sm font-semibold">{song.title}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{song.artist}</span>
                 </span>
                 <span className="hidden shrink-0 text-xs text-muted-foreground sm:block">{song.albumName || "Single"}</span>
               </button>
