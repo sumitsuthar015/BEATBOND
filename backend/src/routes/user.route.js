@@ -31,6 +31,7 @@ import { deleteMyAccount } from "../controller/account.controller.js";
 import { getLikedArtists, syncLikedArtists, toggleLikedArtist } from "../controller/likedArtist.controller.js";
 import { editMessage, muteChat, reactToMessage, unmuteChat, updateChatSettings } from "../controller/message.controller.js";
 import { protectRoute } from "../middleware/auth.middleware.js";
+import { rateLimit } from "../middleware/rateLimit.middleware.js";
 
 const router = Router();
 
@@ -41,8 +42,8 @@ router.get("/messages/:userId", protectRoute, getMessages);
 router.get("/messages/:userId/shared", protectRoute, getSharedMessages);
 router.get("/search", protectRoute, searchUsers);
 router.put("/profile/:clerkId", protectRoute, updateUserProfile);
-router.post("/profile/photo", protectRoute, uploadProfilePhoto);
-router.post("/profile/avatar-photo", protectRoute, uploadAvatarPhoto);
+router.post("/profile/photo", protectRoute, rateLimit({ name: "profile-upload", limit: 12, windowMs: 60 * 60 * 1000 }), uploadProfilePhoto);
+router.post("/profile/avatar-photo", protectRoute, rateLimit({ name: "profile-upload", limit: 12, windowMs: 60 * 60 * 1000 }), uploadAvatarPhoto);
 router.patch("/profile/photo-source", protectRoute, setPhotoSource);
 router.get("/profile/:userId", protectRoute, getUserProfile);
 router.get("/profile/:userId/music", protectRoute, getProfileMusic);

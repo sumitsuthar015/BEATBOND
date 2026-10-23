@@ -213,7 +213,6 @@ export const PlaybackControls = () => {
   const cycleRepeat = usePlayerStore((state) => state.cycleRepeat);
   const isShuffle = usePlayerStore((state) => state.isShuffle);
   const repeatMode = usePlayerStore((state) => state.repeatMode);
-  const setCurrentSongLiked = usePlayerStore((state) => state.setCurrentSongLiked);
   const addToQueue = usePlayerStore((state) => state.addToQueue);
   const addPlayNext = usePlayerStore((state) => state.addPlayNext);
   const queue = usePlayerStore((state) => state.queue);
@@ -305,8 +304,7 @@ export const PlaybackControls = () => {
 
   const handleAddToLikedSongs = () => {
     if (!currentSong) return;
-    void useMusicStore.getState().toggleLike(currentSong._id);
-    setCurrentSongLiked(!isLiked);
+    void useMusicStore.getState().toggleLike(currentSong._id, currentSong);
   };
 
   const handleCreateAndAddToPlaylist = () => {
@@ -350,9 +348,9 @@ export const PlaybackControls = () => {
           background: `linear-gradient(180deg, ${bgColor} 0%, rgb(18, 18, 18) 50%, rgb(0, 0, 0) 100%)`
         }}
       >
-        <div className="min-h-screen p-6 pb-32">
+        <div className="min-h-screen p-4 pb-24 sm:p-6 sm:pb-32">
           {/* Header */}
-          <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center justify-between mb-5">
             <button
               onClick={() => setIsExpanded(false)}
               className="text-white hover:scale-110 transition-transform"
@@ -444,8 +442,8 @@ export const PlaybackControls = () => {
           </div>
 
           {/* Album Art */}
-          <div className="flex justify-center mb-8">
-            <div className="w-[90vw] h-[90vw] max-w-[400px] max-h-[400px] shadow-2xl rounded-lg overflow-hidden">
+          <div className="flex justify-center mb-5">
+            <div className="size-[min(72vw,34dvh)] max-w-[320px] shadow-2xl rounded-lg overflow-hidden">
               <img
                 src={currentSong.imageUrl || "/api/placeholder/400/400"}
                 alt={currentSong.title}
@@ -456,11 +454,11 @@ export const PlaybackControls = () => {
           </div>
 
           {/* Song Info */}
-          <div className="mb-6 flex items-center gap-4">
+          <div className="mb-5 flex items-center gap-3">
             <div className="min-w-0 flex-1">
               <div className="overflow-hidden mb-2">
                 <h1
-                  className="text-3xl font-bold text-white cursor-pointer hover:underline whitespace-nowrap animate-marquee"
+                  className="text-2xl font-bold text-white cursor-pointer hover:underline whitespace-nowrap animate-marquee"
                   onClick={() => setIsSongDetailsOpen(true)}
                   style={{
                     animation: currentSong.title.length > 20 ? 'marquee 10s linear infinite' : 'none',
@@ -483,7 +481,7 @@ export const PlaybackControls = () => {
           </div>
 
           {/* Progress Bar */}
-          <div className="space-y-2 mb-8">
+          <div className="space-y-1.5 mb-6">
             <Slider
               value={[progress]}
               max={duration || 100}
@@ -498,7 +496,7 @@ export const PlaybackControls = () => {
           </div>
 
           {/* Controls */}
-          <div className="flex items-center justify-between mb-8 px-4">
+          <div className="flex items-center justify-between mb-6 px-3">
             <button onClick={toggleShuffle} aria-pressed={isShuffle} className={`transition-colors ${isShuffle ? "text-primary" : "text-zinc-400 hover:text-white"}`}>
               <Shuffle className="w-6 h-6" />
             </button>
@@ -510,12 +508,12 @@ export const PlaybackControls = () => {
             </button>
             <button
               onClick={togglePlay}
-              className="bg-white text-black rounded-full p-4 hover:scale-110 transition-transform shadow-xl"
+              className="bg-white text-black rounded-full p-3 hover:scale-110 transition-transform shadow-xl"
             >
               {isPlaying ? (
-                <Pause className="w-8 h-8 fill-current" />
+                <Pause className="w-7 h-7 fill-current" />
               ) : (
-                <Play className="w-8 h-8 fill-current ml-1" />
+                <Play className="w-7 h-7 fill-current ml-1" />
               )}
             </button>
             <button
@@ -530,7 +528,7 @@ export const PlaybackControls = () => {
           </div>
 
           {/* Mobile lyrics replace the volume controls, like Spotify's now-playing screen. */}
-          <LyricsPanel className="h-[360px]" />
+          <LyricsPanel className="h-[300px]" />
 
           <section className="mt-5 rounded-2xl border border-white/10 bg-black/35 p-4 text-white backdrop-blur">
             <div className="mb-4 flex items-center gap-3">
@@ -646,15 +644,15 @@ export const PlaybackControls = () => {
             background: `linear-gradient(90deg, ${bgColor} 0%, rgb(30, 30, 30) 100%)`
           }}
         >
-          <div className="px-3 pb-2 pt-2">
+          <div className="px-2 pb-1 pt-1">
             <div
-              className="flex min-h-14 cursor-pointer items-center gap-3"
+              className="flex min-h-12 cursor-pointer items-center gap-2.5"
               onClick={() => setIsExpanded(true)}
             >
               <img
                 src={currentSong.imageUrl || "/api/placeholder/48/48"}
                 alt={currentSong.title}
-                className="size-11 shrink-0 rounded object-cover shadow-lg"
+                className="size-9 shrink-0 rounded object-cover shadow-lg"
               />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-white">
@@ -671,17 +669,17 @@ export const PlaybackControls = () => {
                   togglePlay();
                 }}
                 aria-label={isPlaying ? "Pause" : "Play"}
-                className="grid size-11 shrink-0 place-items-center rounded-full text-white transition-colors hover:bg-white/10"
+                className="grid size-9 shrink-0 place-items-center rounded-full text-white transition-colors hover:bg-white/10"
               >
                 {isPlaying ? (
-                  <Pause className="size-7 fill-current" />
+                  <Pause className="size-6 fill-current" />
                 ) : (
-                  <Play className="ml-0.5 size-7 fill-current" />
+                  <Play className="ml-0.5 size-6 fill-current" />
                 )}
               </button>
             </div>
             <div
-              className="pt-0.5"
+              className="pt-0"
               onClick={(event) => event.stopPropagation()}
               onPointerDown={(event) => event.stopPropagation()}
             >
@@ -691,7 +689,7 @@ export const PlaybackControls = () => {
                 step={1}
                 onValueChange={handleSeek}
                 aria-label="Seek through song"
-                className="h-5 cursor-pointer [&>span:first-child]:h-1.5 [&>span:first-child]:bg-white [&>span:first-child>span]:bg-[#B266FF] [&_[role=slider]]:size-3 [&_[role=slider]]:rounded-full [&_[role=slider]]:border-0 [&_[role=slider]]:bg-[#B266FF]"
+                className="h-4 cursor-pointer [&>span:first-child]:h-1 [&>span:first-child]:bg-white [&>span:first-child>span]:bg-[#B266FF] [&_[role=slider]]:size-2.5 [&_[role=slider]]:rounded-full [&_[role=slider]]:border-0 [&_[role=slider]]:bg-[#B266FF]"
               />
             </div>
           </div>

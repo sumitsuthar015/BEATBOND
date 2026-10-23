@@ -29,8 +29,9 @@ export const handleSearchAlbums = async (req, res) => {
 };
 
 export const handleSearchCatalogue = async (req, res) => {
-  const { query, limit } = req.query;
-  const result = await searchCatalogue(query || "", limit || 30);
+  const query = String(req.query.query || "").trim().slice(0, 120);
+  const { limit } = req.query;
+  const result = await searchCatalogue(query, limit || 30);
   res.status(200).json(result);
 };
 

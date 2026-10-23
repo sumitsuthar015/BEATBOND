@@ -27,3 +27,17 @@ dist-ssr
 .env
 .env.*
 !.env.example
+
+# Secret material, local databases and generated runtime artifacts
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.dump
+*.bson
+*.sqlite
+*.sqlite3
+backend/tmp/
+backend/logs/

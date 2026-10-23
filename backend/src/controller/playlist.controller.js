@@ -38,7 +38,7 @@ export const getMyPlaylists = async (req, res, next) => {
 
 export const getPlaylistById = async (req, res, next) => {
   try {
-    const playlist = await Playlist.findById(req.params.playlistId).lean();
+    const playlist = await Playlist.findOne({ _id: req.params.playlistId, ownerId: req.auth().userId }).lean();
     if (!playlist) {
       return res.status(404).json({ message: "Playlist not found" });
     }
@@ -49,9 +49,12 @@ export const getPlaylistById = async (req, res, next) => {
 };
 export const createPlaylist = async (req, res, next) => {
   try {
-    const name = String(req.body.name || "").trim();
+    const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
     if (!name)
       return res.status(400).json({ message: "A playlist name is required" });
+    if (name.length > 100 || (req.body.description !== undefined && (typeof req.body.description !== "string" || req.body.description.length > 500))) {
+      return res.status(400).json({ message: "Playlist name or description is too long." });
+    }
     const playlist = await Playlist.create({
       ownerId: req.auth().userId,
       name,
@@ -66,13 +69,16 @@ export const updatePlaylist = async (req, res, next) => {
   try {
     const updates = {};
     if (req.body.name !== undefined) {
-      const name = String(req.body.name).trim();
+      if (typeof req.body.name !== "string" || req.body.name.length > 100) return res.status(400).json({ message: "Playlist name must be under 100 characters." });
+      const name = req.body.name.trim();
       if (!name)
         return res.status(400).json({ message: "A playlist name is required" });
       updates.name = name;
     }
-    if (req.body.description !== undefined)
-      updates.description = String(req.body.description).trim();
+    if (req.body.description !== undefined) {
+      if (typeof req.body.description !== "string" || req.body.description.length > 500) return res.status(400).json({ message: "Playlist description must be under 500 characters." });
+      updates.description = req.body.description.trim();
+    }
     const playlist = await Playlist.findOneAndUpdate(
       { _id: req.params.playlistId, ownerId: req.auth().userId },
       updates,
@@ -100,7 +106,8 @@ export const deletePlaylist = async (req, res, next) => {
 };
 export const setPlaylistDownloaded = async (req, res, next) => {
   try {
-    const downloaded = Boolean(req.body.downloaded);
+    if (typeof req.body?.downloaded !== "boolean") return res.status(400).json({ message: "downloaded must be a boolean" });
+    const downloaded = req.body.downloaded;
     const playlist = await Playlist.findOneAndUpdate(
       { _id: req.params.playlistId, ownerId: req.auth().userId },
       { downloadedAt: downloaded ? new Date() : null },
@@ -120,6 +127,9 @@ export const addSong = async (req, res, next) => {
       return res
         .status(400)
         .json({ message: "A complete playable song is required" });
+    if (song.title.length > 200 || song.artist.length > 200 || song.imageUrl.length > 2_000 || song.audioUrl.length > 2_000 || !/^https:\/\//i.test(song.audioUrl)) {
+      return res.status(400).json({ message: "Song details are invalid or too long." });
+    }
     const playlist = await Playlist.findOne({
       _id: req.params.playlistId,
       ownerId: req.auth().userId,

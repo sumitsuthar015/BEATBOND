@@ -36,8 +36,33 @@ const frontendDistPath = path.resolve(__dirname, "../../frontend/dist");
 const app = express();
 const PORT = Number(process.env.PORT) || 5002;
 
+const missingRequiredEnv = ["CLERK_SECRET_KEY", "MONGODB_URI"].filter((name) => !process.env[name]?.trim());
+if (missingRequiredEnv.length) {
+  throw new Error(`Missing required backend environment variables: ${missingRequiredEnv.join(", ")}`);
+}
+
+// Configure this only for the number of trusted proxy hops in the deployment.
+// Express otherwise uses the socket address for request IPs and rate limits.
+if (process.env.TRUST_PROXY_HOPS) {
+  const proxyHops = Number(process.env.TRUST_PROXY_HOPS);
+  if (Number.isInteger(proxyHops) && proxyHops >= 0 && proxyHops <= 5) app.set("trust proxy", proxyHops);
+  else console.error("TRUST_PROXY_HOPS must be an integer between 0 and 5.");
+}
+
 const httpServer = createServer(app);
 initializeWebSocket(httpServer);
+
+app.disable("x-powered-by");
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(self)");
+  if (process.env.NODE_ENV === "production") {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  next();
+});
 
 const allowedOrigins = new Set([
   ...(process.env.NODE_ENV === "production"
@@ -52,14 +77,17 @@ app.use(cors({
     if (!origin || allowedOrigins.has(origin) || (process.env.NODE_ENV !== "production" && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin))) {
       return callback(null, true);
     }
-    return callback(new Error("Origin is not allowed by CORS"));
+    const error = new Error("Origin is not allowed by CORS");
+    error.status = 403;
+    return callback(error);
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   credentials: true,
   allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: "256kb", strict: true }));
+app.use(express.urlencoded({ extended: false, limit: "64kb", parameterLimit: 100 }));
 app.use(clerkMiddleware());
 app.use(
   fileUpload({
@@ -69,7 +97,12 @@ app.use(
     limits: {
       // Allows short profile videos while keeping uploads bounded.
       fileSize: 25 * 1024 * 1024,
+      files: 2,
+      fields: 30,
+      parts: 32,
     },
+    abortOnLimit: true,
+    responseOnLimit: "Upload exceeds the allowed size.",
   })
 );
 
@@ -97,12 +130,12 @@ app.use((req, res, next) => {
 });
 
 // cron jobs
-const tempDir = path.join(process.cwd(), "tmp");
+const tempDir = path.join(__dirname, "tmp");
 cron.schedule("0 * * * *", () => {
   if (fs.existsSync(tempDir)) {
     fs.readdir(tempDir, (err, files) => {
       if (err) {
-        console.log("error", err);
+        console.error("Temporary upload cleanup failed:", err.message);
         return;
       }
       for (const file of files) {
@@ -165,14 +198,14 @@ if (process.env.NODE_ENV === "production") {
 
 // error handler
 app.use((err, req, res, next) => {
-  res
-    .status(500)
-    .json({
-      message:
-        process.env.NODE_ENV === "production"
-          ? "Internal server error"
-          : err.message,
-    });
+  if (res.headersSent) return next(err);
+  const status = Number.isInteger(err.status) && err.status >= 400 && err.status < 500 ? err.status : 500;
+  if (status >= 500) console.error("Request failed:", { method: req.method, path: req.path, status });
+  res.status(status).json({
+    message: status === 500
+      ? "Internal server error"
+      : (err.message || "Invalid request"),
+  });
 });
 
 httpServer.listen(PORT, () => {

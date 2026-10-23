@@ -4,7 +4,6 @@ import toast from "react-hot-toast";
 import { create } from "zustand";
 import { cacheHomeShelf, getCachedHomeShelf } from "@/lib/offlineLibrary";
 import { usePlayerStore } from "./usePlayerStore";
-import { recordPlaybackOutcome } from "@/lib/recommendations";
 
 // Add Artist type
 export interface Artist {
@@ -77,7 +76,7 @@ interface MusicStore {
 	deleteAlbum: (id: string) => Promise<void>;
 	fetchMadeForYouAlbums: (force?: boolean) => Promise<void>;
 	fetchMadeForYouAlbumsId: () => Promise<void>;
-	toggleLike: (id: string) => Promise<void>;
+	toggleLike: (id: string, song?: Song) => Promise<void>;
 	fetchArtists: (force?: boolean) => Promise<void>;
 	fetchArtistById: (id: string) => Promise<void>;
 	loadMoreArtistSongs: (id: string) => Promise<void>;
@@ -99,6 +98,7 @@ interface MusicStore {
 const SAAVN_BASE = "/saavn";
 type HomeShelf = "featured" | "made-for-you" | "trending";
 const homeShelfRequests = new Map<HomeShelf, Promise<Song[]>>();
+const likeRequests = new Map<string, Promise<void>>();
 const MADE_FOR_YOU_ALBUMS_CACHE_KEY = "beatbond:made-for-you-albums";
 
 const readCachedAlbums = (): Album[] => {
@@ -581,34 +581,62 @@ export const useMusicStore = create<MusicStore>((set, get) => ({
 		}
 		set({ isLoading: true });
 		try {
-			// Use a real trending artist as the album query. This keeps album
-			// discovery relevant and removes the previous random static pool.
-			const query = get().trendingSongs[0]?.artist || get().madeForYouSongs[0]?.artist || "popular music";
-			let data = await safeFetchJson(`${SAAVN_BASE}/search/albums?query=${encodeURIComponent(query)}`);
-			// The upstream catalogue occasionally drops a request. Retry once with
-			// a small delay before using the stable local catalogue below.
-			if (!data?.data?.results?.length) {
-				await new Promise((resolve) => window.setTimeout(resolve, 450));
-				data = await safeFetchJson(`${SAAVN_BASE}/search/albums?query=${encodeURIComponent(query)}`);
+			const currentYear = new Date().getFullYear();
+			if (!get().trendingSongs.length) await get().fetchTrendingSongs();
+			const chartSongs = get().trendingSongs;
+			const chartAlbums: Album[] = [];
+			const seenChartAlbums = new Set<string>();
+			for (const song of chartSongs) {
+				const id = String(song.albumId || "").trim();
+				const name = String(song.albumName || song.albumTitle || "").trim();
+				if (!id || !name || seenChartAlbums.has(id)) continue;
+				seenChartAlbums.add(id);
+				chartAlbums.push(normalizeAlbum({
+					id,
+					name,
+					title: name,
+					artist: song.artist,
+					imageUrl: song.imageUrl,
+					year: song.releaseYear || song.year,
+					songCount: 0,
+				}));
 			}
 
-			const discovered = data?.data?.results;
-			if (Array.isArray(discovered) && discovered.length) {
-				const albums = discovered.map(normalizeAlbum).filter((album: Album) => Boolean(album.id));
-				if (albums.length) {
-					cacheAlbums(albums);
-					set({ madeForYouAlbums: albums, error: null });
-					return;
-				}
+			// Search by current chart artists and broad new-release terms so this
+			// shelf can surface fresh real albums instead of one artist's backlist.
+			const chartArtistQueries = [...new Set(chartSongs
+				.flatMap((song) => String(song.artist || "").split(/,|&| feat\.? | featuring /i))
+				.map((artist) => artist.trim())
+				.filter((artist) => artist.length > 1))].slice(0, 3);
+			const albumQueries = [...new Set([
+				`new albums ${currentYear}`,
+				`latest albums ${currentYear}`,
+				...chartArtistQueries,
+			])];
+			const searchResults = await Promise.allSettled(albumQueries.map(async (query) => {
+				const data = await safeFetchJson(`${SAAVN_BASE}/search/albums?query=${encodeURIComponent(query)}&limit=20`);
+				return Array.isArray(data?.data?.results) ? data.data.results : [];
+			}));
+			const discovered = searchResults.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+			const searchedAlbums = discovered.map(normalizeAlbum).filter((album: Album) => Boolean(album.id));
+			const uniqueAlbums = new Map<string, Album>();
+			// Lead with a couple of chart albums, then mix in current search results
+			// so the first screen includes both what's trending and recent releases.
+			for (const album of chartAlbums.slice(0, 2)) uniqueAlbums.set(album.id, album);
+			for (const album of searchedAlbums.sort((a, b) => (b.releaseYear || b.year || 0) - (a.releaseYear || a.year || 0))) {
+				if (!uniqueAlbums.has(album.id)) uniqueAlbums.set(album.id, album);
 			}
+			for (const album of chartAlbums.slice(2)) if (!uniqueAlbums.has(album.id)) uniqueAlbums.set(album.id, album);
 
 			// This endpoint has database and bundled fallbacks, so it keeps the
-			// home page useful even when the external discovery provider is down.
+			// home page useful and retains the existing catalogue when search is down.
 			const { data: fallback } = await axiosInstance.get<Album[]>("/albums");
 			const albums = (fallback || []).map(normalizeAlbum).filter((album) => Boolean(album.id));
-			if (albums.length) {
-				cacheAlbums(albums);
-				set({ madeForYouAlbums: albums, error: null });
+			for (const album of albums) if (!uniqueAlbums.has(album.id)) uniqueAlbums.set(album.id, album);
+			const mergedAlbums = [...uniqueAlbums.values()];
+			if (mergedAlbums.length) {
+				cacheAlbums(mergedAlbums);
+				set({ madeForYouAlbums: mergedAlbums, error: null });
 				return;
 			}
 			if (!cachedAlbums.length) set({ error: "Albums are temporarily unavailable" });
@@ -638,47 +666,64 @@ export const useMusicStore = create<MusicStore>((set, get) => ({
 		}
 	},
 
-	toggleLike: async (id) => {
-		try {
-			const response = await axiosInstance.post(`/songs/${id}/toggle-like`);
-			if (response.data.isLiked) {
-				const liked = get().songs.find((song) => song._id === id) || get().trendingSongs.find((song) => song._id === id);
-				if (liked) {
-					recordPlaybackOutcome(liked, liked.duration || 1, liked.duration || 1);
-				}
-			}
+	toggleLike: (id, suppliedSong) => {
+		const existingRequest = likeRequests.get(id);
+		if (existingRequest) return existingRequest;
 
-			set((state) => ({
-				songs: state.songs.map((song) =>
-					song._id === id ? { ...song, isLiked: response.data.isLiked, userId: response.data.userId } : song
-				),
-				featuredSongs: state.featuredSongs.map((song) =>
-					song._id === id ? { ...song, isLiked: response.data.isLiked, userId: response.data.userId } : song
-				),
-				madeForYouSongs: state.madeForYouSongs.map((song) =>
-					song._id === id ? { ...song, isLiked: response.data.isLiked, userId: response.data.userId } : song
-				),
-				trendingSongs: state.trendingSongs.map((song) =>
-					song._id === id ? { ...song, isLiked: response.data.isLiked, userId: response.data.userId } : song
-				),
-			}));
+		const state = get();
+		const currentSong = usePlayerStore.getState().currentSong;
+		const song = suppliedSong
+			|| state.songs.find((item) => item._id === id)
+			|| state.featuredSongs.find((item) => item._id === id)
+			|| state.madeForYouSongs.find((item) => item._id === id)
+			|| state.trendingSongs.find((item) => item._id === id)
+			|| state.likedSongs.find((item) => item._id === id)
+			|| (currentSong?._id === id ? currentSong : undefined);
+		const currentlyLiked = state.likedSongs.some((item) => item._id === id) || Boolean(song?.isLiked);
+		const desiredLiked = !currentlyLiked;
 
-			const likedSongsResponse = await axiosInstance.get('/songs/liked');
-			set({ likedSongs: likedSongsResponse.data });
-
-			toast.success(response.data.isLiked ? "Added to Liked Songs" : "Removed from Liked Songs");
-		} catch (error: any) {
-			console.error("Error toggling like:", error);
-			const errorMessage = error.response?.data?.message || "Failed to update like status";
-			toast.error(errorMessage);
-
+		const request = (async () => {
 			try {
-				const response = await axiosInstance.get("/songs");
-				set({ songs: response.data });
-			} catch (refreshError) {
-				console.error("Error refreshing songs:", refreshError);
+				const response = await axiosInstance.post(`/songs/${encodeURIComponent(id)}/toggle-like`, {
+					isLiked: desiredLiked,
+					song: song ? {
+						_id: song._id,
+						title: song.title,
+						artist: song.artist,
+						imageUrl: song.imageUrl,
+						audioUrl: song.audioUrl,
+						duration: song.duration,
+						albumId: song.albumId,
+						albumName: song.albumName,
+						genre: song.genre,
+						language: song.language,
+					} : undefined,
+				});
+				const updatedSong = { ...(song || {}), ...response.data, _id: id } as Song;
+				set((current) => {
+					const updateList = (list: Song[]) => list.map((item) => item._id === id ? { ...item, isLiked: response.data.isLiked, userId: response.data.userId } : item);
+					const likedSongs = response.data.isLiked
+						? [...current.likedSongs.filter((item) => item._id !== id), updatedSong]
+						: current.likedSongs.filter((item) => item._id !== id);
+					return {
+						songs: updateList(current.songs),
+						featuredSongs: updateList(current.featuredSongs),
+						madeForYouSongs: updateList(current.madeForYouSongs),
+						trendingSongs: updateList(current.trendingSongs),
+						likedSongs,
+					};
+				});
+				if (currentSong?._id === id) usePlayerStore.getState().setCurrentSongLiked(response.data.isLiked);
+				toast.success(response.data.isLiked ? "Added to Liked Songs" : "Removed from Liked Songs");
+			} catch (error: any) {
+				console.error("Error toggling like:", error);
+				toast.error(error.response?.data?.message || "Could not update the like. Please try again.");
+			} finally {
+				likeRequests.delete(id);
 			}
-		}
+		})();
+		likeRequests.set(id, request);
+		return request;
 	},
 
 	deleteSong: async (id) => {

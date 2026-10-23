@@ -13,6 +13,7 @@ import { axiosInstance } from "@/lib/axios";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useMyProfile } from "@/hooks/useMyProfile";
 import { PageBackButton } from "@/components/PageBackButton";
+import type { Song } from "@/types";
 
 interface DashboardStats {
   hoursListened: number;
@@ -175,9 +176,9 @@ const DashboardPage = () => {
     }
   }, [setCurrentSong, isPlaying, togglePlay]);
 
-  const handleLikeSong = useCallback((e: React.MouseEvent, songId: string) => {
+  const handleLikeSong = useCallback((e: React.MouseEvent, song: Song) => {
     e.stopPropagation();
-    toggleLike(songId);
+    void toggleLike(song._id, song);
   }, [toggleLike]);
 
   // Loading skeleton
@@ -412,7 +413,7 @@ const DashboardPage = () => {
                         size="icon"
                         variant="ghost"
                         className="h-8 w-8"
-                        onClick={(e) => handleLikeSong(e, song._id)}
+                        onClick={(e) => handleLikeSong(e, song)}
                       >
                         <Heart className="h-4 w-4 text-pink-500 fill-pink-500" />
                       </Button>

@@ -6,9 +6,12 @@ export const addComment = async (req, res, next) => {
     const userId = req.auth().userId;
     const { songId, songTitle, songArtist, songImageUrl, content } = req.body;
 
-    if (!songId || !content || !content.trim()) {
+    if (typeof songId !== "string" || !songId.trim() || songId.length > 200 || typeof content !== "string" || !content.trim() || content.length > 2_000) {
       return res.status(400).json({ error: "Song ID and comment content are required" });
     }
+    if (typeof songTitle !== "undefined" && (typeof songTitle !== "string" || songTitle.length > 200)) return res.status(400).json({ error: "Invalid song title" });
+    if (typeof songArtist !== "undefined" && (typeof songArtist !== "string" || songArtist.length > 200)) return res.status(400).json({ error: "Invalid artist name" });
+    if (typeof songImageUrl !== "undefined" && (typeof songImageUrl !== "string" || songImageUrl.length > 2_000 || !/^https:\/\//i.test(songImageUrl))) return res.status(400).json({ error: "Invalid cover image URL" });
 
     const comment = await Comment.create({
       userId,
@@ -68,7 +71,7 @@ export const getUserComments = async (req, res, next) => {
   try {
     const { userId } = req.params;
 
-    const comments = await Comment.find({ userId }).sort({ createdAt: -1 }).lean();
+    const comments = await Comment.find({ userId }).sort({ createdAt: -1 }).limit(100).lean();
 
     const user = await User.findOne({ clerkId: userId }).select("clerkId fullName username imageUrl").lean();
     const userInfo = user || {

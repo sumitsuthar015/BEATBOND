@@ -33,15 +33,20 @@ export const protectRoute = async (req, res, next) => {
 			}
 		}
 	} catch (err) {
-		console.error("Auto-sync user in protectRoute error:", err.message);
+		console.error("Authenticated user provisioning failed:", err.message);
+		return res.status(503).json({ message: "Sign-in could not be completed right now. Please retry shortly." });
 	}
 
 	next();
 };
 
 export const isAdminUser = async (userId) => {
+	const configuredAdminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+	if (!configuredAdminEmail || !userId) return false;
 	const currentUser = await clerkClient.users.getUser(userId);
-	return process.env.ADMIN_EMAIL === currentUser.primaryEmailAddress?.emailAddress;
+	const primaryEmail = currentUser.primaryEmailAddress;
+	const verifiedEmail = primaryEmail?.emailAddress?.trim().toLowerCase();
+	return Boolean(primaryEmail?.verification?.status === "verified" && verifiedEmail && configuredAdminEmail === verifiedEmail);
 };
 
 export const requireAdmin = async (req, res, next) => {

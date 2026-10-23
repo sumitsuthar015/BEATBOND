@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { protectRoute } from "../middleware/auth.middleware.js";
+import { rateLimit } from "../middleware/rateLimit.middleware.js";
 import {
   getNotifications,
   markAsRead,
@@ -17,7 +18,7 @@ router.get("/push/public-key", getPushPublicKey);
 
 router.use(protectRoute);
 
-router.post("/push/subscriptions", subscribeToPush);
+router.post("/push/subscriptions", rateLimit({ name: "push-subscription", limit: 10, windowMs: 60 * 60 * 1000 }), subscribeToPush);
 router.delete("/push/subscriptions", unsubscribeFromPush);
 
 router.get("/", getNotifications);

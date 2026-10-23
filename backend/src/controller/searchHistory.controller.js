@@ -4,8 +4,9 @@ import { SavedSearch } from "../models/savedSearch.model.js";
 // Get user's search history
 export const getSearchHistory = async (req, res, next) => {
 	try {
-		const userId = req.user.id;
-		const { limit = 50, offset = 0 } = req.query;
+		const userId = req.auth().userId;
+		const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 50));
+		const offset = Math.min(10_000, Math.max(0, Number.parseInt(req.query.offset, 10) || 0));
 
 		const history = await SearchHistory.find({ userId })
 			.sort({ createdAt: -1 })
@@ -32,11 +33,21 @@ export const getSearchHistory = async (req, res, next) => {
 // Add search to history
 export const addSearchHistory = async (req, res, next) => {
 	try {
-		const userId = req.user.id;
+		const userId = req.auth().userId;
 		const { query, resultCount, filters, clickedResult, clickedResultType } = req.body;
 
-		if (!query || !query.trim()) {
+		if (typeof query !== "string" || !query.trim() || query.length > 200) {
 			return res.status(400).json({ message: "Query is required" });
+		}
+		if (filters !== undefined && (!filters || typeof filters !== "object" || Array.isArray(filters))) {
+			return res.status(400).json({ message: "Filters must be an object" });
+		}
+		if (typeof resultCount !== "undefined" && (!Number.isInteger(resultCount) || resultCount < 0 || resultCount > 100_000)) {
+			return res.status(400).json({ message: "Invalid result count" });
+		}
+		if (typeof clickedResult === "string" && clickedResult.length > 300) return res.status(400).json({ message: "Clicked result is too long" });
+		if (clickedResultType !== undefined && !["song", "artist", "album", "playlist", null].includes(clickedResultType)) {
+			return res.status(400).json({ message: "Invalid clicked result type" });
 		}
 
 		// Check if this exact query was recently searched (within last hour)
@@ -88,7 +99,7 @@ export const addSearchHistory = async (req, res, next) => {
 // Clear user's search history
 export const clearSearchHistory = async (req, res, next) => {
 	try {
-		const userId = req.user.id;
+		const userId = req.auth().userId;
 		await SearchHistory.deleteMany({ userId });
 		res.status(200).json({ message: "Search history cleared" });
 	} catch (error) {
@@ -99,7 +110,7 @@ export const clearSearchHistory = async (req, res, next) => {
 // Delete specific search history entry
 export const deleteSearchHistoryEntry = async (req, res, next) => {
 	try {
-		const userId = req.user.id;
+		const userId = req.auth().userId;
 		const { id } = req.params;
 
 		const entry = await SearchHistory.findOneAndDelete({ _id: id, userId });
@@ -116,7 +127,8 @@ export const deleteSearchHistoryEntry = async (req, res, next) => {
 // Get popular/trending searches
 export const getPopularSearches = async (req, res, next) => {
 	try {
-		const { limit = 10, timeframe = "7d" } = req.query;
+		const { timeframe = "7d" } = req.query;
+		const limit = Math.min(50, Math.max(1, Number.parseInt(req.query.limit, 10) || 10));
 
 		let startDate;
 		switch (timeframe) {
@@ -152,8 +164,9 @@ export const getPopularSearches = async (req, res, next) => {
 // Get user's saved searches
 export const getSavedSearches = async (req, res, next) => {
 	try {
-		const userId = req.user.id;
-		const { limit = 50, offset = 0 } = req.query;
+		const userId = req.auth().userId;
+		const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 50));
+		const offset = Math.min(10_000, Math.max(0, Number.parseInt(req.query.offset, 10) || 0));
 
 		const searches = await SavedSearch.find({ userId, isActive: true })
 			.sort({ createdAt: -1 })
@@ -180,14 +193,20 @@ export const getSavedSearches = async (req, res, next) => {
 // Create a saved search
 export const createSavedSearch = async (req, res, next) => {
 	try {
-		const userId = req.user.id;
+		const userId = req.auth().userId;
 		const { name, query, filters, notifyOnNewResults } = req.body;
 
-		if (!name || !name.trim()) {
+		if (typeof name !== "string" || !name.trim() || name.length > 100) {
 			return res.status(400).json({ message: "Name is required" });
 		}
-		if (!query || !query.trim()) {
+		if (typeof query !== "string" || !query.trim() || query.length > 200) {
 			return res.status(400).json({ message: "Query is required" });
+		}
+		if (filters !== undefined && (!filters || typeof filters !== "object" || Array.isArray(filters))) {
+			return res.status(400).json({ message: "Filters must be an object" });
+		}
+		if (notifyOnNewResults !== undefined && typeof notifyOnNewResults !== "boolean") {
+			return res.status(400).json({ message: "notifyOnNewResults must be a boolean" });
 		}
 
 		// Check for duplicate
@@ -201,7 +220,7 @@ export const createSavedSearch = async (req, res, next) => {
 			name: name.trim(),
 			query: query.trim(),
 			filters: filters || {},
-			notifyOnNewResults: notifyOnNewResults || false,
+			notifyOnNewResults: notifyOnNewResults === true,
 		});
 
 		res.status(201).json({ search: savedSearch });
@@ -213,13 +232,30 @@ export const createSavedSearch = async (req, res, next) => {
 // Update a saved search
 export const updateSavedSearch = async (req, res, next) => {
 	try {
-		const userId = req.user.id;
+		const userId = req.auth().userId;
 		const { id } = req.params;
 		const { name, filters, notifyOnNewResults, isActive } = req.body;
+		const updates = {};
+		if (name !== undefined) {
+			if (typeof name !== "string" || !name.trim() || name.length > 100) return res.status(400).json({ message: "Name must be between 1 and 100 characters" });
+			updates.name = name.trim();
+		}
+		if (filters !== undefined) {
+			if (!filters || typeof filters !== "object" || Array.isArray(filters)) return res.status(400).json({ message: "Filters must be an object" });
+			updates.filters = filters;
+		}
+		if (notifyOnNewResults !== undefined) {
+			if (typeof notifyOnNewResults !== "boolean") return res.status(400).json({ message: "notifyOnNewResults must be a boolean" });
+			updates.notifyOnNewResults = notifyOnNewResults;
+		}
+		if (isActive !== undefined) {
+			if (typeof isActive !== "boolean") return res.status(400).json({ message: "isActive must be a boolean" });
+			updates.isActive = isActive;
+		}
 
 		const savedSearch = await SavedSearch.findOneAndUpdate(
 			{ _id: id, userId },
-			{ name, filters, notifyOnNewResults, isActive },
+			{ $set: updates },
 			{ new: true, runValidators: true }
 		);
 
@@ -236,7 +272,7 @@ export const updateSavedSearch = async (req, res, next) => {
 // Delete a saved search
 export const deleteSavedSearch = async (req, res, next) => {
 	try {
-		const userId = req.user.id;
+		const userId = req.auth().userId;
 		const { id } = req.params;
 
 		const savedSearch = await SavedSearch.findOneAndDelete({ _id: id, userId });

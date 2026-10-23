@@ -9,6 +9,7 @@ import { canSeePresence, statusForViewer } from "../services/chat.service.js";
 import cloudinary from "../lib/cloudinary.js";
 import fs from "fs/promises";
 import { PHOTO_SOURCES, escapeRegex, photoSourceAvailable, photoStateOf, photoUpdate, summarizeListening, validateProfileUpdate } from "../services/profile.service.js";
+import { isSupportedImage } from "../lib/uploadValidation.js";
 
 export const saveListeningActivity = async (req, res, next) => {
 	try {
@@ -350,7 +351,7 @@ export const updateUserProfile = async (req, res, next) => {
 const storeUploadedImage = async (req, res, cloudinaryOptions) => {
 	const photo = req.files?.photo;
 	if (!photo || Array.isArray(photo)) { res.status(400).json({ message: "Choose a profile photo to upload." }); return null; }
-	if (!photo.mimetype?.startsWith("image/")) { res.status(400).json({ message: "Please upload an image file." }); return null; }
+	if (!(await isSupportedImage(photo))) { res.status(400).json({ message: "Upload a valid JPEG, PNG, WebP, or GIF image." }); return null; }
 	if (photo.size > 5 * 1024 * 1024) { res.status(400).json({ message: "Profile photos must be 5 MB or smaller." }); return null; }
 	if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
 		res.status(503).json({ message: "Photo uploads are not configured yet." });
@@ -558,10 +559,11 @@ export const markAllMessagesAsRead = async (req, res, next) => {
 	try {
 		const myId = req.auth().userId; // Current user ID
 		const { userId } = req.params; // The sender's ID
+		if (typeof userId !== "string" || !userId || userId === myId) return res.status(400).json({ message: "Invalid conversation" });
 
 		const reader = await User.findOne({ clerkId: myId }).select("readReceipts").lean();
 		const result = await Message.updateMany(
-			{ senderId: userId, receiverId: myId, readAt: null },
+			{ senderId: userId, receiverId: myId, deletedFor: { $ne: myId }, readAt: null },
 			// readAt drives unread badges; "read" ticks only when the reader shares receipts.
 			{ readAt: new Date(), ...(reader?.readReceipts !== false ? { status: "read" } : {}) }
 		);
@@ -588,15 +590,13 @@ export const deleteMessage = async (req, res, next) => {
 		const { messageId } = req.params;
 		if (!mongoose.isValidObjectId(messageId)) return res.status(404).json({ message: "Message not found" });
 
-		const message = await Message.findById(messageId);
-		if (!message || ![message.senderId, message.receiverId].includes(myId)) {
-			return res.status(404).json({ message: "Message not found" });
-		}
-
 		// Older app versions sent no scope and meant "everyone" for their own messages.
-		const scope = req.query.scope === "me" || req.query.scope === "everyone"
-			? req.query.scope
-			: message.senderId === myId ? "everyone" : "me";
+		const requestedScope = req.query.scope === "me" || req.query.scope === "everyone" ? req.query.scope : null;
+		const message = requestedScope === "everyone"
+			? await Message.findOne({ _id: messageId, senderId: myId })
+			: await Message.findOne({ _id: messageId, $or: [{ senderId: myId }, { receiverId: myId }], deletedFor: { $ne: myId } });
+		if (!message) return res.status(404).json({ message: "Message not found" });
+		const scope = requestedScope || (message.senderId === myId ? "everyone" : "me");
 
 		if (scope === "everyone") {
 			if (message.senderId !== myId) {

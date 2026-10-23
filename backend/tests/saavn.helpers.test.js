@@ -7,6 +7,7 @@ import {
   extractSearchFields,
   decryptMediaUrl,
   uniqueSongsById,
+  rankSearchResults,
 } from "../src/services/saavn.service.js";
 
 // Encrypts a URL the way JioSaavn does, so the test needs no network access.
@@ -17,6 +18,7 @@ test("normalizeSearchQuery removes accents, punctuation and HTML entities", () =
   assert.equal(normalizeSearchQuery("  Café   Déjà-Vu!! "), "cafe deja vu");
   assert.equal(normalizeSearchQuery("Salim &amp; Sulaiman"), "salim and sulaiman");
   assert.equal(normalizeSearchQuery(null), "");
+  assert.equal(normalizeSearchQuery("दिल से"), "दिल से");
 });
 
 test("tokenizeQuery splits a query into clean lowercase tokens", () => {
@@ -61,4 +63,45 @@ test("uniqueSongsById keeps order and prefers the copy with a stream", () => {
   ]);
 
   assert.deepEqual(songs.map((song) => song.name), ["First (web copy)", "Second"]);
+});
+
+test("hybrid ranking puts exact song titles ahead of partial matches", () => {
+  const ranked = rankSearchResults([
+    { id: "partial", title: "Blinding", artist: "Various Artists" },
+    { id: "exact", title: "Blinding Lights", artist: "The Weeknd" },
+  ], "song", "Blinding Lights", "general", 10);
+
+  assert.equal(ranked[0].id, "exact");
+});
+
+test("fuzzy ranking handles transposed title letters without promoting unrelated songs", () => {
+  const ranked = rankSearchResults([
+    { id: "unrelated", title: "Blinding (Live)", artist: "Someone Else" },
+    { id: "target", title: "Blinding Lights", artist: "The Weeknd" },
+  ], "song", "blinding ligths", "general", 10);
+
+  assert.equal(ranked[0].id, "target");
+});
+
+test("artist and album exact matches rank in their own result groups", () => {
+  const artist = rankSearchResults([
+    { id: "artist", name: "Arijit Singh", isVerified: true },
+    { id: "other", name: "Armaan Malik", isVerified: true },
+  ], "artist", "Arijit Singh", "artist", 10);
+  const album = rankSearchResults([
+    { id: "album-other", name: "Brahmastra: Part One" },
+    { id: "album", name: "Brahmastra" },
+  ], "album", "Brahmastra", "album", 10);
+
+  assert.equal(artist[0].id, "artist");
+  assert.equal(album[0].id, "album");
+});
+
+test("fuzzy artist queries keep the matching verified artist above other profiles", () => {
+  const ranked = rankSearchResults([
+    { id: "other", name: "Armaan Malik", isVerified: true },
+    { id: "artist", name: "Arijit Singh", isVerified: true },
+  ], "artist", "arjit singh", "general", 10);
+
+  assert.equal(ranked[0].id, "artist");
 });

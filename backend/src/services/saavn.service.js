@@ -66,6 +66,7 @@ const streamCache = new Map();
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const searchResultCache = new Map();
 const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
+const SEARCH_PROVIDER_TIMEOUT_MS = 12_000;
 // Charts move throughout the day, so keep this shared server cache short
 // enough to refresh regularly while avoiding a provider request per visitor.
 const DAILY_TRENDING_TTL_MS = 30 * 60 * 1000;
@@ -81,7 +82,7 @@ const normaliseSearchText = (value) => String(value || "")
   .normalize("NFD")
   .replace(/[\u0300-\u036f]/g, "")
   .toLowerCase()
-  .replace(/[^\p{L}\p{N}]+/gu, " ")
+  .replace(/[^\p{L}\p{N}\p{M}]+/gu, " ")
   .trim()
   .replace(/\s+/g, " ");
 
@@ -89,6 +90,7 @@ const SEARCH_NOISE_WORDS = new Set([
   "song", "songs", "music", "official", "video", "audio", "lyrics",
   "full", "new", "latest", "download", "listen", "play", "artist", "artists",
 ]);
+const MAX_SEARCH_QUERY_LENGTH = 120;
 
 export const normalizeSearchQuery = (query) => normaliseSearchText(query);
 
@@ -125,21 +127,47 @@ const songArtistText = (song) => extractSearchFields(song).artists.join(" ");
 const editDistance = (left, right) => {
   if (left === right) return 0;
   if (!left || !right) return Math.max(left.length, right.length);
-  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  const matrix = Array.from({ length: left.length + 1 }, () => Array(right.length + 1).fill(0));
+  for (let i = 0; i <= left.length; i += 1) matrix[i][0] = i;
+  for (let j = 0; j <= right.length; j += 1) matrix[0][j] = j;
   for (let i = 1; i <= left.length; i += 1) {
-    const current = [i];
-    for (let j = 1; j <= right.length; j += 1) current[j] = Math.min(current[j - 1] + 1, previous[j] + 1, previous[j - 1] + (left[i - 1] === right[j - 1] ? 0 : 1));
-    previous = current;
+    for (let j = 1; j <= right.length; j += 1) {
+      const substitution = matrix[i - 1][j - 1] + (left[i - 1] === right[j - 1] ? 0 : 1);
+      matrix[i][j] = Math.min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1, substitution);
+      // Damerau transposition: "ligths" should match "lights" with one edit.
+      if (i > 1 && j > 1 && left[i - 1] === right[j - 2] && left[i - 2] === right[j - 1]) {
+        matrix[i][j] = Math.min(matrix[i][j], matrix[i - 2][j - 2] + 1);
+      }
+    }
   }
-  return previous[right.length];
+  return matrix[left.length][right.length];
 };
 
-const fuzzyScore = (query, fields) => {
-  if (query.length < 4) return 0;
-  const words = fields.searchableText.split(" ").filter(Boolean);
-  const queryWords = tokenizeQuery(query);
-  const close = queryWords.filter((term) => words.some((word) => Math.abs(word.length - term.length) <= 2 && editDistance(term, word) <= (term.length >= 7 ? 2 : 1))).length;
-  return close === queryWords.length ? 80 : close ? close * 15 : 0;
+const fuzzyFieldMatch = (terms, value) => {
+  const words = normaliseSearchText(value).split(" ").filter(Boolean);
+  if (!terms.length || !words.length) return null;
+  let typoCount = 0;
+  for (const term of terms) {
+    const exact = words.some((word) => word === term);
+    if (exact) continue;
+    if (term.length < 4) return null;
+    const maxDistance = term.length >= 7 ? 2 : 1;
+    const close = words.some((word) =>
+      word.length >= 4 && Math.abs(word.length - term.length) <= maxDistance && editDistance(term, word) <= maxDistance,
+    );
+    if (!close) return null;
+    typoCount += 1;
+  }
+  return typoCount ? { typoCount } : null;
+};
+
+const withTimeout = (promise, timeoutMs, label) => {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out`)), timeoutMs);
+    timer.unref?.();
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 };
 
 const detectSearchIntent = (query, artists, albums) => {
@@ -198,7 +226,12 @@ const rankResults = (items, type, query, intent, limit) => {
       if (terms.length && terms.every((term) => artists.some((artist) => artist.includes(term)))) score += 400;
       if (terms.length && terms.every((term) => text.includes(term))) score += 300;
       score += terms.reduce((sum, term) => sum + (text.includes(term) ? 50 : 0), 0);
-      score += fuzzyScore(normalized, fields);
+      const titleFuzzy = fuzzyFieldMatch(terms, fields.title);
+      const artistFuzzy = fuzzyFieldMatch(terms, fields.artists.join(" "));
+      const allFieldsFuzzy = fuzzyFieldMatch(terms, `${fields.title} ${fields.artists.join(" ")} ${fields.album}`);
+      if (titleFuzzy) score += 360 - titleFuzzy.typoCount * 20;
+      else if (artistFuzzy) score += 330 - artistFuzzy.typoCount * 20;
+      else if (allFieldsFuzzy) score += 260 - allFieldsFuzzy.typoCount * 20;
       if (intent === type || (intent === "song" && type === "song")) score += 25;
       if (type === "artist" && item?.isVerified) score += 150;
       const popularity = Math.min(Math.log10(Number(item?.play_count || item?.playCount || item?.followerCount || 0) + 1) || 0, 12);
@@ -210,15 +243,21 @@ const rankResults = (items, type, query, intent, limit) => {
     .map(({ item }) => item);
 };
 
+export const rankSearchResults = rankResults;
+
 // Search responses are read-heavy and identical queries are common while a
 // user refines text. Cache the already-shaped payload, not the raw provider
 // response, so clients receive the smallest possible object immediately.
 const cachedSearch = async (kind, query, limit, fetcher) => {
-  const normalized = String(query || "").trim().toLowerCase().replace(/\s+/g, " ");
+  const normalized = normaliseSearchText(String(query || "").slice(0, MAX_SEARCH_QUERY_LENGTH));
   const key = `${kind}:${normalized}:${limit}`;
   const cached = searchResultCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
   const value = await fetcher(normalized);
+  if (searchResultCache.size >= 500) {
+    const oldestKey = searchResultCache.keys().next().value;
+    if (oldestKey) searchResultCache.delete(oldestKey);
+  }
   searchResultCache.set(key, { expiresAt: Date.now() + SEARCH_CACHE_TTL_MS, value });
   return value;
 };
@@ -241,6 +280,7 @@ const searchJioSaavnWebSongs = async (query, limit, page = 1) => {
     });
     const response = await saavnFetch(`${SAAVN_API_URL}?${params}`, {
       headers: { Accept: "application/json", "User-Agent": "BeatBond/1.0" },
+      signal: AbortSignal.timeout(SEARCH_PROVIDER_TIMEOUT_MS),
     });
     if (!response.ok) return [];
     const payload = await response.json();
@@ -605,7 +645,11 @@ export async function searchSongs(query, limit = 50, page = 1) {
       // incomplete list (for example a remix) while missing the official song.
       // Both lookups are independent, so run them side by side.
       const [sdkResponse, webResults] = await Promise.all([
-        Song.search({ query: normalized, limit: safeLimit, offset: safePage }).catch(() => ({ results: [] })),
+        withTimeout(
+          Song.search({ query: normalized, limit: safeLimit, offset: safePage }),
+          SEARCH_PROVIDER_TIMEOUT_MS,
+          "Saavn SDK search",
+        ).catch(() => ({ results: [] })),
         searchJioSaavnWebSongs(normalized, safeLimit, safePage),
       ]);
       const sdkResults = sdkResponse?.results || [];
@@ -673,9 +717,20 @@ export async function searchArtists(query, limit = 10) {
     const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 50);
     // The home shelf requests without a query. Random sampling keeps it from
     // showing only the alphabetically first verified artists on every visit.
-    const artists = terms.length
+    let artists = terms.length
       ? await VerifiedArtist.find({ $and: conditions }).sort({ name: 1 }).limit(safeLimit).lean()
       : await VerifiedArtist.aggregate([{ $sample: { size: safeLimit } }]);
+    // Keep artist profiles limited to the admin-approved directory, while
+    // letting the provider suggest likely names for common typing mistakes.
+    if (terms.length && !artists.length) {
+      const candidates = await searchArtistCandidates(terms.join(" "), 20, false);
+      const matchingIds = candidates
+        .filter((artist) => fuzzyFieldMatch(terms, artist.name) || terms.every((term) => normaliseSearchText(artist.name).includes(term)))
+        .map((artist) => artist.id);
+      if (matchingIds.length) {
+        artists = await VerifiedArtist.find({ artistId: { $in: matchingIds } }).limit(safeLimit).lean();
+      }
+    }
     const normalizedQuery = normaliseSearchText(terms.join(" "));
     const results = artists
       .map((artist) => ({
@@ -745,9 +800,9 @@ export async function searchAlbums(query, limit = 20) {
 // all JioSaavn entity types first, then score and cap them together rather
 // than trusting whichever provider endpoint happened to respond first.
 export async function searchCatalogue(query, limit = 30) {
-  const normalized = normaliseSearchText(query);
-  const cappedLimit = Math.min(Math.max(Number(limit) || 30, 1), 30);
-  if (!normalized) {
+  const normalized = normaliseSearchText(String(query || "").slice(0, MAX_SEARCH_QUERY_LENGTH));
+  const cappedLimit = Math.min(Math.max(Number(limit) || 30, 1), 50);
+  if ([...normalized].length < 2) {
     return { status: "SUCCESS", data: { query: "", intent: "general", songs: [], artists: [], albums: [] } };
   }
 

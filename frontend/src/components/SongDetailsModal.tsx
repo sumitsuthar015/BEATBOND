@@ -54,6 +54,7 @@ export const SongDetailsModal = ({ isOpen, onClose }: SongDetailsModalProps) => 
   const currentIndex = usePlayerStore((state) => state.currentIndex);
   const toggleLike = useMusicStore((state) => state.toggleLike);
   const songs = useMusicStore((state) => state.songs);
+  const likedSongs = useMusicStore((state) => state.likedSongs);
   const [volume] = useState(75);
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -70,7 +71,7 @@ export const SongDetailsModal = ({ isOpen, onClose }: SongDetailsModalProps) => 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const isLiked = currentSong
-    ? songs.find((s) => s._id === currentSong._id)?.isLiked
+    ? likedSongs.some((song) => song._id === currentSong._id) || songs.find((s) => s._id === currentSong._id)?.isLiked
     : false;
 
   useEffect(() => {
@@ -368,7 +369,7 @@ export const SongDetailsModal = ({ isOpen, onClose }: SongDetailsModalProps) => 
             <div className="grid w-full max-w-2xl grid-cols-5 gap-1 px-1 sm:gap-2 sm:px-0">
               <Button
                 variant="ghost"
-                onClick={() => toggleLike(currentSong._id)}
+                onClick={() => toggleLike(currentSong._id, currentSong)}
                 className={cn(
                   "h-auto flex flex-col items-center gap-1 py-1.5 text-xs hover:bg-white/10 transition-all duration-200 hover:scale-105 sm:py-2",
                   isLiked ? "text-primary" : "text-white/80"
@@ -404,7 +405,7 @@ export const SongDetailsModal = ({ isOpen, onClose }: SongDetailsModalProps) => 
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="bg-zinc-900/95 backdrop-blur-md border-white/10">
                   <DropdownMenuItem
-                    onClick={() => toggleLike(currentSong._id)}
+                    onClick={() => toggleLike(currentSong._id, currentSong)}
                     className="text-white hover:bg-white/10"
                   >
                     <Heart className="mr-2 h-4 w-4" />

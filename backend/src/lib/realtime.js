@@ -617,6 +617,7 @@ export const initializeWebSocket = (server) => {
     ws.socket = socket;
     socket.closed = false;
     let setupComplete = false;
+    const eventWindows = new Map();
     let disconnectedBeforeSetup = false;
     let disconnectHandled = false;
     const runDisconnectHandlers = () => {
@@ -642,6 +643,7 @@ export const initializeWebSocket = (server) => {
           const userId = claims?.sub;
           const user = userId && await User.findOne({ clerkId: userId }).select("clerkId fullName friends blockedUsers musicPrivacy showActivityStatus");
           if (!user) throw new Error("Authentication error");
+          if ((userSockets.get(userId)?.size || 0) >= 20) throw new Error("Connection limit reached");
           socket.user = user;
           clearTimeout(authTimeout);
           socket.clientVisible = packet.payload.visible === true;
@@ -659,6 +661,16 @@ export const initializeWebSocket = (server) => {
       }
       if (!setupComplete) return;
       if (packet?.type === "ping") { sendPacket(ws, "pong", { at: Date.now() }); return; }
+      const now = Date.now();
+      const eventLimit = packet?.type === "sendMessage" ? 40 : packet?.type === "typing" ? 120 : 300;
+      const window = eventWindows.get(packet?.type) || { startedAt: now, count: 0 };
+      if (now - window.startedAt >= 60_000) { window.startedAt = now; window.count = 0; }
+      window.count += 1;
+      eventWindows.set(packet?.type, window);
+      if (window.count > eventLimit) {
+        sendPacket(ws, "rate_limited", { event: packet?.type || "unknown", retryAfterMs: Math.max(1, 60_000 - (now - window.startedAt)) });
+        return;
+      }
       const handler = socketHandlers.get(socket)?.get(packet?.type)?.[0];
       if (handler) {
         try {

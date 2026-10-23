@@ -14,6 +14,7 @@ import { PushSubscription } from "../models/pushSubscription.model.js";
 import { UserLocation } from "../models/userLocation.model.js";
 import { Avatar } from "../models/avatar.model.js";
 import { Song } from "../models/song.model.js";
+import { LikedSong } from "../models/likedSong.model.js";
 import cloudinary from "../lib/cloudinary.js";
 
 const cloudinaryPublicId = (url) => {
@@ -58,6 +59,7 @@ export const deleteMyAccount = async (req, res) => {
       SearchHistory.deleteMany({ userId }),
       SavedSearch.deleteMany({ userId }),
       LikedArtist.deleteMany({ userId }),
+      LikedSong.deleteMany({ userId }),
       PushSubscription.deleteMany({ userId }),
       UserLocation.deleteMany({ userId }),
       Avatar.deleteMany({ userId }),

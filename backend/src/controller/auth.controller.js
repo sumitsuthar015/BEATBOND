@@ -1,11 +1,18 @@
+import { clerkClient } from "@clerk/express";
 import { User } from "../models/user.model.js";
 import { photoStateOf, photoUpdate } from "../services/profile.service.js";
 import { PRIVACY_VERSION, TERMS_VERSION } from "../services/legalConsent.service.js";
 
 export const authCallback = async (req, res) => {
 	try {
-		const { email_addresses, username, first_name, last_name, image_url, legalConsent } = req.body;
+		const { legalConsent } = req.body;
 		const id = req.auth().userId;
+		const clerkUser = await clerkClient.users.getUser(id);
+		if (!clerkUser) return res.status(401).json({ success: false, message: "Authentication failed" });
+		const email = clerkUser.primaryEmailAddress?.emailAddress || clerkUser.emailAddresses?.[0]?.emailAddress || "";
+		const username = clerkUser.username || (email ? email.split("@")[0] : `user_${id.slice(-6)}`);
+		const fullName = `${clerkUser.firstName || ""} ${clerkUser.lastName || ""}`.trim() || username;
+		const imageUrl = clerkUser.imageUrl || "";
 		const consentAt = new Date();
 		const legalConsents = {
 			termsVersion: TERMS_VERSION,
@@ -18,18 +25,17 @@ export const authCallback = async (req, res) => {
 		let user = await User.findOne({ clerkId: id });
 		if (!user) {
 			// For new user creation
-			const email = email_addresses || '';
-			const generatedUsername = username || email.split('@')[0] || `user_${Date.now()}`;
+			const generatedUsername = username;
 			
 			// Create new user with required fields
 			const newUser = {
 				clerkId: id,
 				email: email,
 				username: generatedUsername,
-				fullName: `${first_name || ''} ${last_name || ''}`.trim(),
-				imageUrl: image_url || '',
+				fullName,
+				imageUrl,
 				photoSource: 'provider',
-				providerImageUrl: image_url || '',
+				providerImageUrl: imageUrl,
 				// Presence is set exclusively by an authenticated WebSocket connection.
 				isOnline: false,
 				legalConsents,
@@ -40,13 +46,13 @@ export const authCallback = async (req, res) => {
 			try {
 				user = await User.create(newUser);
 			} catch (createError) {
-				console.error('Error creating user:', createError);
-				throw new Error(`Failed to create user: ${createError.message}`);
+				console.error('Error creating user:', createError.message);
+				throw createError;
 			}
 		} else {
 			// Update existing user's information
 			try {
-				user.email = email_addresses || user.email;
+				user.email = email || user.email;
 				user.legalConsents = legalConsents;
 				if (legalConsent.emailMarketingOptIn === true && user.emailMarketingOptIn !== true) {
 					user.emailMarketingOptIn = true;
@@ -54,30 +60,36 @@ export const authCallback = async (req, res) => {
 				}
 				// The name and photo edited in BeatBond win over the sign-in
 				// account's; only fill them in when they're missing.
-				user.fullName = user.fullName || `${first_name || ''} ${last_name || ''}`.trim();
+				user.fullName = user.fullName || fullName;
 				// Keep the Google photo up to date, but only show it if it's the
 				// picture this person chose.
 				const photo = photoStateOf(user);
-				user.set(photoUpdate({ ...photo, providerImageUrl: image_url || photo.providerImageUrl }));
+				user.set(photoUpdate({ ...photo, providerImageUrl: imageUrl || photo.providerImageUrl }));
 				// Do not mark a user online during an HTTP auth callback: they may have
 				// closed the browser or failed to establish a socket connection.
 				await user.save();
 			} catch (updateError) {
-				console.error('Error updating user:', updateError);
-				throw new Error(`Failed to update user: ${updateError.message}`);
+				console.error('Error updating user:', updateError.message);
+				throw updateError;
 			}
 		}
 
 		res.status(200).json({ 
 			success: true,
-			user 
+			user: {
+				clerkId: user.clerkId,
+				username: user.username,
+				fullName: user.fullName,
+				imageUrl: user.imageUrl,
+				legalConsents: user.legalConsents,
+			}
 		});
 	} catch (error) {
 		console.error('Authentication callback failed:', error.message);
 		res.status(500).json({ 
 			success: false,
 			error: 'Authentication failed',
-			message: error.message 
+			message: 'Please retry sign-in. If this continues, contact support.'
 		});
 	}
 };

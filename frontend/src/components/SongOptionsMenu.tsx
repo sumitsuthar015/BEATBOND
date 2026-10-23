@@ -60,6 +60,7 @@ export const SongOptionsMenu: React.FC<SongOptionsMenuProps> = ({
   const setCurrentSong = usePlayerStore((state) => state.setCurrentSong);
 
   const songs = useMusicStore((state) => state.songs);
+  const likedSongs = useMusicStore((state) => state.likedSongs);
   const toggleLike = useMusicStore((state) => state.toggleLike);
 
   const playlists = usePlaylistStore((state) => state.playlists);
@@ -73,7 +74,7 @@ export const SongOptionsMenu: React.FC<SongOptionsMenuProps> = ({
   const download = useSongDownload(song);
 
   const isLiked = Boolean(
-    songs.find((s) => s._id === song._id)?.isLiked || song.isLiked
+    likedSongs.some((item) => item._id === song._id) || songs.find((s) => s._id === song._id)?.isLiked || song.isLiked
   );
 
   const handlePlaySong = (e: React.MouseEvent) => {
@@ -93,7 +94,7 @@ export const SongOptionsMenu: React.FC<SongOptionsMenuProps> = ({
 
   const handleToggleLike = (e: React.MouseEvent) => {
     e.stopPropagation();
-    void toggleLike(song._id);
+    void toggleLike(song._id, song);
   };
 
   const handleAddToPlaylist = (playlistId: string, e: React.MouseEvent) => {

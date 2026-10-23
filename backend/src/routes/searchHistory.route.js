@@ -11,7 +11,7 @@ import {
 	deleteSavedSearch,
 	checkSavedSearchesForNewResults,
 } from "../controller/searchHistory.controller.js";
-import { protectRoute } from "../middleware/auth.middleware.js";
+import { protectRoute, requireAdmin } from "../middleware/auth.middleware.js";
 
 const router = Router();
 
@@ -29,6 +29,6 @@ router.patch("/saved/:id", protectRoute, updateSavedSearch);
 router.delete("/saved/:id", protectRoute, deleteSavedSearch);
 
 // Admin/Cron job endpoint
-router.post("/saved/check-new-results", checkSavedSearchesForNewResults);
+router.post("/saved/check-new-results", protectRoute, requireAdmin, checkSavedSearchesForNewResults);
 
 export default router;

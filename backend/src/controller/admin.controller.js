@@ -13,6 +13,13 @@ import { isDatabaseConnected } from "../lib/db.js";
 import { getOnlineUserIds, isUserOnline } from "../lib/realtime.js";
 import { isAdminUser } from "../middleware/auth.middleware.js";
 import { searchArtistCandidates } from "../services/saavn.service.js";
+import { isSupportedAudio, isSupportedImage } from "../lib/uploadValidation.js";
+import { unlink } from "node:fs/promises";
+
+const cleanupRequestUploads = async (files) => {
+	const uploads = Object.values(files || {}).flat().filter((file) => file?.tempFilePath);
+	await Promise.all(uploads.map((file) => unlink(file.tempFilePath).catch(() => undefined)));
+};
 
 // helper function for cloudinary uploads
 const uploadToCloudinary = async (file, isAudio = false) => {
@@ -36,12 +43,13 @@ const uploadToCloudinary = async (file, isAudio = false) => {
 		const result = await cloudinary.uploader.upload(file.tempFilePath, options);
 		return result.secure_url;
 	} catch (error) {
-		console.log("Error in uploadToCloudinary", error);
+		console.error("Cloudinary upload failed:", error.message);
 		throw new Error("Error uploading to cloudinary");
 	}
 };
 
 export const createSong = async (req, res, next) => {
+	const requestFiles = req.files;
 	try {
 		if (!req.files || !req.files.audioFile || !req.files.imageFile) {
 			return res.status(400).json({ message: "Please upload all files" });
@@ -50,16 +58,31 @@ export const createSong = async (req, res, next) => {
 		const { title, artist, albumId, duration } = req.body;
 		const audioFile = req.files.audioFile;
 		const imageFile = req.files.imageFile;
+		const parsedDuration = Number(duration);
+		if (typeof title !== "string" || !title.trim() || title.trim().length > 200 || typeof artist !== "string" || !artist.trim() || artist.trim().length > 200) {
+			return res.status(400).json({ message: "Title and artist are required and must be under 200 characters." });
+		}
+		if (!Number.isFinite(parsedDuration) || parsedDuration < 1 || parsedDuration > 7_200) {
+			return res.status(400).json({ message: "Duration must be between 1 and 7,200 seconds." });
+		}
+		if (albumId && !mongoose.isValidObjectId(albumId)) return res.status(400).json({ message: "Invalid album id." });
+		if (albumId && !(await Album.exists({ _id: albumId }))) return res.status(400).json({ message: "Album not found." });
+		if (Array.isArray(audioFile) || Array.isArray(imageFile) || audioFile.size > 25 * 1024 * 1024 || imageFile.size > 10 * 1024 * 1024) {
+			return res.status(400).json({ message: "Upload one audio file up to 25 MB and one cover image up to 10 MB." });
+		}
+		if (!(await isSupportedAudio(audioFile)) || !(await isSupportedImage(imageFile))) {
+			return res.status(400).json({ message: "Upload valid audio and JPEG, PNG, WebP, or GIF cover files." });
+		}
 
 		const audioUrl = await uploadToCloudinary(audioFile, true);
 		const imageUrl = await uploadToCloudinary(imageFile);
 
 		const song = new Song({
-			title,
-			artist,
+			title: title.trim(),
+			artist: artist.trim(),
 			audioUrl,
 			imageUrl,
-			duration,
+			duration: parsedDuration,
 			albumId: albumId || null,
 		});
 
@@ -87,7 +110,7 @@ export const createSong = async (req, res, next) => {
 	} catch (error) {
 		console.log("Error in createSong", error);
 		next(error);
-	}
+	} finally { await cleanupRequestUploads(requestFiles); }
 };
 
 export const deleteSong = async (req, res, next) => {
@@ -117,6 +140,7 @@ export const deleteSong = async (req, res, next) => {
 };
 
 export const createAlbum = async (req, res, next) => {
+	const requestFiles = req.files;
 	try {
 		const { title, artist, releaseYear } = req.body;
 
@@ -125,14 +149,24 @@ export const createAlbum = async (req, res, next) => {
 		}
 
 		const { imageFile } = req.files;
+		const parsedYear = Number(releaseYear);
+		if (typeof title !== "string" || !title.trim() || title.trim().length > 200 || typeof artist !== "string" || !artist.trim() || artist.trim().length > 200) {
+			return res.status(400).json({ message: "Title and artist are required and must be under 200 characters." });
+		}
+		if (!Number.isInteger(parsedYear) || parsedYear < 1880 || parsedYear > new Date().getFullYear() + 1) {
+			return res.status(400).json({ message: "Enter a valid album release year." });
+		}
+		if (Array.isArray(imageFile) || imageFile.size > 10 * 1024 * 1024 || !(await isSupportedImage(imageFile))) {
+			return res.status(400).json({ message: "Upload one valid JPEG, PNG, WebP, or GIF cover image up to 10 MB." });
+		}
 
 		const imageUrl = await uploadToCloudinary(imageFile);
 
 		const album = new Album({
-			title,
-			artist,
+			title: title.trim(),
+			artist: artist.trim(),
 			imageUrl,
-			releaseYear,
+			releaseYear: parsedYear,
 		});
 
 		await album.save();
@@ -141,7 +175,7 @@ export const createAlbum = async (req, res, next) => {
 	} catch (error) {
 		console.log("Error in createAlbum", error);
 		next(error);
-	}
+	} finally { await cleanupRequestUploads(requestFiles); }
 };
 
 export const deleteAlbum = async (req, res, next) => {

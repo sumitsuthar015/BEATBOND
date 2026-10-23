@@ -3,7 +3,6 @@ import {
   mapSaavnArtist,
   mapSaavnAlbum,
   mapSaavnSong,
-  searchSaavnAlbums,
   searchSaavnArtists,
   searchSaavnCatalogue,
   searchSaavnSongs,
@@ -20,8 +19,40 @@ const normalise = (value: unknown) => String(value || "")
   .toLowerCase()
   .normalize("NFD")
   .replace(/[\u0300-\u036f]/g, "")
-  .replace(/[^a-z0-9]+/g, " ")
+  .replace(/[^\p{L}\p{N}\p{M}]+/gu, " ")
   .trim();
+
+const editDistance = (left: string, right: string) => {
+  const matrix = Array.from({ length: left.length + 1 }, () => Array(right.length + 1).fill(0));
+  for (let i = 0; i <= left.length; i += 1) matrix[i][0] = i;
+  for (let j = 0; j <= right.length; j += 1) matrix[0][j] = j;
+  for (let i = 1; i <= left.length; i += 1) {
+    for (let j = 1; j <= right.length; j += 1) {
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + (left[i - 1] === right[j - 1] ? 0 : 1),
+      );
+      if (i > 1 && j > 1 && left[i - 1] === right[j - 2] && left[i - 2] === right[j - 1]) {
+        matrix[i][j] = Math.min(matrix[i][j], matrix[i - 2][j - 2] + 1);
+      }
+    }
+  }
+  return matrix[left.length][right.length];
+};
+
+const fuzzyTokenCoverage = (queryTerms: string[], value: string) => {
+  const words = normalise(value).split(" ").filter(Boolean);
+  let typos = 0;
+  for (const term of queryTerms) {
+    if (words.includes(term)) continue;
+    if (term.length < 4) return false;
+    const threshold = term.length >= 7 ? 2 : 1;
+    if (!words.some((word) => word.length >= 4 && Math.abs(word.length - term.length) <= threshold && editDistance(term, word) <= threshold)) return false;
+    typos += 1;
+  }
+  return typos > 0;
+};
 
 // These words describe the kind of query, not the music being searched for.
 // Ignoring them prevents searches such as "Arijit songs" and "song Kesariya"
@@ -75,6 +106,9 @@ const rankSongs = (songs: Song[], query: string) => {
       if (album.includes(term)) return total + 300;
       return total - 600;
     }, 0);
+    if (fuzzyTokenCoverage(terms, title)) value += 360;
+    else if (fuzzyTokenCoverage(terms, artist)) value += 330;
+    else if (fuzzyTokenCoverage(terms, combined)) value += 260;
     // Handle either word order: "Kesariya Arijit Singh" and "Arijit Singh
     // Kesariya" should both place the actual track above partial matches.
     if (containsAllTerms(combined, terms)) value += 2_500;
@@ -104,11 +138,11 @@ const rankSongs = (songs: Song[], query: string) => {
   }
   
   const ranked = [...titleArtistMap.values()].map((song) => ({ song, score: score(song) }));
-  // If relevant matches exist, do not let unrelated provider suggestions take
-  // their place. Keep a small fallback only when the provider has no direct
-  // match at all (useful for spelling variations).
+  // Never display unrelated provider suggestions as a no-match fallback.
+  // Typo candidates receive a positive score above, so useful fuzzy matches
+  // remain visible without filling the list with random catalogue results.
   const relevant = ranked.filter(({ score }) => score > 0);
-  return (relevant.length ? relevant : ranked)
+  return relevant
     .sort((left, right) => right.score - left.score || left.song.title.localeCompare(right.song.title) || left.song.artist.localeCompare(right.song.artist))
     .map(({ song }) => song);
 };
@@ -116,7 +150,7 @@ const rankSongs = (songs: Song[], query: string) => {
 const matchesQuery = (value: string, query: string) => {
   const text = normalise(value);
   const terms = meaningfulTerms(query);
-  return terms.length > 0 && terms.every((term) => text.includes(term));
+  return terms.length > 0 && (terms.every((term) => text.includes(term)) || fuzzyTokenCoverage(terms, value));
 };
 
 const JUNK_ARTIST_NAMES = new Set([
@@ -182,7 +216,7 @@ const isTrueArtist = (artist: SaavnArtistResult) => {
   const clean = normalise(artist.name);
   if (clean.length < 2) return false;
   if (JUNK_ARTIST_NAMES.has(clean)) return false;
-  const alphaNumericCount = (clean.match(/[a-z0-9]/g) || []).length;
+  const alphaNumericCount = (clean.match(/[\p{L}\p{N}]/gu) || []).length;
   if (alphaNumericCount < 2) return false;
   return true;
 };
@@ -384,7 +418,7 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
   // and artist-phrase requests on each debounce tick.
   autocomplete: async (query) => {
     const requestId = ++latestSearchRequest;
-    const normalizedQuery = query.trim().replace(/\s+/g, " ");
+    const normalizedQuery = query.trim().replace(/\s+/g, " ").slice(0, 120);
     if (normalizedQuery.length < 2) {
       set({ searchResults: [], artistResults: [], albumResults: [], isLoading: false, error: null });
       return;
@@ -413,8 +447,8 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
 
   searchSongs: async (query: string) => {
     const requestId = ++latestSearchRequest;
-    const normalizedQuery = query.trim().replace(/\s+/g, " ").toLowerCase();
-    if (!normalizedQuery) {
+    const normalizedQuery = query.trim().replace(/\s+/g, " ").slice(0, 120).toLowerCase();
+    if (normalizedQuery.length < 2) {
       set({ searchResults: [], artistResults: [], albumResults: [], playlistResults: [], isLoading: false, error: null });
       return;
     }
@@ -432,20 +466,18 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
         }
       });
 
-      // The specialised endpoints keep every result type complete; the
-      // aggregate endpoint is also requested as a fallback for API variants
-      // that return an empty specialised collection.
+      // One server-side response keeps song, artist, and album ranking
+      // consistent. Extra artist probes only resolve artist + title queries.
       const artistCandidates = artistPhraseCandidates(normalizedQuery);
-      const [songs, artists, albums, playlists, ...artistLookups] = await Promise.allSettled([
-        searchSaavnSongs(normalizedQuery, 50),
-        searchSaavnArtists(normalizedQuery, 10),
-        searchSaavnAlbums(normalizedQuery, 20),
+      const [catalogueResult, playlists, ...artistLookups] = await Promise.allSettled([
+        searchSaavnCatalogue(normalizedQuery, 50),
         axiosInstance.get("/playlists"),
         ...artistCandidates.map((candidate) => searchSaavnArtists(candidate, 5)),
       ]);
-      let rawSongs = songs.status === "fulfilled" ? songs.value : [];
-      const rawArtists = artists.status === "fulfilled" ? artists.value : [];
-      const rawAlbums = albums.status === "fulfilled" ? albums.value : [];
+      const catalogue = catalogueResult.status === "fulfilled" ? catalogueResult.value : null;
+      let rawSongs = catalogue?.songs || [];
+      const rawArtists = catalogue?.artists || [];
+      const rawAlbums = catalogue?.albums || [];
       const rawPlaylists = playlists.status === "fulfilled" && Array.isArray(playlists.value.data)
         ? playlists.value.data
         : [];
@@ -493,7 +525,7 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
       // A slow response from an earlier query must never replace newer results.
       if (requestId !== latestSearchRequest) return;
 
-      if (songs.status === "rejected" && artists.status === "rejected" && albums.status === "rejected" && !rawSongs.length) {
+      if (catalogueResult.status === "rejected" && !rawSongs.length) {
         throw new Error("Search services are currently unavailable");
       }
 

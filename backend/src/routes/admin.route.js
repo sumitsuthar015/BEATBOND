@@ -14,6 +14,7 @@ import {
 	getModerationFeed,
 } from "../controller/admin.controller.js";
 import { protectRoute, requireAdmin } from "../middleware/auth.middleware.js";
+import { rateLimit } from "../middleware/rateLimit.middleware.js";
 
 const router = Router();
 
@@ -30,10 +31,10 @@ router.get("/artists", getAdminArtists);
 router.post("/artists/verify", verifyArtistAsAdmin);
 router.delete("/artists/:id/verify", unverifyArtistAsAdmin);
 
-router.post("/songs", createSong);
+router.post("/songs", rateLimit({ name: "admin-upload", limit: 20, windowMs: 60 * 60 * 1000 }), createSong);
 router.delete("/songs/:id", deleteSong);
 
-router.post("/albums", createAlbum);
+router.post("/albums", rateLimit({ name: "admin-upload", limit: 20, windowMs: 60 * 60 * 1000 }), createAlbum);
 router.delete("/albums/:id", deleteAlbum);
 
 router.get("/moderation", getModerationFeed);

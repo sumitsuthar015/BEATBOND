@@ -9,12 +9,32 @@ const getVapidConfig = () => ({
 export const getVapidPublicKey = () => getVapidConfig().publicKey;
 
 export const savePushSubscription = async (userId, subscription) => {
-  if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+  const endpoint = typeof subscription?.endpoint === "string" ? subscription.endpoint : "";
+  let hostname = "";
+  try {
+    const parsed = new URL(endpoint);
+    hostname = parsed.hostname.toLowerCase();
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port) hostname = "";
+  } catch {}
+  const supportedPushHost = hostname === "fcm.googleapis.com"
+    || hostname === "updates.push.services.mozilla.com"
+    || hostname.endsWith(".push.services.mozilla.com")
+    || hostname === "web.push.apple.com"
+    || hostname.endsWith(".notify.windows.com");
+  if (!supportedPushHost || endpoint.length > 2_048
+    || typeof subscription?.keys?.p256dh !== "string" || subscription.keys.p256dh.length < 80 || subscription.keys.p256dh.length > 100
+    || typeof subscription?.keys?.auth !== "string" || subscription.keys.auth.length < 20 || subscription.keys.auth.length > 30) {
     throw new Error("Invalid push subscription");
   }
+  const existing = await PushSubscription.findOne({ endpoint }).select("userId").lean();
+  if (existing && existing.userId !== userId) {
+    const error = new Error("This push subscription is already registered to another account.");
+    error.status = 409;
+    throw error;
+  }
   return PushSubscription.findOneAndUpdate(
-    { endpoint: subscription.endpoint },
-    { userId, endpoint: subscription.endpoint, keys: subscription.keys },
+    { endpoint },
+    { userId, endpoint, keys: { p256dh: subscription.keys.p256dh, auth: subscription.keys.auth } },
     { upsert: true, new: true, runValidators: true },
   );
 };

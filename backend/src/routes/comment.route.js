@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { protectRoute } from "../middleware/auth.middleware.js";
+import { rateLimit } from "../middleware/rateLimit.middleware.js";
 import {
   addComment,
   getSongComments,
@@ -13,7 +14,7 @@ router.get("/song/:songId", getSongComments);
 router.get("/user/:userId", getUserComments);
 
 router.use(protectRoute);
-router.post("/", addComment);
+router.post("/", rateLimit({ name: "comment-create", limit: 30, windowMs: 60 * 60 * 1000 }), addComment);
 router.delete("/:commentId", deleteComment);
 
 export default router;

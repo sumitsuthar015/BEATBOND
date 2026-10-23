@@ -25,7 +25,7 @@ test("GET /api/songs/mood/:mood returns 400 for an unsupported mood", async () =
 
 test("AI therapy chat returns 503 when the AI service is not configured", async () => {
   const res = mockResponse();
-  await chatWithAI({ body: { messages: [{ role: "user", content: "I feel low" }] } }, res);
+  await chatWithAI({ body: { thirdPartyConsent: true, messages: [{ role: "user", content: "I feel low" }] } }, res);
 
   assert.equal(res.statusCode, 503);
   assert.match(res.body.message, /not configured/);
