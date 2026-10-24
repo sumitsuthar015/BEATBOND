@@ -13,6 +13,7 @@ type AlbumGridProps = {
 
 const AlbumGrid = ({ title, albums, isLoading, collectionId }: AlbumGridProps) => {
     const navigate = useNavigate();
+    const visibleAlbums = collectionId === "featured-albums" ? albums.slice(0, 10) : albums;
 
     if (isLoading && (!albums || albums.length === 0)) {
         return (
@@ -53,7 +54,7 @@ const AlbumGrid = ({ title, albums, isLoading, collectionId }: AlbumGridProps) =
 
             {/* Desktop Grid (lg and above) */}
             <div className="hidden lg:grid lg:grid-cols-4 xl:grid-cols-5 gap-3 lg:gap-4">
-                {albums.map((album, index) => (
+                {visibleAlbums.map((album, index) => (
                     <motion.div
                         key={album.id}
                         initial={{ opacity: 0 }}
@@ -109,7 +110,7 @@ const AlbumGrid = ({ title, albums, isLoading, collectionId }: AlbumGridProps) =
                     className="flex gap-2 sm:gap-3 pb-4 overflow-x-auto scroll-smooth 
                              scrollbar-custom horizontal-scroll-container"
                 >
-                    {albums.map((album) => (
+                    {visibleAlbums.map((album) => (
                         <div
                             key={album.id}
                             className="bg-card/50 p-2.5 sm:p-3 rounded-lg cursor-pointer hover:bg-secondary/50

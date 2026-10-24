@@ -11,6 +11,7 @@ import { axiosInstance } from "@/lib/axios";
 import { ShareToMessageDialog } from "@/components/ShareToMessageDialog";
 import { cn } from "@/lib/utils";
 import { PageBackButton } from "@/components/PageBackButton";
+import { mapSaavnAlbumDetails } from "@/lib/saavn";
 
 const isMongoId = (id: string) => /^[a-f\d]{24}$/i.test(id);
 
@@ -49,7 +50,9 @@ export const AlbumPage = () => {
       }
 
       const res = await axiosInstance.get(`/saavn/albums?id=${albumId}`);
-      return { source: "saavn" as const, album: res.data.data || res.data };
+      const album = mapSaavnAlbumDetails(res.data.data || res.data);
+      if (!album) throw new Error("Album details are unavailable");
+      return { source: "saavn" as const, album };
     },
     retry: 2,
     staleTime: 5 * 60 * 1000,
@@ -73,8 +76,8 @@ export const AlbumPage = () => {
     return {
       id: String(data.album.id || albumId),
       name: data.album.name,
-      imageUrl: data.album.image?.[2]?.url || data.album.image?.[0]?.url,
-      artist: data.album.artists?.primary?.map((a: { name: string }) => a.name).join(", "),
+      imageUrl: data.album.imageUrl || data.album.image?.[2]?.url || data.album.image?.[0]?.url,
+      artist: data.album.artist,
       year: data.album.year,
       songCount: data.album.songCount,
     };
@@ -89,50 +92,7 @@ export const AlbumPage = () => {
       );
     }
 
-    if (!data.album.songs) return [];
-
-    return data.album.songs.map((s: Record<string, unknown>) => {
-      const downloadUrl = s.downloadUrl as Array<{ quality?: string; url?: string }> | undefined;
-      const image = s.image as Array<{ url?: string }> | undefined;
-      const artists = s.artists as {
-        primary?: Array<{ name: string }>;
-        all?: Array<{ name: string }>;
-      };
-
-      const audioOptions = downloadUrl || [];
-      const preferredQuality =
-        audioOptions.find((a) => a.quality === "320kbps") ||
-        audioOptions.find((a) => a.quality === "160kbps") ||
-        audioOptions[0];
-
-      return {
-        _id: String(s.id),
-        title: String(s.name || "Unknown Title"),
-        artist:
-          artists?.primary
-            ?.map((a) => a.name)
-            .filter((n) => n && n !== "NULL")
-            .join(", ") ||
-          artists?.all
-            ?.map((a) => a.name)
-            .filter((n) => n && n !== "NULL")
-            .join(", ") ||
-          "Unknown Artist",
-        imageUrl: image?.[2]?.url || image?.[1]?.url || image?.[0]?.url || "",
-        audioUrl: preferredQuality?.url || "",
-        duration: parseInt(String(s.duration)) || 0,
-        albumId,
-        genre: String(s.language || "Unknown"),
-        videoUrl: null,
-        playedAt: "",
-        userId: undefined,
-        isLiked: false,
-        lyrics: String(s.lyrics || ""),
-        lyricsId: String(s.lyricsId || ""),
-        createdAt: String(s.releaseDate || new Date().toISOString()),
-        updatedAt: new Date().toISOString(),
-      };
-    });
+    return data.album.songs || [];
   }, [data, albumId]);
 
   const toggleSaveAlbum = useSavedAlbumsStore((state) => state.toggleSaveAlbum);

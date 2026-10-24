@@ -330,6 +330,32 @@ export const mapSaavnAlbum = (album: any): Album | null => {
   };
 };
 
+/** Map album details into the same playable Song shape used by BeatBond's player. */
+export const mapSaavnAlbumDetails = (rawAlbum: any): Album | null => {
+  const album = mapSaavnAlbum(rawAlbum);
+  if (!album) return null;
+
+  const albumArtist = getPrimaryArtistName(rawAlbum) || rawAlbum.primary_artists || rawAlbum.primaryArtists || album.artist;
+  const songs = (Array.isArray(rawAlbum.songs) ? rawAlbum.songs : [])
+    .map((rawSong: any) => {
+      const song = mapSaavnSong(rawSong, albumArtist);
+      if (!song) return null;
+      return {
+        ...song,
+        albumId: album.id,
+        albumName: album.name,
+      };
+    })
+    .filter((song: Song | null): song is Song => Boolean(song));
+
+  return {
+    ...album,
+    artist: decodeText(String(albumArtist)),
+    songs,
+    songCount: songs.length,
+  };
+};
+
 export const mapSaavnPlaylist = (playlist: any): SaavnPlaylistResult | null => {
   if (!playlist?.id || !(playlist?.name || playlist?.title)) return null;
   return {

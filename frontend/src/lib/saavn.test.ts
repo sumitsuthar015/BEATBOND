@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getBestAudioUrl, getCleanArtistSongs, isSameArtistName, mapSaavnSong } from "@/lib/saavn";
+import { getBestAudioUrl, getCleanArtistSongs, isSameArtistName, mapSaavnAlbumDetails, mapSaavnSong } from "@/lib/saavn";
 
 const saavnSong = (id: string, name: string, extra: Record<string, unknown> = {}) => ({
   id,
@@ -43,6 +43,35 @@ describe("mapSaavnSong", () => {
   it("returns null when the song cannot be played", () => {
     expect(mapSaavnSong(saavnSong("k2", "No Audio", { downloadUrl: [] }))).toBeNull();
     expect(mapSaavnSong({ name: "No id" })).toBeNull();
+  });
+});
+
+describe("mapSaavnAlbumDetails", () => {
+  it("maps album tracks to BeatBond songs and omits tracks without playable audio", () => {
+    const album = mapSaavnAlbumDetails({
+      id: "album-1",
+      name: "Brahmastra",
+      primary_artists: "Arijit Singh",
+      image: [{ url: "small.jpg" }, { url: "medium.jpg" }, { url: "large.jpg" }],
+      songs: [
+        saavnSong("playable-1", "Kesariya"),
+        saavnSong("unplayable-1", "Unavailable track", { downloadUrl: [] }),
+      ],
+    });
+
+    expect(album).toMatchObject({ id: "album-1", name: "Brahmastra", artist: "Arijit Singh", songCount: 1 });
+    expect(album?.songs).toHaveLength(1);
+    expect(album?.songs[0]).toMatchObject({
+      _id: "playable-1",
+      title: "Kesariya",
+      albumId: "album-1",
+      albumName: "Brahmastra",
+      audioUrl: "https://cdn/playable-1-320",
+    });
+  });
+
+  it("rejects invalid album metadata", () => {
+    expect(mapSaavnAlbumDetails({ songs: [saavnSong("track", "Song")] })).toBeNull();
   });
 });
 

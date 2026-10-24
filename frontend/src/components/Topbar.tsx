@@ -65,9 +65,7 @@ const Topbar = ({ showInstall = false }: { showInstall?: boolean }) => {
   };
 
   return (
-    <div className="flex items-center justify-between gap-3 p-3 sm:p-4 
-                    sticky top-0 bg-background/75 dark:bg-background/90 backdrop-blur-md 
-                    z-10 border-b border-border">
+    <div className={cn("sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border bg-background/75 p-3 backdrop-blur-md dark:bg-background/90 sm:p-4", showResults && searchQuery && "z-[70]")}>
       
       {/* Logo - Always on Left */}
       <Link to="/" className="flex items-center gap-2 flex-shrink-0">
@@ -120,8 +118,7 @@ const Topbar = ({ showInstall = false }: { showInstall?: boolean }) => {
 
           {/* Desktop Search Results */}
           {showResults && searchQuery && (
-            <div className="absolute top-full left-0 right-0 mt-2 bg-card rounded-lg 
-                          shadow-xl max-h-96 overflow-y-auto border border-border z-50">
+            <div className="absolute left-0 right-0 top-full z-[80] mt-2 max-h-96 overflow-y-auto rounded-lg border border-border bg-background shadow-xl">
               {isLoading && (
                 <div className="p-4 text-center">
                   <Loader2 className="size-6 animate-spin mx-auto text-primary" />
