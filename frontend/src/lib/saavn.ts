@@ -10,7 +10,7 @@ const SEARCH_CACHE_MS = 5 * 60 * 1000;
 const ARTIST_SEARCH_CACHE_MS = 5 * 1000;
 
 /** Deduplicated, short-lived Saavn song search used by every search surface. */
-const searchSaavn = async (type: "songs" | "artists" | "albums", query: string, limit: number) => {
+const searchSaavn = async (type: "songs" | "artists" | "albums", query: string, limit: number, signal?: AbortSignal) => {
   const normalizedQuery = query.trim();
   if (!normalizedQuery) return [];
 
@@ -23,6 +23,7 @@ const searchSaavn = async (type: "songs" | "artists" | "albums", query: string, 
   // host after deployment and silently fall back to a different catalogue.
   const request = axiosInstance.get(`/saavn/search/${type}`, {
     params: { query: normalizedQuery, limit },
+    signal,
   })
     .then((response) => response.data?.data?.results || response.data?.data || [])
     .catch((error) => {
@@ -34,9 +35,9 @@ const searchSaavn = async (type: "songs" | "artists" | "albums", query: string, 
   return request;
 };
 
-export const searchSaavnSongs = (query: string, limit = 50) => searchSaavn("songs", query, limit);
-export const searchSaavnArtists = (query: string, limit = 10) => searchSaavn("artists", query, limit);
-export const searchSaavnAlbums = (query: string, limit = 20) => searchSaavn("albums", query, limit);
+export const searchSaavnSongs = (query: string, limit = 50, signal?: AbortSignal) => searchSaavn("songs", query, limit, signal);
+export const searchSaavnArtists = (query: string, limit = 10, signal?: AbortSignal) => searchSaavn("artists", query, limit, signal);
+export const searchSaavnAlbums = (query: string, limit = 20, signal?: AbortSignal) => searchSaavn("albums", query, limit, signal);
 
 export type SaavnCatalogueSearch = {
   query: string;
@@ -47,19 +48,19 @@ export type SaavnCatalogueSearch = {
 };
 
 /** One normalized, ranked JioSaavn search response for the main search UI. */
-export const searchSaavnCatalogue = async (query: string, limit = 30): Promise<SaavnCatalogueSearch> => {
+export const searchSaavnCatalogue = async (query: string, limit = 30, signal?: AbortSignal, songsOnly = false): Promise<SaavnCatalogueSearch> => {
   const normalizedQuery = query.trim();
   if (!normalizedQuery) return { query: "", intent: "general", songs: [], artists: [], albums: [] };
   try {
-    const response = await axiosInstance.get("/saavn/search", { params: { query: normalizedQuery, limit } });
+    const response = await axiosInstance.get("/saavn/search", { params: { query: normalizedQuery, limit, ...(songsOnly ? { songsOnly: "true" } : {}) }, signal });
     return response.data?.data || { query: normalizedQuery, intent: "general", songs: [], artists: [], albums: [] };
   } catch {
     // A deployed frontend can briefly be newer than its backend. Keep search
     // working against the established individual endpoints during that window.
     const [songs, artists, albums] = await Promise.all([
-      searchSaavn("songs", normalizedQuery, limit),
-      searchSaavn("artists", normalizedQuery, 10),
-      searchSaavn("albums", normalizedQuery, 20),
+      searchSaavn("songs", normalizedQuery, limit, signal),
+      ...(songsOnly ? [Promise.resolve([] as any[])] : [searchSaavn("artists", normalizedQuery, 10)]),
+      ...(songsOnly ? [Promise.resolve([] as any[])] : [searchSaavn("albums", normalizedQuery, 20)]),
     ]);
     return { query: normalizedQuery, intent: "general", songs, artists, albums };
   }

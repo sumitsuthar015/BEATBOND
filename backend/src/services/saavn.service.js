@@ -644,14 +644,40 @@ export async function searchSongs(query, limit = 50, page = 1) {
       // Always merge the web catalogue: the SDK can return a non-empty but
       // incomplete list (for example a remix) while missing the official song.
       // Both lookups are independent, so run them side by side.
-      const [sdkResponse, webResults] = await Promise.all([
+      let sdkResponse;
+      let webResults;
+      const sdkPromise =
         withTimeout(
           Song.search({ query: normalized, limit: safeLimit, offset: safePage }),
           SEARCH_PROVIDER_TIMEOUT_MS,
           "Saavn SDK search",
-        ).catch(() => ({ results: [] })),
-        searchJioSaavnWebSongs(normalized, safeLimit, safePage),
-      ]);
+        ).catch(() => ({ results: [] }))
+          .then((response) => { sdkResponse = response; return response; });
+      const webPromise = searchJioSaavnWebSongs(normalized, safeLimit, safePage)
+        .then((results) => { webResults = results; return results; });
+      const firstUsefulProvider = Promise.any([
+        sdkPromise.then((response) => {
+          if (!response?.results?.length) throw new Error("SDK search returned no songs");
+          return "sdk";
+        }),
+        webPromise.then((results) => {
+          if (!results.length) throw new Error("Web search returned no songs");
+          return "web";
+        }),
+      ]).catch(() => null);
+
+      if (await firstUsefulProvider) {
+        // Use the first good result immediately; merge the other provider only
+        // when it is already close to completion to avoid tail-latency waits.
+        await Promise.race([
+          Promise.allSettled([sdkPromise, webPromise]),
+          new Promise((resolve) => setTimeout(resolve, 250)),
+        ]);
+      } else {
+        await Promise.all([sdkPromise, webPromise]);
+      }
+      sdkResponse ||= { results: [] };
+      webResults ||= [];
       const sdkResults = sdkResponse?.results || [];
       const sourceResults = uniqueSongsById([...sdkResults, ...webResults]);
       const results = (await Promise.all(sourceResults.map(mapSongWithFullAudio))).filter((song) => song?.id);
@@ -789,25 +815,40 @@ export async function searchArtistCandidates(query, limit = 20, requireAllNameTe
 export async function searchAlbums(query, limit = 20) {
   return cachedSearch("albums", query, limit, async (normalized) => {
     try {
-      const res = await Album.search({ query: normalized, limit: Number(limit) });
+      const res = await withTimeout(
+        Album.search({ query: normalized, limit: Number(limit) }),
+        SEARCH_PROVIDER_TIMEOUT_MS,
+        "Saavn album search",
+      );
       const results = (await Promise.all((res.results || []).map(mapAlbum))).filter(Boolean);
       return { status: "SUCCESS", data: { results } };
     } catch { return { status: "SUCCESS", data: { results: [] } }; }
   });
 }
 
-// The search page and the top-bar need one consistent view of a query. Fetch
-// all JioSaavn entity types first, then score and cap them together rather
-// than trusting whichever provider endpoint happened to respond first.
-export async function searchCatalogue(query, limit = 30) {
+// Search the playable song catalogue first. Artist and album endpoints remain
+// available separately so slower metadata providers cannot hold song results.
+export async function searchCatalogue(query, limit = 30, songsOnly = false) {
   const normalized = normaliseSearchText(String(query || "").slice(0, MAX_SEARCH_QUERY_LENGTH));
   const cappedLimit = Math.min(Math.max(Number(limit) || 30, 1), 50);
   if ([...normalized].length < 2) {
     return { status: "SUCCESS", data: { query: "", intent: "general", songs: [], artists: [], albums: [] } };
   }
 
+  if (songsOnly) {
+    const songResponse = await searchSongs(normalized, cappedLimit);
+    const songs = songResponse?.data?.results || [];
+    return { status: "SUCCESS", data: {
+      query: normalized,
+      intent: "general",
+      songs: rankResults(songs, "song", normalized, "general", cappedLimit),
+      artists: [],
+      albums: [],
+    } };
+  }
+
   const [songResponse, artistResponse, albumResponse] = await Promise.all([
-    searchSongs(normalized, 50),
+    searchSongs(normalized, cappedLimit),
     searchArtists(normalized, 20),
     searchAlbums(normalized, 30),
   ]);

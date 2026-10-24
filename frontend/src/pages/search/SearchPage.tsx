@@ -2,28 +2,36 @@ import { AlbumOptionsMenu } from "@/components/AlbumOptionsMenu";
 import { SongOptionsMenu } from "@/components/SongOptionsMenu";
 import {
   ArrowRight,
-  Clock3,
   Loader2,
   Search,
   TrendingUp,
   X,
   Mic,
-  Trash2,
-  History,
-  Sparkles
+  Sparkles,
+  Music2,
+  Radio,
+  Heart,
+  Disc3,
+  Headphones,
+  Guitar,
+  ListMusic,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useUser } from "@clerk/clerk-react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import PlayButton from "@/pages/home/components/PlayButton";
 import { useDebounce } from "@/hooks/useDebounce";
-import { useMyPicture } from "@/hooks/useMyProfile";
 import { useSearchStore } from "@/stores/useSearchStore";
+import { usePlayerStore } from "@/stores/usePlayerStore";
 import { cn } from "@/lib/utils";
 import type { Song } from "@/types";
+import { getConfirmedSearchQuery, savePlayedSearch } from "@/lib/recentSearches";
+import { getUniqueRecentTracks, readListeningHistory, removeListeningEventsForSong, type ListeningEvent } from "@/lib/listeningHistory";
+import { getSpeechRecognitionConstructor } from "@/lib/voiceSearch";
+import { getSearchQueryParams, SEARCH_QUERY_NAVIGATION_OPTIONS } from "@/lib/searchNavigation";
+import toast from "react-hot-toast";
 
 // Type declaration for SpeechRecognition
 interface SpeechRecognition extends EventTarget {
@@ -38,21 +46,24 @@ interface SpeechRecognition extends EventTarget {
 }
 
 type Filter = "all" | "songs" | "artists" | "albums" | "playlists";
-const popular = ["Trending songs", "Arijit Singh", "Bollywood hits", "Punjabi songs", "Taylor Swift", "Romantic songs"];
-const recentKey = "beatbond:recent-searches";
-
-const readRecents = () => {
-  try { return JSON.parse(localStorage.getItem(recentKey) || "[]") as string[]; } catch { return []; }
-};
-
+const browseCategories = [
+  { title: "Trending", query: "trending songs", icon: TrendingUp, style: "from-[#B266FF]/35 via-[#6B2EB8]/20 to-card" },
+  { title: "Bollywood", query: "Bollywood hits", icon: Music2, style: "from-[#E5CCFF]/25 via-[#8A45C5]/20 to-card" },
+  { title: "Punjabi", query: "Punjabi songs", icon: Radio, style: "from-violet-500/30 via-[#B266FF]/15 to-card" },
+  { title: "Romance", query: "romantic songs", icon: Heart, style: "from-fuchsia-500/25 via-[#B266FF]/15 to-card" },
+  { title: "Pop", query: "pop hits", icon: Disc3, style: "from-purple-400/30 via-violet-600/15 to-card" },
+  { title: "Chill", query: "chill music", icon: Headphones, style: "from-[#E5CCFF]/20 via-indigo-500/15 to-card" },
+  { title: "Hip-Hop", query: "hip hop", icon: Guitar, style: "from-violet-600/30 via-purple-900/20 to-card" },
+  { title: "Playlists", query: "popular playlists", icon: ListMusic, style: "from-[#B266FF]/25 via-pink-500/10 to-card" },
+];
 const formatSongLength = (duration: number) => `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, "0")}`;
 
 /** One song in the results, used by the top-songs list and the full Songs tab. */
-const SongRow = ({ song }: { song: Song }) => (
+const SongRow = ({ song, onPlay }: { song: Song; onPlay: (song: Song) => void }) => (
   <div className="group flex min-h-16 items-center gap-3 py-2 px-1 hover:bg-secondary/40 rounded-xl transition-colors">
     <div className="relative shrink-0">
       <img src={song.imageUrl} alt={`${song.title} cover`} loading="lazy" className="size-12 rounded-lg object-cover" />
-      <PlayButton song={song} size="small" />
+      <PlayButton song={song} size="small" onPlay={onPlay} />
     </div>
     <div className="min-w-0 flex-1">
       <p className="truncate text-sm font-semibold">{song.title}</p>
@@ -60,18 +71,17 @@ const SongRow = ({ song }: { song: Song }) => (
     </div>
     {song.explicit && <span className="shrink-0 px-2 py-0.5 text-xs bg-destructive/10 text-destructive rounded">E</span>}
     <span className="shrink-0 pr-1 text-xs tabular-nums text-muted-foreground">{formatSongLength(song.duration)}</span>
-    <SongOptionsMenu song={song} />
+    <SongOptionsMenu song={song} onPlay={onPlay} />
   </div>
 );
 
 const SearchPage = () => {
   const { user } = useUser();
-  const myPicture = useMyPicture();
   const navigate = useNavigate();
   const [urlSearchParams, setUrlSearchParams] = useSearchParams();
   const inputRef = useRef<HTMLInputElement>(null);
   const [filter, setFilter] = useState<Filter>("all");
-  const [recentSearches, setRecentSearches] = useState<string[]>(readRecents);
+  const [recentTracks, setRecentTracks] = useState<ListeningEvent[]>([]);
   const [voiceActive, setVoiceActive] = useState(false);
   const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
 
@@ -91,12 +101,30 @@ const SearchPage = () => {
     getSuggestions,
     clearSuggestions,
     loadSearchHistory,
+    addToSearchHistory,
   } = useSearchStore();
 
   const query = useDebounce(searchQuery, 300);
+  const suggestionQuery = useDebounce(searchQuery, 500);
   const displayedArtists = artists;
   const total = songs.length + artists.length + albums.length + playlists.length;
   const hasResults = total > 0;
+
+  const recordPlayedSearch = (song: Song, querySnapshot: string) => {
+    const state = useSearchStore.getState();
+    const queryToSave = getConfirmedSearchQuery(querySnapshot, state.searchQuery, state.searchResultsQuery);
+    // Don't attribute a click to a newer query while its results are still loading.
+    if (!queryToSave) return;
+
+    savePlayedSearch(queryToSave);
+    void addToSearchHistory({
+      query: queryToSave,
+      resultCount: state.searchResults.length,
+      clickedResult: song._id,
+      clickedResultType: "song",
+      timestamp: new Date().toISOString(),
+    });
+  };
 
   // Desktop search links to this screen with `?q=`. Hydrating the shared
   // store from that value guarantees mobile receives the exact same query and
@@ -117,8 +145,8 @@ const SearchPage = () => {
 
   // Initialize speech recognition
   useEffect(() => {
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-      const SpeechRecognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SpeechRecognitionCtor = getSpeechRecognitionConstructor<SpeechRecognition>(window as unknown as Record<string, unknown>);
+    if (SpeechRecognitionCtor) {
       const recog = new SpeechRecognitionCtor();
       recog.continuous = false;
       recog.interimResults = true;
@@ -129,10 +157,16 @@ const SearchPage = () => {
           .map((result: any) => result[0].transcript)
           .join('');
         setSearchQuery(transcript);
+        setUrlSearchParams(getSearchQueryParams(transcript), SEARCH_QUERY_NAVIGATION_OPTIONS);
       };
 
-      recog.onerror = () => {
+      recog.onerror = (event: any) => {
         setVoiceActive(false);
+        if (event?.error === "not-allowed" || event?.error === "service-not-allowed") {
+          toast.error("Allow microphone access to use voice search.");
+        } else if (event?.error !== "aborted") {
+          toast.error("Voice search couldn't start. Please try again.");
+        }
       };
 
       recog.onend = () => {
@@ -141,12 +175,19 @@ const SearchPage = () => {
 
       setRecognition(recog);
     }
-  }, [setSearchQuery]);
+  }, [setSearchQuery, setUrlSearchParams]);
 
   const startVoiceSearch = () => {
-    if (recognition) {
+    if (!recognition) {
+      toast.error("Voice search isn't supported in this browser.");
+      return;
+    }
+    try {
       setVoiceActive(true);
       recognition.start();
+    } catch {
+      setVoiceActive(false);
+      toast.error("Voice search couldn't start. Please try again.");
     }
   };
 
@@ -174,41 +215,43 @@ const SearchPage = () => {
       return;
     }
     searchSongs(query);
-    getSuggestions(query);
 
-    setRecentSearches((current) => {
-      const next = [query.trim(), ...current.filter((item) => item.toLowerCase() !== query.trim().toLowerCase())].slice(0, 8);
-      localStorage.setItem(recentKey, JSON.stringify(next));
-      return next;
-    });
-  }, [query, searchSongs, clearResults, clearSuggestions, getSuggestions]);
+  }, [query, searchSongs, clearResults, clearSuggestions]);
+
+  useEffect(() => {
+    if (!suggestionQuery.trim()) {
+      clearSuggestions();
+      return;
+    }
+    getSuggestions(suggestionQuery);
+  }, [suggestionQuery, getSuggestions, clearSuggestions]);
 
   const show = (section: Filter) => filter === "all" || filter === section;
   const chooseSearch = (value: string) => { setSearchQuery(value); setUrlSearchParams({ q: value }); inputRef.current?.focus(); };
-  const clearRecents = () => { localStorage.removeItem(recentKey); setRecentSearches([]); };
+  const dismissRecentTrack = (songId: string) => {
+    if (!user?.id) return;
+    setRecentTracks(removeListeningEventsForSong(user.id, songId));
+  };
+  useEffect(() => {
+    if (!user?.id) {
+      setRecentTracks([]);
+      return;
+    }
+    const refresh = () => setRecentTracks(getUniqueRecentTracks(readListeningHistory(user.id).slice().reverse()));
+    refresh();
+    window.addEventListener("beatbond:history-updated", refresh);
+    return () => window.removeEventListener("beatbond:history-updated", refresh);
+  }, [user?.id]);
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-gradient-to-b from-background via-background to-secondary/20">
       <header className="sticky top-0 z-20 border-b border-border/70 bg-background/90 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
         <div className="mx-auto max-w-7xl px-4 pb-3 pt-4 sm:px-6">
-          {/* Mobile page title + profile avatar */}
-          <div className="mb-3 flex items-center justify-between gap-3 md:hidden">
-            <div className="flex-1 text-center">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Discover</p>
-              <h1 className="text-2xl font-bold tracking-tight">Search music</h1>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#B266FF]">Discover</p>
+              <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Search</h1>
             </div>
-            {user && (
-              <Link
-                to="/profile"
-                className="shrink-0 p-0.5 rounded-full border border-primary/40 hover:border-primary transition-all shadow-sm active:scale-95 bg-secondary/40"
-                title="Profile"
-              >
-                <Avatar className="size-8">
-                  <AvatarImage src={myPicture} alt={user?.fullName || "Profile"} />
-                  <AvatarFallback>{(user?.fullName || "U")[0]}</AvatarFallback>
-                </Avatar>
-              </Link>
-            )}
           </div>
 
           {/* ── Search bar row ────────────────────────────────────────────────── */}
@@ -235,7 +278,7 @@ const SearchPage = () => {
                   <button
                     type="button"
                     aria-label="Clear search"
-                    onClick={() => { clearSearch(); setUrlSearchParams({}); inputRef.current?.focus(); }}
+                    onClick={() => { clearSearch(); setUrlSearchParams({}, SEARCH_QUERY_NAVIGATION_OPTIONS); inputRef.current?.focus(); }}
                     className="absolute right-12 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-full text-muted-foreground hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <X className="size-4" />
@@ -264,15 +307,13 @@ const SearchPage = () => {
                   onChange={(e) => {
                     const value = e.target.value;
                     setSearchQuery(value);
-                    // Push the TRIMMED value to the URL so the URL-sync effect
-                    // never reads back a value that differs only in trailing/
-                    // leading whitespace — that was the root cause of the
-                    // spacebar being silently dropped on mobile.
-                    setUrlSearchParams(value.trim() ? { q: value.trim() } : {});
+                    // Replace the URL as the user types, preserving spaces so
+                    // URL synchronization never strips an in-progress query.
+                    setUrlSearchParams(getSearchQueryParams(value), SEARCH_QUERY_NAVIGATION_OPTIONS);
                   }}
                   placeholder="Songs, artists, albums…"
                   enterKeyHint="search"
-                  className="h-12 rounded-2xl border-border bg-card/80 pl-12 pr-20 text-base shadow-sm placeholder:text-muted-foreground/80 sm:rounded-full"
+                  className="h-14 rounded-2xl border-border/80 bg-card pl-12 pr-20 text-base shadow-sm placeholder:text-muted-foreground/80 focus-visible:ring-[#B266FF] sm:rounded-2xl"
                 />
               </div>
 
@@ -405,51 +446,63 @@ const SearchPage = () => {
       </header>
 
       <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        <div className="mx-auto max-w-7xl space-y-7 px-4 pb-44 pt-5 sm:px-6 md:pb-8">
+          <div className="mx-auto max-w-7xl space-y-8 px-4 pb-44 pt-5 sm:px-6 md:pb-8">
           {!searchQuery && (
             <>
-              {recentSearches.length > 0 && (
-                <section aria-labelledby="recent-heading">
-                  <div className="mb-3 flex items-center justify-between">
-                    <h2 id="recent-heading" className="text-lg font-bold flex items-center gap-2">
-                      <History className="size-5" />
-                      Recent searches
-                    </h2>
-                    <Button variant="ghost" size="sm" onClick={clearRecents}>
-                      <Trash2 className="size-4 mr-1" />
-                      Clear
-                    </Button>
+              {recentTracks.length > 0 && (
+                <section aria-labelledby="recently-played-heading">
+                  <div className="mb-2 flex items-center justify-between">
+                    <h2 id="recently-played-heading" className="text-xl font-bold">Recents</h2>
                   </div>
-                  <div className="flex gap-2 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch]">
-                    {recentSearches.map((item) => (
-                      <button
-                        key={item}
-                        onClick={() => chooseSearch(item)}
-                        className="flex min-h-11 shrink-0 items-center gap-2 rounded-full bg-secondary px-4 text-sm hover:bg-secondary/75"
-                      >
-                        <Clock3 className="size-4 text-muted-foreground" />
-                        {item}
-                      </button>
+                  <div className="divide-y divide-border/50">
+                    {recentTracks.map((song) => (
+                      <div key={`${song._id}-${song.playedAt}`} className="group flex min-h-[68px] items-center gap-3 rounded-xl px-2 py-2 transition-colors hover:bg-secondary/50">
+                        <button
+                          type="button"
+                          onClick={() => usePlayerStore.getState().setCurrentSong(song, { recordHistory: false })}
+                          className="flex min-w-0 flex-1 items-center gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B266FF]"
+                          aria-label={`Play ${song.title} by ${song.artist}`}
+                        >
+                          <img src={song.imageUrl || "/default-image.png"} alt="" loading="lazy" className="size-12 shrink-0 rounded-lg object-cover" />
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-semibold">{song.title}</span>
+                            <span className="block truncate text-xs text-muted-foreground">Song · {song.artist}</span>
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => dismissRecentTrack(song._id)}
+                          className="grid size-10 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B266FF]"
+                          aria-label={`Remove ${song.title} from recently played`}
+                          title="Remove from recently played"
+                        >
+                          <X className="size-5" />
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </section>
               )}
 
-              <section aria-labelledby="popular-heading">
-                <div className="mb-3 flex items-center gap-2">
-                  <TrendingUp className="size-5 text-primary" />
-                  <h2 id="popular-heading" className="text-lg font-bold">Trending searches</h2>
+              <section aria-labelledby="browse-heading">
+                <div className="mb-3 flex items-end justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Find your sound</p>
+                    <h2 id="browse-heading" className="text-xl font-bold">Browse all</h2>
+                  </div>
+                  <TrendingUp className="mb-1 size-5 text-[#B266FF]" />
                 </div>
                 <div className="grid grid-cols-2 gap-3 min-[460px]:grid-cols-3 lg:grid-cols-4">
-                  {popular.map((item, index) => (
+                  {browseCategories.map(({ title, query: categoryQuery, icon: Icon, style }) => (
                     <button
-                      key={item}
-                      onClick={() => chooseSearch(item)}
-                      className="group min-h-24 rounded-2xl border border-border/70 bg-card p-3 text-left shadow-sm transition-transform hover:-translate-y-0.5 hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      key={title}
+                      onClick={() => chooseSearch(categoryQuery)}
+                      className={cn("group relative min-h-[112px] overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-br p-4 text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-[#B266FF]/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B266FF]", style)}
                     >
-                      <span className="text-xs font-semibold text-primary">0{index + 1}</span>
-                      <p className="mt-2 line-clamp-2 text-sm font-semibold">{item}</p>
-                      <ArrowRight className="mt-1 size-4 text-muted-foreground transition-transform group-hover:translate-x-1" />
+                      <Icon aria-hidden className="absolute -bottom-2 -right-2 size-16 rotate-6 text-[#E5CCFF]/25 transition-transform group-hover:scale-110 group-hover:rotate-0" />
+                      <span className="relative z-10 block text-base font-bold">{title}</span>
+                      <span className="relative z-10 mt-1 block text-xs text-muted-foreground">Explore music</span>
+                      <ArrowRight className="relative z-10 mt-3 size-4 text-[#E5CCFF] transition-transform group-hover:translate-x-1" />
                     </button>
                   ))}
                 </div>
@@ -527,7 +580,7 @@ const SearchPage = () => {
                       <h3 className="mb-3 text-lg font-bold">Songs</h3>
                       <div className="divide-y divide-border/60 rounded-2xl border border-border/70 bg-card px-2">
                         {songs.slice(0, 4).map((song) => (
-                          <SongRow key={song._id} song={song} />
+                          <SongRow key={song._id} song={song} onPlay={(playedSong) => recordPlayedSearch(playedSong, query)} />
                         ))}
                       </div>
                     </div>
@@ -540,7 +593,7 @@ const SearchPage = () => {
                   <h3 className="mb-3 text-lg font-bold">Songs <span className="text-sm font-normal text-muted-foreground">({songs.length})</span></h3>
                   {songs.length > 0 ? (
                     <div className="divide-y divide-border/60 rounded-2xl border border-border/70 bg-card px-2">
-                      {songs.map((song) => <SongRow key={song._id} song={song} />)}
+                      {songs.map((song) => <SongRow key={song._id} song={song} onPlay={(playedSong) => recordPlayedSearch(playedSong, query)} />)}
                     </div>
                   ) : (
                     <p className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
@@ -586,19 +639,22 @@ const SearchPage = () => {
                   </h3>
                   <div className="grid grid-cols-2 gap-3 min-[460px]:grid-cols-3 md:grid-cols-5">
                     {albums.map((album) => (
-                      <div
-                        key={album.id}
-                        onClick={() => navigate(`/album/${album.id}`)}
-                        className="group relative min-w-0 rounded-2xl bg-card p-3 text-left hover:bg-secondary/60 cursor-pointer"
-                      >
-                        <div className="relative mb-3 aspect-square w-full rounded-xl overflow-hidden">
-                          <img src={album.imageUrl} alt={`${album.title} cover`} loading="lazy" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
-                          <div className="absolute top-2 right-2 z-20" onClick={(e) => e.stopPropagation()}>
-                            <AlbumOptionsMenu album={album} buttonClassName="grid size-8 place-items-center rounded-full bg-black/70 text-white backdrop-blur-md hover:bg-black hover:scale-105 shadow-md border border-white/10 transition-all" />
+                      <div key={album.id} className="group relative min-w-0 rounded-2xl bg-card p-3 text-left transition-colors hover:bg-secondary/60">
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/album/${album.id}`)}
+                          aria-label={`Open album ${album.title}`}
+                          className="w-full rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B266FF]"
+                        >
+                          <div className="relative mb-3 aspect-square w-full overflow-hidden rounded-xl">
+                            <img src={album.imageUrl} alt={`${album.title} cover`} loading="lazy" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
                           </div>
+                          <p className="truncate text-sm font-semibold">{album.title}</p>
+                          <p className="truncate text-xs text-muted-foreground">{album.artist} · {album.year}</p>
+                        </button>
+                        <div className="absolute right-5 top-5 z-10">
+                          <AlbumOptionsMenu album={album} buttonClassName="grid size-8 place-items-center rounded-full bg-black/70 text-white backdrop-blur-md hover:bg-black hover:scale-105 shadow-md border border-white/10 transition-all" />
                         </div>
-                        <p className="truncate text-sm font-semibold">{album.title}</p>
-                        <p className="truncate text-xs text-muted-foreground">{album.artist} · {album.year}</p>
                       </div>
                     ))}
                   </div>

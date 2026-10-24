@@ -26,7 +26,7 @@ interface PlayerStore {
   initializeQueue: (songs: Song[]) => void;
   initializeDefaultSong: (songs: Song[]) => void;
   playAlbum: (songs: Song[], startIndex?: number) => void;
-  setCurrentSong: (song: Song | null) => void;
+  setCurrentSong: (song: Song | null, options?: { recordHistory?: boolean }) => void;
   setIsPlaying: (isPlaying: boolean) => void;
   togglePlay: () => void;
   playNext: () => Promise<void>;
@@ -48,9 +48,9 @@ interface PlayerStore {
 const reportActivity = (activity: string) =>
   useChatStore.getState().updateCurrentActivity(activity);
 
-const announce = (song: Song) => {
+const announce = (song: Song, shouldRecordHistory = true) => {
   reportActivity(`Playing ${song.title} by ${song.artist}`);
-  recordListeningEvent(song);
+  if (shouldRecordHistory) recordListeningEvent(song);
 };
 
 const songIdentity = (song: Song) =>
@@ -187,7 +187,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
       }));
     },
 
-    setCurrentSong: (song) => {
+    setCurrentSong: (song, options) => {
       if (!song) {
         reportActivity("");
         set({
@@ -202,7 +202,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
       const queue = get().queue;
       const index = queue.findIndex((s) => s._id === song._id);
-      announce(song);
+      announce(song, options?.recordHistory !== false);
 
       if (index !== -1) {
         set((state) => ({

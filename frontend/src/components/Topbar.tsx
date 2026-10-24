@@ -13,6 +13,7 @@ import PlayButton from "@/pages/home/components/PlayButton";
 import { InstallAppButton } from "./InstallAppButton";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { useMyProfile } from "@/hooks/useMyProfile";
+import { getConfirmedSearchQuery, savePlayedSearch } from "@/lib/recentSearches";
 
 const Topbar = ({ showInstall = false }: { showInstall?: boolean }) => {
   const { user } = useUser();
@@ -27,6 +28,7 @@ const Topbar = ({ showInstall = false }: { showInstall?: boolean }) => {
     setSearchQuery,
     autocomplete,
     clearSearch,
+    addToSearchHistory,
   } = useSearchStore();
   const [showResults, setShowResults] = useState(false);
 
@@ -62,6 +64,21 @@ const Topbar = ({ showInstall = false }: { showInstall?: boolean }) => {
   const handleResultClick = () => {
     setShowResults(false);
     clearSearch();
+  };
+
+  const handleSearchResultPlay = (song: any) => {
+    const state = useSearchStore.getState();
+    const query = getConfirmedSearchQuery(searchQuery, state.searchQuery, state.searchResultsQuery);
+    if (!query) return;
+
+    savePlayedSearch(query);
+    void addToSearchHistory({
+      query,
+      resultCount: state.searchResults.length,
+      clickedResult: String(song._id || song.id || ""),
+      clickedResultType: "song",
+      timestamp: new Date().toISOString(),
+    });
   };
 
   return (
@@ -194,7 +211,7 @@ const Topbar = ({ showInstall = false }: { showInstall?: boolean }) => {
                           {song.artist}
                         </p>
                       </div>
-                      <PlayButton song={renderSearchResult(song)} size="small" />
+                      <PlayButton song={renderSearchResult(song)} size="small" onPlay={handleSearchResultPlay} />
                     </div>
                   ))}
                 </>

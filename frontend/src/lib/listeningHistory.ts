@@ -3,6 +3,20 @@ import { Song } from "@/types";
 export type ListeningEvent = Song & { playedAt: string };
 
 const keyFor = (userId: string) => `beatbond:listening-history:${userId}`;
+type HistoryStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+
+export const getUniqueRecentTracks = (events: ListeningEvent[], limit = 6) => {
+  const seen = new Set<string>();
+  const unique: ListeningEvent[] = [];
+  for (const event of events) {
+    const identity = event._id || `${event.title.trim().toLocaleLowerCase()}|${event.artist.trim().toLocaleLowerCase()}`;
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    unique.push(event);
+    if (unique.length >= limit) break;
+  }
+  return unique;
+};
 
 export const setActiveListener = (userId: string | null) => {
   if (userId) localStorage.setItem("beatbond:active-listener", userId);
@@ -21,6 +35,34 @@ export const readListeningHistory = (userId: string): ListeningEvent[] => {
 export const clearLocalListeningHistory = (userId: string) => {
   localStorage.removeItem(keyFor(userId));
   window.dispatchEvent(new CustomEvent("beatbond:history-updated", { detail: userId }));
+};
+
+/** Removes one played item from this device's history, preserving other plays of the same song. */
+export const removeListeningEventsForSong = (
+  userId: string,
+  songId: string,
+  storage: HistoryStorage = localStorage,
+): ListeningEvent[] => {
+  let history: ListeningEvent[];
+  try {
+    history = JSON.parse(storage.getItem(keyFor(userId)) || "[]");
+    if (!Array.isArray(history)) history = [];
+  } catch {
+    history = [];
+  }
+
+  const next = history.filter((event) => event._id !== songId);
+  if (next.length === history.length) return history;
+
+  try {
+    storage.setItem(keyFor(userId), JSON.stringify(next));
+  } catch {
+    return history;
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("beatbond:history-updated", { detail: userId }));
+  }
+  return next;
 };
 
 export const recordListeningEvent = (song: Song) => {

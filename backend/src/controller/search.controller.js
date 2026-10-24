@@ -122,16 +122,6 @@ export const searchSongs = async (req, res, next) => {
 			}
 		}
 
-		// Log search to history if user is authenticated
-		if (userId) {
-			await SearchHistory.create({
-				userId,
-				query: phrase,
-				resultCount: total,
-				filters: { genre, year, language, explicit, mood, minDuration, maxDuration, sortBy },
-			}).catch(() => {}); // Fire and forget
-		}
-
 		res.status(200).json({
 			songs: formattedSongs,
 			total,

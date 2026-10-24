@@ -5,9 +5,10 @@ import { Pause, Play } from "lucide-react";
 type PlayButtonProps = {
   song: Song;
   size?: "small" | "medium" | "large";
+  onPlay?: (song: Song) => void;
 };
 
-const PlayButton = ({ song, size = "medium" }: PlayButtonProps) => {
+const PlayButton = ({ song, size = "medium", onPlay }: PlayButtonProps) => {
   const { currentSong, isPlaying, setCurrentSong, togglePlay } = usePlayerStore();
   const isCurrentSong = currentSong?._id === song._id;
 
@@ -15,9 +16,11 @@ const PlayButton = ({ song, size = "medium" }: PlayButtonProps) => {
     e.stopPropagation();
     
     if (isCurrentSong) {
+      if (!isPlaying) onPlay?.(song);
       togglePlay();
     } else {
       setCurrentSong(song);
+      onPlay?.(song);
     }
   };
 

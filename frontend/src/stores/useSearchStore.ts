@@ -4,8 +4,8 @@ import {
   mapSaavnAlbum,
   mapSaavnSong,
   searchSaavnArtists,
+  searchSaavnAlbums,
   searchSaavnCatalogue,
-  searchSaavnSongs,
   SaavnArtistResult,
   SaavnPlaylistResult,
 } from "@/lib/saavn";
@@ -14,6 +14,9 @@ import { axiosInstance } from "@/lib/axios";
 import { create } from "zustand";
 
 let latestSearchRequest = 0;
+let latestSuggestionsRequest = 0;
+let activeSearchController: AbortController | null = null;
+let activeSuggestionsController: AbortController | null = null;
 
 const normalise = (value: unknown) => String(value || "")
   .toLowerCase()
@@ -67,20 +70,6 @@ const meaningfulTerms = (query: string) => {
   return filtered.length ? filtered : terms;
 };
 const containsAllTerms = (text: string, terms: string[]) => terms.length > 0 && terms.every((term) => text.includes(term));
-
-// JioSaavn exposes free-text search rather than Spotify-style `track:` and
-// `artist:` filters. For a multi-word query we probe likely artist phrases at
-// either end ("Kesariya Arijit Singh" / "Arijit Singh Kesariya") and then
-// search the remaining title separately once an exact artist is found.
-const artistPhraseCandidates = (query: string) => {
-  const words = meaningfulTerms(query);
-  if (words.length < 3) return [];
-  const candidates = [
-    words.slice(0, 3).join(" "), words.slice(0, 2).join(" "),
-    words.slice(-3).join(" "), words.slice(-2).join(" "),
-  ].filter((value) => value.split(" ").length >= 2);
-  return [...new Set(candidates)];
-};
 
 // Provider result ordering changes from request to request. Rank locally so
 // an exact title/artist match always stays ahead of a loose match.
@@ -344,6 +333,7 @@ interface SavedSearch {
 
 interface SearchStore {
   searchQuery: string;
+  searchResultsQuery: string;
   searchResults: Song[];
   artistResults: SaavnArtistResult[];
   albumResults: Album[];
@@ -385,6 +375,7 @@ interface SearchStore {
 
 export const useSearchStore = create<SearchStore>((set, get) => ({
   searchQuery: "",
+  searchResultsQuery: "",
   searchResults: [],
   artistResults: [],
   albumResults: [],
@@ -409,9 +400,10 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
     years: [],
   },
 
-  setSearchQuery: (query) => {
-    set({ searchQuery: query });
-  },
+  setSearchQuery: (query) => set((state) => ({
+    searchQuery: query,
+    ...(query === state.searchQuery ? {} : { searchResultsQuery: "" }),
+  })),
 
   // Compact provider-backed lookup for the top-bar. The full search page
   // continues to use `searchSongs`; autocomplete avoids its extra playlist
@@ -420,14 +412,15 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
     const requestId = ++latestSearchRequest;
     const normalizedQuery = query.trim().replace(/\s+/g, " ").slice(0, 120);
     if (normalizedQuery.length < 2) {
-      set({ searchResults: [], artistResults: [], albumResults: [], isLoading: false, error: null });
+      set({ searchResults: [], artistResults: [], albumResults: [], searchResultsQuery: "", isLoading: false, error: null });
       return;
     }
-    set({ isLoading: true, error: null });
+    set({ isLoading: true, error: null, searchResultsQuery: "" });
     try {
       const catalogue = await searchSaavnCatalogue(normalizedQuery, 8);
       if (requestId !== latestSearchRequest) return;
       set({
+        searchResultsQuery: normalizedQuery,
         searchResults: rankSongs(catalogue.songs.map((song: any) => mapSaavnSong(song)).filter(Boolean) as Song[], normalizedQuery).slice(0, 6),
         artistResults: rankArtists(catalogue.artists.map((artist: any) => mapSaavnArtist(artist)).filter(Boolean) as SaavnArtistResult[], normalizedQuery).slice(0, 3),
         albumResults: catalogue.albums.map((album: any) => mapSaavnAlbum(album)).filter(Boolean) as Album[],
@@ -437,7 +430,7 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
       });
     } catch {
       if (requestId !== latestSearchRequest) return;
-      set({ searchResults: [], artistResults: [], albumResults: [], playlistResults: [], isLoading: false, error: "Search is temporarily unavailable" });
+      set({ searchResults: [], artistResults: [], albumResults: [], playlistResults: [], searchResultsQuery: "", isLoading: false, error: "Search is temporarily unavailable" });
     }
   },
 
@@ -446,15 +439,18 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
   },
 
   searchSongs: async (query: string) => {
+    activeSearchController?.abort();
+    activeSearchController = new AbortController();
+    const { signal } = activeSearchController;
     const requestId = ++latestSearchRequest;
     const normalizedQuery = query.trim().replace(/\s+/g, " ").slice(0, 120).toLowerCase();
     if (normalizedQuery.length < 2) {
-      set({ searchResults: [], artistResults: [], albumResults: [], playlistResults: [], isLoading: false, error: null });
+      set({ searchResults: [], artistResults: [], albumResults: [], playlistResults: [], searchResultsQuery: "", isLoading: false, error: null });
       return;
     }
 
     const { filters } = get();
-    set({ isLoading: true, error: null });
+    set({ isLoading: true, error: null, searchResultsQuery: "" });
 
     try {
       // Build query params
@@ -466,48 +462,17 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
         }
       });
 
-      // One server-side response keeps song, artist, and album ranking
-      // consistent. Extra artist probes only resolve artist + title queries.
-      const artistCandidates = artistPhraseCandidates(normalizedQuery);
-      const [catalogueResult, playlists, ...artistLookups] = await Promise.allSettled([
-        searchSaavnCatalogue(normalizedQuery, 50),
-        axiosInstance.get("/playlists"),
-        ...artistCandidates.map((candidate) => searchSaavnArtists(candidate, 5)),
-      ]);
+      // Only fetch a small playable song page on the critical path. Artist,
+      // album, playlist, and verification lookups are loaded independently.
+      const [catalogueResult] = await Promise.allSettled([searchSaavnCatalogue(normalizedQuery, 15, signal, true)]);
       const catalogue = catalogueResult.status === "fulfilled" ? catalogueResult.value : null;
       let rawSongs = catalogue?.songs || [];
-      const rawArtists = catalogue?.artists || [];
-      const rawAlbums = catalogue?.albums || [];
-      const rawPlaylists = playlists.status === "fulfilled" && Array.isArray(playlists.value.data)
-        ? playlists.value.data
-        : [];
-
-      const detectedArtist = artistLookups.flatMap((lookup, index) => {
-        if (lookup.status !== "fulfilled") return [];
-        const candidate = artistCandidates[index];
-        return lookup.value
-          .map((artist: any) => mapSaavnArtist(artist))
-          .filter((artist: SaavnArtistResult | null): artist is SaavnArtistResult => Boolean(artist))
-          .filter((artist: SaavnArtistResult) => normalise(artist.name) === normalise(candidate));
-      })[0];
-      if (detectedArtist) {
-        const artistTerms = normalise(detectedArtist.name).split(" ").filter(Boolean);
-        const titleQuery = meaningfulTerms(normalizedQuery).filter((term) => !artistTerms.includes(term)).join(" ");
-        if (titleQuery) {
-          try {
-            const titleResults = await searchSaavnSongs(titleQuery, 50);
-            rawSongs = [...rawSongs, ...titleResults];
-          } catch {
-            // Keep the original broad search result if this refinement fails.
-          }
-        }
-      }
 
       // Saavn is an enhancement, not a single point of failure. Fall back to
       // our own indexed catalogue when the upstream search is unavailable.
       if (!rawSongs.length) {
         try {
-          const { data } = await axiosInstance.get("/search", { params });
+          const { data } = await axiosInstance.get("/search", { params, signal });
           rawSongs = (Array.isArray(data) ? data : []).map((song: any) => ({
             id: song.id || song._id,
             name: song.title,
@@ -525,42 +490,12 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
       // A slow response from an earlier query must never replace newer results.
       if (requestId !== latestSearchRequest) return;
 
+      if (signal.aborted || requestId !== latestSearchRequest) return;
       if (catalogueResult.status === "rejected" && !rawSongs.length) {
         throw new Error("Search services are currently unavailable");
       }
 
-      const mappedArtists: SaavnArtistResult[] = rawArtists
-        .map((artist: any) => mapSaavnArtist(artist))
-        .filter((artist: SaavnArtistResult | null): artist is SaavnArtistResult => Boolean(artist));
       const rankedSongs = rankSongs(rawSongs.map((song: any) => mapSaavnSong(song)).filter(Boolean) as Song[], normalizedQuery);
-      // A song title query usually does not match its singer's name. Resolve
-      // primary song credits against the admin-approved artist directory and
-      // put those exact verified profiles first in the Artists section.
-      const topSongIds = new Set(rankedSongs.slice(0, 5).map((song) => String(song._id)));
-      const primaryArtistNames = [...new Set<string>(rawSongs
-        .filter((song: any) => topSongIds.has(String(song?.id || song?._id || "")))
-        .flatMap((song: any) => {
-          const primary = song?.artists?.primary;
-          if (Array.isArray(primary) && primary.length) return primary;
-          const primaryName = song?.primaryArtists || song?.artist || "";
-          return typeof primaryName === "string"
-            ? primaryName.split(/,|&|\bfeat\.?\b|\bft\.?\b|\bwith\b/i).slice(0, 1).map((name: string) => ({ name: name.trim() }))
-            : [];
-        })
-        .map((artist: any) => String(artist?.name || artist?.title || "").trim())
-        .filter((name: string) => name.length > 1)
-        .filter((name: string, index: number, names: string[]) => names.findIndex((candidate) => normalise(candidate) === normalise(name)) === index)
-        .slice(0, 5))];
-      const approvedSongArtists = (await Promise.allSettled(
-        primaryArtistNames.map((name) => searchSaavnArtists(name, 5)),
-      )).flatMap((lookup, index) => {
-        if (lookup.status !== "fulfilled") return [];
-        const requestedName = normalise(primaryArtistNames[index]);
-        return lookup.value
-          .map((artist: any) => mapSaavnArtist(artist))
-          .filter((artist: SaavnArtistResult | null): artist is SaavnArtistResult => Boolean(artist))
-          .filter((artist: SaavnArtistResult) => artist.isVerified && normalise(artist.name) === requestedName);
-      });
       // Some Saavn deployments return songs but an empty artist collection.
       // Use the artists embedded in those song results as a safe fallback so
       // searching an artist never produces an empty Artists section.
@@ -579,39 +514,57 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
         })
         .map((artist: any) => mapSaavnArtist(artist))
         .filter((artist: SaavnArtistResult | null): artist is SaavnArtistResult => Boolean(artist));
-      const discoveredArtists = [...mappedArtists, ...artistsFromSongs];
-      const rankedArtistResults = rankArtists(discoveredArtists, normalizedQuery);
-      const promotedSongArtists = [...new Map(approvedSongArtists
-        .filter(isTrueArtist)
-        .map((artist) => [normalise(artist.name), artist])).values()];
-      const promotedKeys = new Set(promotedSongArtists.map((artist) => `${artist.id}:${normalise(artist.name)}`));
-      const uniqueArtists: SaavnArtistResult[] = [
-        ...promotedSongArtists,
-        ...rankedArtistResults.filter((artist) => !promotedKeys.has(`${artist.id}:${normalise(artist.name)}`)),
-      ];
+      const initialArtists = rankArtists(artistsFromSongs, normalizedQuery);
       set({
+        searchResultsQuery: normalizedQuery,
         searchResults: rankedSongs,
-        artistResults: uniqueArtists,
-        albumResults: rawAlbums.map((album: any) => mapSaavnAlbum(album)).filter(Boolean) as Album[],
-        playlistResults: rawPlaylists
-          .filter((playlist: any) => matchesQuery(`${playlist.name || ""} ${playlist.description || ""}`, normalizedQuery))
-          .map((playlist: any) => ({
-            id: String(playlist.id),
-            name: String(playlist.name || "Playlist"),
-            imageUrl: String(playlist.songs?.[0]?.imageUrl || "/default-image.png"),
-            description: String(playlist.description || ""),
-            songCount: Array.isArray(playlist.songs) ? playlist.songs.length : 0,
-          })),
+        artistResults: initialArtists,
+        albumResults: [],
+        playlistResults: [],
         isLoading: false,
         error: null,
       });
+
+      // Supplement the instantly usable song list without holding its loading
+      // state open. Stale query results are discarded before any state write.
+      const artistNames = [...new Set(artistsFromSongs.map((artist) => artist.name).filter(Boolean))].slice(0, 5);
+      void Promise.allSettled([
+        searchSaavnArtists(normalizedQuery, 10, signal),
+        searchSaavnAlbums(normalizedQuery, 12, signal),
+        axiosInstance.get("/playlists", { signal }),
+        ...artistNames.map((name) => searchSaavnArtists(name, 5, signal)),
+      ]).then((lookups) => {
+        if (requestId !== latestSearchRequest) return;
+        const rawArtists = lookups[0].status === "fulfilled" ? lookups[0].value : [];
+        const rawAlbums = lookups[1].status === "fulfilled" ? lookups[1].value : [];
+        const rawPlaylists = lookups[2].status === "fulfilled" && Array.isArray(lookups[2].value.data) ? lookups[2].value.data : [];
+        const verifiedArtists = lookups.slice(3).flatMap((lookup, index) => {
+          if (lookup.status !== "fulfilled") return [];
+          const requested = normalise(artistNames[index]);
+          return lookup.value.map((artist: any) => mapSaavnArtist(artist))
+            .filter((artist: SaavnArtistResult | null): artist is SaavnArtistResult => Boolean(artist))
+            .filter((artist: SaavnArtistResult) => artist.isVerified && normalise(artist.name) === requested);
+        });
+        const discovered = [...rawArtists.map((artist: any) => mapSaavnArtist(artist)).filter(Boolean), ...artistsFromSongs];
+        const promoted = [...new Map(verifiedArtists.filter(isTrueArtist).map((artist) => [normalise(artist.name), artist])).values()];
+        const promotedKeys = new Set(promoted.map((artist) => `${artist.id}:${normalise(artist.name)}`));
+        set({
+          artistResults: [...promoted, ...rankArtists(discovered, normalizedQuery).filter((artist) => !promotedKeys.has(`${artist.id}:${normalise(artist.name)}`))],
+          albumResults: rawAlbums.map((album: any) => mapSaavnAlbum(album)).filter(Boolean) as Album[],
+          playlistResults: rawPlaylists.filter((playlist: any) => matchesQuery(`${playlist.name || ""} ${playlist.description || ""}`, normalizedQuery)).map((playlist: any) => ({
+            id: String(playlist.id), name: String(playlist.name || "Playlist"), imageUrl: String(playlist.songs?.[0]?.imageUrl || "/default-image.png"),
+            description: String(playlist.description || ""), songCount: Array.isArray(playlist.songs) ? playlist.songs.length : 0,
+          })),
+        });
+      });
     } catch (error: any) {
-      if (requestId !== latestSearchRequest) return;
+      if (signal.aborted || requestId !== latestSearchRequest) return;
       console.error("Search error:", error);
       const errorMessage = error.response?.data?.message || "Failed to search songs";
       
       set({ 
         searchResults: [],
+        searchResultsQuery: "",
         artistResults: [],
         albumResults: [],
         playlistResults: [],
@@ -623,6 +576,10 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
   },
 
   getSuggestions: async (query: string) => {
+    activeSuggestionsController?.abort();
+    activeSuggestionsController = new AbortController();
+    const { signal } = activeSuggestionsController;
+    const requestId = ++latestSuggestionsRequest;
     if (!query || query.trim().length < 2) {
       set({ 
         suggestions: {
@@ -637,11 +594,16 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
       return;
     }
 
-    set({ isLoadingSuggestions: true });
+    set({
+      suggestions: { songs: [], artists: [], albums: [], playlists: [], popular: [] },
+      isLoadingSuggestions: true,
+    });
     try {
       const { data } = await axiosInstance.get("/search/suggestions", {
         params: { q: query.trim(), limit: 10 },
+        signal,
       });
+      if (requestId !== latestSuggestionsRequest) return;
       set({ suggestions: data.suggestions || {
         songs: [],
         artists: [],
@@ -650,6 +612,7 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
         popular: [],
       }, isLoadingSuggestions: false });
     } catch (error) {
+      if (requestId !== latestSuggestionsRequest) return;
       console.error("Suggestions error:", error);
       set({ 
         suggestions: {
@@ -665,10 +628,16 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
   },
 
   clearSearch: () => {
+    activeSearchController?.abort();
+    activeSearchController = null;
+    activeSuggestionsController?.abort();
+    activeSuggestionsController = null;
     latestSearchRequest += 1;
+    latestSuggestionsRequest += 1;
     set({ 
       searchQuery: "", 
       searchResults: [], 
+      searchResultsQuery: "",
       artistResults: [],
       albumResults: [],
       playlistResults: [],
@@ -678,9 +647,15 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
   },
 
   clearResults: () => {
+    activeSearchController?.abort();
+    activeSearchController = null;
+    activeSuggestionsController?.abort();
+    activeSuggestionsController = null;
     latestSearchRequest += 1;
+    latestSuggestionsRequest += 1;
     set({
       searchResults: [],
+      searchResultsQuery: "",
       artistResults: [],
       albumResults: [],
       playlistResults: [],
@@ -690,6 +665,9 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
   },
 
   clearSuggestions: () => {
+    activeSuggestionsController?.abort();
+    activeSuggestionsController = null;
+    latestSuggestionsRequest += 1;
     set({
       suggestions: {
         songs: [],

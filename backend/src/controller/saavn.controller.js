@@ -31,7 +31,8 @@ export const handleSearchAlbums = async (req, res) => {
 export const handleSearchCatalogue = async (req, res) => {
   const query = String(req.query.query || "").trim().slice(0, 120);
   const { limit } = req.query;
-  const result = await searchCatalogue(query, limit || 30);
+  const songsOnly = req.query.songsOnly === "true";
+  const result = await searchCatalogue(query, limit || 30, songsOnly);
   res.status(200).json(result);
 };
 

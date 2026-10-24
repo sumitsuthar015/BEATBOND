@@ -217,6 +217,7 @@ const SettingsPage = () => {
       }
       localStorage.removeItem("beatbond:active-listener");
       localStorage.removeItem("beatbond:recent-searches");
+      localStorage.removeItem("beatbond:played-searches:v1");
       localStorage.removeItem("beatbond-map-view");
       localStorage.removeItem("beatbond:ai-provider-consent:v1");
       sessionStorage.removeItem("beatbond:legal-consent");

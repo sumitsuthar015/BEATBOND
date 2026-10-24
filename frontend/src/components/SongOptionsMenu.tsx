@@ -43,6 +43,7 @@ import { SongCommentsModal } from "@/components/SongCommentsModal";
 
 interface SongOptionsMenuProps {
   song: Song;
+  onPlay?: (song: Song) => void;
   variant?: "horizontal" | "vertical";
   className?: string;
   buttonClassName?: string;
@@ -51,6 +52,7 @@ interface SongOptionsMenuProps {
 
 export const SongOptionsMenu: React.FC<SongOptionsMenuProps> = ({
   song,
+  onPlay,
   variant = "horizontal",
   buttonClassName = "",
   align = "end",
@@ -80,6 +82,7 @@ export const SongOptionsMenu: React.FC<SongOptionsMenuProps> = ({
   const handlePlaySong = (e: React.MouseEvent) => {
     e.stopPropagation();
     setCurrentSong(song);
+    onPlay?.(song);
   };
 
   const handlePlayNext = (e: React.MouseEvent) => {
