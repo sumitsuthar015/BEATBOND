@@ -103,6 +103,12 @@ export const photoSourceAvailable = (state, source) =>
 export const photoUpdate = (state) => ({ ...state, imageUrl: displayImageFor(state) });
 
 const primaryArtist = (artist = "") => String(artist).split(/,|&|\bfeat\.?\b|\bft\.?\b| x /i)[0].trim();
+const normalizeTrackPart = (value = "") => String(value)
+  .normalize("NFKD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .toLocaleLowerCase()
+  .replace(/[^\p{L}\p{N}]+/gu, " ")
+  .trim();
 
 /**
  * Turns listening history (newest first) into the artists someone plays the
@@ -122,12 +128,16 @@ export const summarizeListening = (activities = [], { topLimit = 6, recentLimit 
     .slice(0, topLimit)
     .map(({ name, plays, imageUrl }) => ({ name, plays, imageUrl }));
 
-  const seen = new Set();
+  const seenIds = new Set();
+  const seenTitles = new Set();
   const recent = [];
   for (const activity of activities) {
     if (recent.length >= recentLimit) break;
-    if (!activity.songId || seen.has(activity.songId)) continue;
-    seen.add(activity.songId);
+    const songId = String(activity.songId || "");
+    const titleArtist = `${normalizeTrackPart(activity.title)}|${normalizeTrackPart(activity.artist)}`;
+    if ((songId && seenIds.has(songId)) || (titleArtist !== "|" && seenTitles.has(titleArtist))) continue;
+    if (songId) seenIds.add(songId);
+    if (titleArtist !== "|") seenTitles.add(titleArtist);
     recent.push({
       _id: activity.songId,
       title: activity.title,

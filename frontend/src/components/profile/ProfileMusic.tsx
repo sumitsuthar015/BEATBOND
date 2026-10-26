@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Eye, Lock, Music2, Play } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -6,6 +7,7 @@ import { axiosInstance } from "@/lib/axios";
 import { usePlayerStore } from "@/stores/usePlayerStore";
 import type { Song } from "@/types";
 import { profileMusicQueryKey } from "./profileQueries";
+import { getUniqueRecentTracks } from "@/lib/listeningHistory";
 
 type ProfileMusicData = {
   visible: boolean;
@@ -49,6 +51,7 @@ const ProfileMusic = ({ userId, name, isOwnProfile = false, showRecent = true }:
     enabled: Boolean(userId),
     staleTime: 60_000,
   });
+  const recentSongs = useMemo(() => getUniqueRecentTracks(data?.recent ?? [], 8), [data?.recent]);
 
   if (isLoading) {
     return <div className="h-28 animate-pulse rounded-2xl bg-white/[.04]" aria-label="Loading music taste" />;
@@ -89,15 +92,15 @@ const ProfileMusic = ({ userId, name, isOwnProfile = false, showRecent = true }:
         </div>
       </section>
 
-      {showRecent && data.recent.length > 0 && (
+      {showRecent && recentSongs.length > 0 && (
         <section>
           <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-muted-foreground">Recently played</h2>
           <div className="grid gap-2 sm:grid-cols-2">
-            {data.recent.slice(0, 6).map((song, index) => (
+            {recentSongs.slice(0, 6).map((song, index) => (
               <button
                 key={song._id}
                 type="button"
-                onClick={() => playAlbum(data.recent, index)}
+                onClick={() => playAlbum(recentSongs, index)}
                 className="flex items-center gap-3 rounded-xl bg-white/[.04] p-2 text-left transition-colors hover:bg-white/[.08]"
               >
                 <img src={song.imageUrl} alt="" className="size-11 shrink-0 rounded-lg object-cover" />

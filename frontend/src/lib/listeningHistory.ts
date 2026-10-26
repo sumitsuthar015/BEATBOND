@@ -4,14 +4,24 @@ export type ListeningEvent = Song & { playedAt: string };
 
 const keyFor = (userId: string) => `beatbond:listening-history:${userId}`;
 type HistoryStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+const normalizeTrackPart = (value: string) => value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+const primaryArtist = (artist: string) => artist.split(/,|&|\bfeat\.?\b|\bft\.?\b|\bwith\b| x /i)[0];
 
 export const getUniqueRecentTracks = (events: ListeningEvent[], limit = 6) => {
-  const seen = new Set<string>();
+  const newestFirst = [...events].sort((a, b) => {
+    const aTime = Date.parse(a.playedAt || "") || 0;
+    const bTime = Date.parse(b.playedAt || "") || 0;
+    return bTime - aTime;
+  });
+  const seenIds = new Set<string>();
+  const seenTracks = new Set<string>();
   const unique: ListeningEvent[] = [];
-  for (const event of events) {
-    const identity = event._id || `${event.title.trim().toLocaleLowerCase()}|${event.artist.trim().toLocaleLowerCase()}`;
-    if (seen.has(identity)) continue;
-    seen.add(identity);
+  for (const event of newestFirst) {
+    const id = String(event._id || "");
+    const track = `${normalizeTrackPart(event.title || "")}|${normalizeTrackPart(primaryArtist(event.artist || ""))}`;
+    if ((id && seenIds.has(id)) || (track !== "|" && seenTracks.has(track))) continue;
+    if (id) seenIds.add(id);
+    if (track !== "|") seenTracks.add(track);
     unique.push(event);
     if (unique.length >= limit) break;
   }

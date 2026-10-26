@@ -8,12 +8,13 @@ import { useMusicStore } from "@/stores/useMusicStore";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ListeningEvent, readListeningHistory } from "@/lib/listeningHistory";
+import { ListeningEvent, getUniqueRecentTracks, readListeningHistory } from "@/lib/listeningHistory";
 import { axiosInstance } from "@/lib/axios";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useMyProfile } from "@/hooks/useMyProfile";
 import { PageBackButton } from "@/components/PageBackButton";
 import type { Song } from "@/types";
+import { useChatStore } from "@/stores/useChatStore";
 
 interface DashboardStats {
   hoursListened: number;
@@ -36,6 +37,7 @@ const DashboardPage = () => {
   const togglePlay = usePlayerStore((state) => state.togglePlay);
   const setCurrentSong = usePlayerStore((state) => state.setCurrentSong);
   const playedSongs = usePlayerStore((state) => state.playedSongs);
+  const socket = useChatStore((state) => state.socket);
 
   const songs = useMusicStore((state) => state.songs);
   const fetchSongs = useMusicStore((state) => state.fetchSongs);
@@ -63,10 +65,7 @@ const DashboardPage = () => {
   // (which have no Mongo userId) are still reflected after refreshes.
   const userPlayedSongs = useMemo(() => listeningHistory, [listeningHistory]);
 
-  const recentlyPlayed = useMemo(() => 
-    userPlayedSongs.slice(-5).reverse(),
-    [userPlayedSongs]
-  );
+  const recentlyPlayed = useMemo(() => getUniqueRecentTracks(userPlayedSongs, 5), [userPlayedSongs]);
 
   const topLikedSongs = useMemo(() => 
     likedSongs.slice(0, 5),
@@ -119,17 +118,29 @@ const DashboardPage = () => {
   useEffect(() => {
     if (!user?.id) return;
     const refreshHistory = () => setListeningHistory(readListeningHistory(user.id));
+    const refreshFromServer = () => {
+      void axiosInstance.get<ListeningEvent[]>("/users/listening-history?limit=1000")
+        .then((response) => {
+          if (Array.isArray(response.data)) setListeningHistory(response.data);
+        })
+        .catch(() => undefined);
+    };
     refreshHistory();
-    void axiosInstance.get<ListeningEvent[]>("/users/listening-history?limit=1000")
-      .then((response) => { if (response.data.length) setListeningHistory(response.data.reverse()); })
-      .catch(() => undefined);
+    refreshFromServer();
     const onHistoryChange = (event: Event) => {
       const changedUserId = (event as CustomEvent<string>).detail;
       if (!changedUserId || changedUserId === user.id) refreshHistory();
     };
+    const onDataUpdated = ({ resource }: { resource?: string }) => {
+      if (resource === "users") refreshFromServer();
+    };
     window.addEventListener("beatbond:history-updated", onHistoryChange);
-    return () => window.removeEventListener("beatbond:history-updated", onHistoryChange);
-  }, [user?.id, currentSong?._id, playedSongs.length]);
+    socket.on("data_updated", onDataUpdated);
+    return () => {
+      window.removeEventListener("beatbond:history-updated", onHistoryChange);
+      socket.off("data_updated", onDataUpdated);
+    };
+  }, [user?.id, currentSong?._id, playedSongs.length, socket]);
 
   // Update stats
   useEffect(() => {

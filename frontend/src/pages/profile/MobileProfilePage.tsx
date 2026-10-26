@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useClerk, useUser } from "@clerk/clerk-react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
@@ -15,6 +15,7 @@ import type { Song } from "@/types";
 import { usePlayerStore } from "@/stores/usePlayerStore";
 import { useChatStore } from "@/stores/useChatStore";
 import { PageBackButton } from "@/components/PageBackButton";
+import { getUniqueRecentTracks, type ListeningEvent } from "@/lib/listeningHistory";
 
 type Profile = { fullName: string; username: string; imageUrl: string; bio: string; friendsCount: number; currentActivity?: string | null; location?: string; website?: string; joinedDate?: string };
 type Connection = { clerkId: string };
@@ -29,7 +30,8 @@ const MobileProfilePage = () => {
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const currentActivity = useChatStore((state) => state.currentActivity);
   const { data: profile, isLoading } = useQuery<Profile>({ queryKey: ["myProfile", user?.id], queryFn: async () => (await axiosInstance.get(`/users/profile/${user!.id}`)).data, enabled: Boolean(user?.id), staleTime: 60_000 });
-  const { data: history = [] } = useQuery<Song[]>({ queryKey: ["myListeningHistory"], queryFn: async () => (await axiosInstance.get("/users/listening-history?limit=6")).data, enabled: Boolean(user?.id), staleTime: 30_000 });
+  const { data: historyEvents = [] } = useQuery<ListeningEvent[]>({ queryKey: ["myListeningHistory"], queryFn: async () => (await axiosInstance.get("/users/listening-history?limit=100")).data, enabled: Boolean(user?.id), staleTime: 30_000 });
+  const history = useMemo(() => getUniqueRecentTracks(historyEvents, 6), [historyEvents]);
   const { data: likedSongs = [] } = useQuery<Song[]>({ queryKey: ["myLikedSongs"], queryFn: async () => (await axiosInstance.get("/songs/liked")).data, enabled: Boolean(user?.id), staleTime: 30_000 });
   const { data: connections = [] } = useQuery<Connection[]>({ queryKey: ["friends"], queryFn: async () => (await axiosInstance.get("/friends")).data, enabled: Boolean(user?.id), staleTime: 30_000 });
   useEffect(() => { if (user?.id) void fetchPlaylists(); }, [user?.id, fetchPlaylists]);
