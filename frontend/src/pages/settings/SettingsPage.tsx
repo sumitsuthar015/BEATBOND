@@ -18,6 +18,7 @@ import { BlockedUsersDialog } from "@/components/profile/BlockedUsersDialog";
 import { HiddenListenersDialog } from "@/components/profile/HiddenListenersDialog";
 import { PageBackButton } from "@/components/PageBackButton";
 import { profileMusicQueryKey, useBlockedUsers, useHiddenListeners } from "@/components/profile/profileQueries";
+import { clearSearchRecentSongs } from "@/lib/searchRecentSongs";
 import { useMyProfile, type ChatSettings, type MusicPrivacy } from "@/hooks/useMyProfile";
 import { axiosInstance } from "@/lib/axios";
 import { clearLocalListeningHistory } from "@/lib/listeningHistory";
@@ -193,6 +194,7 @@ const SettingsPage = () => {
     try {
       await axiosInstance.delete("/users/listening-history");
       clearLocalListeningHistory(user.id);
+      clearSearchRecentSongs();
       clearSignals(user.id);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["myListeningHistory"] }),
@@ -211,9 +213,10 @@ const SettingsPage = () => {
     try {
       await axiosInstance.delete("/users/account");
       clearLocalListeningHistory(user.id);
+      clearSearchRecentSongs();
       clearSignals(user.id);
       for (const key of Object.keys(localStorage)) {
-        if (key.startsWith("beatbond:listening-history:") || key.startsWith("beatbond:playback-signals:") || key.startsWith("beatbond:nickname:")) localStorage.removeItem(key);
+        if (key.startsWith("beatbond:listening-history:") || key.startsWith("beatbond:playback-signals:") || key.startsWith("beatbond:nickname:") || key.startsWith("beatbond:search-recent-songs:")) localStorage.removeItem(key);
       }
       localStorage.removeItem("beatbond:active-listener");
       localStorage.removeItem("beatbond:recent-searches");

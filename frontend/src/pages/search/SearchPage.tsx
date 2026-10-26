@@ -28,7 +28,8 @@ import { usePlayerStore } from "@/stores/usePlayerStore";
 import { cn } from "@/lib/utils";
 import type { Song } from "@/types";
 import { getConfirmedSearchQuery, savePlayedSearch } from "@/lib/recentSearches";
-import { getUniqueRecentTracks, readListeningHistory, removeListeningEventsForSong, type ListeningEvent } from "@/lib/listeningHistory";
+import type { ListeningEvent } from "@/lib/listeningHistory";
+import { readSearchRecentSongs, recordSearchRecentSong, removeSearchRecentSong } from "@/lib/searchRecentSongs";
 import { getSpeechRecognitionConstructor } from "@/lib/voiceSearch";
 import { getSearchQueryParams, SEARCH_QUERY_NAVIGATION_OPTIONS } from "@/lib/searchNavigation";
 import toast from "react-hot-toast";
@@ -117,6 +118,7 @@ const SearchPage = () => {
     if (!queryToSave) return;
 
     savePlayedSearch(queryToSave);
+    recordSearchRecentSong(song);
     void addToSearchHistory({
       query: queryToSave,
       resultCount: state.searchResults.length,
@@ -229,18 +231,13 @@ const SearchPage = () => {
   const show = (section: Filter) => filter === "all" || filter === section;
   const chooseSearch = (value: string) => { setSearchQuery(value); setUrlSearchParams({ q: value }); inputRef.current?.focus(); };
   const dismissRecentTrack = (songId: string) => {
-    if (!user?.id) return;
-    setRecentTracks(removeListeningEventsForSong(user.id, songId));
+    setRecentTracks(removeSearchRecentSong(songId));
   };
   useEffect(() => {
-    if (!user?.id) {
-      setRecentTracks([]);
-      return;
-    }
-    const refresh = () => setRecentTracks(getUniqueRecentTracks(readListeningHistory(user.id).slice().reverse()));
+    const refresh = () => setRecentTracks(readSearchRecentSongs());
     refresh();
-    window.addEventListener("beatbond:history-updated", refresh);
-    return () => window.removeEventListener("beatbond:history-updated", refresh);
+    window.addEventListener("beatbond:search-recents-updated", refresh);
+    return () => window.removeEventListener("beatbond:search-recents-updated", refresh);
   }, [user?.id]);
 
   return (

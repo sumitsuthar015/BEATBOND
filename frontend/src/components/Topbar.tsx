@@ -14,6 +14,7 @@ import { InstallAppButton } from "./InstallAppButton";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { useMyProfile } from "@/hooks/useMyProfile";
 import { getConfirmedSearchQuery, savePlayedSearch } from "@/lib/recentSearches";
+import { recordSearchRecentSong } from "@/lib/searchRecentSongs";
 
 const Topbar = ({ showInstall = false }: { showInstall?: boolean }) => {
   const { user } = useUser();
@@ -72,6 +73,7 @@ const Topbar = ({ showInstall = false }: { showInstall?: boolean }) => {
     if (!query) return;
 
     savePlayedSearch(query);
+    recordSearchRecentSong(song);
     void addToSearchHistory({
       query,
       resultCount: state.searchResults.length,
