@@ -1,5 +1,8 @@
 import { SearchHistory } from "../models/searchHistory.model.js";
 import { SavedSearch } from "../models/savedSearch.model.js";
+import { Notification } from "../models/notification.model.js";
+import { sendPushToUser } from "../services/push.service.js";
+import { searchSongs } from "../services/saavn.service.js";
 
 // Get user's search history
 export const getSearchHistory = async (req, res, next) => {
@@ -289,21 +292,38 @@ export const deleteSavedSearch = async (req, res, next) => {
 // Check saved searches for new results (background job endpoint)
 export const checkSavedSearchesForNewResults = async (req, res, next) => {
 	try {
-		// This endpoint can be called by a cron job
+		// This endpoint can be called by a scheduled admin/cron job. Bound each
+		// run so a large saved-search collection cannot monopolize the provider.
 		const searches = await SavedSearch.find({
 			isActive: true,
 			notifyOnNewResults: true,
-		}).lean();
+		}).sort({ lastChecked: 1 }).limit(50).lean();
 
 		const results = [];
 
 		for (const search of searches) {
-			// This would call the actual search function
-			// For now, we'll just update the lastChecked timestamp
-			await SavedSearch.findByIdAndUpdate(search._id, {
-				lastChecked: new Date(),
-			});
-			results.push({ searchId: search._id, checked: true });
+			try {
+				const response = await searchSongs(search.query, 20);
+				const songs = (response?.data?.results || []).filter((song) => song?.id).slice(0, 20);
+				const ids = songs.map((song) => String(song.id));
+				const previous = new Set(search.lastResultIds || []);
+				const fresh = search.lastChecked ? songs.filter((song) => !previous.has(String(song.id))) : [];
+				await SavedSearch.updateOne({ _id: search._id }, {
+					$set: { lastChecked: new Date(), lastResultCount: ids.length, lastResultIds: ids },
+				});
+				if (fresh.length) {
+					const notification = await Notification.create({
+						userId: search.userId,
+						type: "system",
+						message: `${fresh.length} new result${fresh.length === 1 ? "" : "s"} for “${search.name}”`,
+						metadata: { savedSearchId: String(search._id), songTitle: fresh[0].name, newResults: fresh.slice(0, 5).map((song) => ({ id: String(song.id), title: song.name })) },
+					});
+					void sendPushToUser(search.userId, { title: "New music for a saved search", body: notification.message, url: "/search" });
+				}
+				results.push({ searchId: search._id, checked: true, newResults: fresh.length });
+			} catch (error) {
+				results.push({ searchId: search._id, checked: false, error: error.message });
+			}
 		}
 
 		res.status(200).json({ checked: results.length, results });

@@ -255,7 +255,9 @@ export const initializeWebSocket = (server) => {
 
   server.on("upgrade", (request, networkSocket, head) => {
     const pathname = new URL(request.url, "http://localhost").pathname;
-    if (pathname !== "/ws") { networkSocket.destroy(); return; }
+    // Socket.IO and other upgrade handlers share this HTTP server. Only claim
+    // our own endpoint; destroying other paths here aborts their handshakes.
+    if (pathname !== "/ws") return;
     const origin = request.headers.origin;
     const allowedOrigins = new Set([
       ...SOCKET_ORIGINS,
@@ -376,6 +378,15 @@ export const initializeWebSocket = (server) => {
         if (!receiverId || receiverId === userId) throw new Error("Invalid recipient");
         if (!content) throw new Error("Message cannot be empty");
         if (content.length > 4000) throw new Error("Message is too long");
+        let voiceNote = undefined;
+        if (data.voiceNote && typeof data.voiceNote === "object") {
+          const url = typeof data.voiceNote.url === "string" ? data.voiceNote.url : "";
+          const duration = data.voiceNote.duration;
+          let parsedUrl;
+          try { parsedUrl = new URL(url); } catch { throw new Error("Voice note URL is invalid"); }
+          if (parsedUrl.protocol !== "https:" || parsedUrl.hostname !== "res.cloudinary.com" || !parsedUrl.pathname.includes("/video/upload/") || !Number.isFinite(duration) || duration <= 0 || duration > 60) throw new Error("Voice note is invalid");
+          voiceNote = { url, duration };
+        }
         const [sender, receiver] = await Promise.all([
           User.findOne({ clerkId: userId }).select("fullName imageUrl friends blockedUsers").lean(),
           User.findOne({ clerkId: receiverId }).select("blockedUsers").lean(),
@@ -462,6 +473,7 @@ export const initializeWebSocket = (server) => {
           senderId: userId,
           receiverId,
           content,
+          voiceNote,
           replyTo: replyPreview,
           sharedContent,
           createdAt: now,
@@ -487,6 +499,7 @@ export const initializeWebSocket = (server) => {
                   receiverId,
                   clientMessageId,
                   content,
+                  voiceNote,
                   replyTo,
                   sharedContent,
                   status: receiverIsOnline ? "delivered" : "sent",

@@ -4,6 +4,7 @@ import { SignedIn, SignedOut, useUser } from "@clerk/clerk-react";
 import {
   Bell,
   Heart,
+  Headphones,
   HomeIcon,
   Library,
   LogIn,
@@ -18,6 +19,8 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useMyProfile } from "@/hooks/useMyProfile";
 import SignInConsentButton from "@/components/privacy/SignInConsentButton";
+import { usePreferencesStore } from "@/stores/usePreferencesStore";
+import { translate } from "@/lib/i18n";
 
 interface LeftSidebarProps {
   onNavigate?: () => void;
@@ -31,6 +34,7 @@ const mainNavItems = [
   { icon: Bell, label: "Notifications", path: "/notifications" },
   { icon: Heart, label: "Mood Playlist", path: "/mood" },
   { icon: Sparkles, label: "Avatar Creator", path: "/avatar" },
+  { icon: Headphones, label: "Podcasts", path: "/podcasts" },
   { icon: User, label: "Dashboard", path: "/dashboard" },
 ];
 
@@ -39,6 +43,7 @@ const LeftSidebar = ({ onNavigate }: LeftSidebarProps) => {
   const navigate = useNavigate();
   const { user } = useUser();
   const { data: profile } = useMyProfile();
+  const language = usePreferencesStore((state) => state.language);
   const handleNavigation = () => onNavigate?.();
 
   return (
@@ -77,7 +82,7 @@ const LeftSidebar = ({ onNavigate }: LeftSidebarProps) => {
                 )}
               >
                 <item.icon className="mr-2 size-5" />
-                <span className="md:inline">{item.label}</span>
+                <span className="md:inline">{translate(item.label, language)}</span>
               </Link>
             ))}
 
@@ -100,7 +105,7 @@ const LeftSidebar = ({ onNavigate }: LeftSidebarProps) => {
                 aria-current={location.pathname === "/library" ? "page" : undefined}
               >
                 <Library className="mr-2 size-5" />
-                <span className="flex-1 text-left">Library</span>
+                <span className="flex-1 text-left">{translate("Library", language)}</span>
               </button>
               <Link
                 to="/liked-songs"
@@ -117,7 +122,7 @@ const LeftSidebar = ({ onNavigate }: LeftSidebarProps) => {
                 )}
               >
                 <Heart className="mr-2 size-4 fill-current text-primary" />
-                <span className="flex-1 text-left">Liked Songs</span>
+                <span className="flex-1 text-left">{translate("Liked Songs", language)}</span>
               </Link>
             </div>
             </nav>
@@ -143,7 +148,7 @@ const LeftSidebar = ({ onNavigate }: LeftSidebarProps) => {
                   {profile?.fullName || user?.fullName || "Your profile"}
                 </span>
                 <span className="block text-xs text-muted-foreground">
-                  Profile & account
+                  {translate("Profile & account", language)}
                 </span>
               </span>
               <Settings className="size-4 text-muted-foreground" />

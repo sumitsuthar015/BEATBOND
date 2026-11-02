@@ -4,6 +4,7 @@ import { orderStreams } from "@/lib/streamQuality";
 import { usePreferencesStore } from "@/stores/usePreferencesStore";
 import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
+import { axiosInstance } from "@/lib/axios";
 
 const AudioPlayer = () => {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -20,6 +21,44 @@ const AudioPlayer = () => {
   const setIsPlaying = usePlayerStore((state) => state.setIsPlaying);
   const setProgress = usePlayerStore((state) => state.setProgress);
   const setDuration = usePlayerStore((state) => state.setDuration);
+  const podcastPlaybackSpeed = usePreferencesStore((state) => state.podcastPlaybackSpeed);
+  const resumeAppliedFor = useRef<string | null>(null);
+  const storyClipEndedFor = useRef<string | null>(null);
+  const sleepTimerEndsAt = usePreferencesStore((state) => state.sleepTimerEndsAt);
+  const setSleepTimer = usePreferencesStore((state) => state.setSleepTimer);
+  const setSleepTimerAtTrackEnd = usePreferencesStore((state) => state.setSleepTimerAtTrackEnd);
+
+  useEffect(() => {
+    if (!sleepTimerEndsAt) return;
+    const remaining = sleepTimerEndsAt - Date.now();
+    if (remaining <= 0) {
+      setIsPlaying(false);
+      setSleepTimer(null);
+      toast("Sleep timer ended");
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setIsPlaying(false);
+      setSleepTimer(null);
+      toast("Sleep timer ended");
+    }, remaining);
+    return () => window.clearTimeout(timer);
+  }, [sleepTimerEndsAt, setIsPlaying, setSleepTimer]);
+
+  const handleEnded = () => {
+    const song = usePlayerStore.getState().currentSong;
+    if (song?.podcastEpisodeId) {
+      const total = usePlayerStore.getState().duration || song.duration || 0;
+      void axiosInstance.put(`/v1/podcasts/episodes/${song.podcastEpisodeId}/progress`, { positionSeconds: total, completed: true }).catch(() => undefined);
+    }
+    if (usePreferencesStore.getState().sleepTimerAtTrackEnd) {
+      setIsPlaying(false);
+      setSleepTimerAtTrackEnd(false);
+      toast("Sleep timer ended after this song");
+      return;
+    }
+    void handleTrackEnded();
+  };
   // Which fallback stream the current track is on. It is keyed to the track so
   // a new song always starts from its best stream in the very first render;
   // resetting it in an effect let the previous song's fallback index leak into
@@ -66,12 +105,57 @@ const AudioPlayer = () => {
   }, [currentSong, offlineUrl]);
   const source = waitingForSavedCopy ? null : sources[sourceIndex] || null;
 
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.playbackRate = currentSong?.podcastEpisodeId ? podcastPlaybackSpeed : 1;
+  }, [currentSong?.podcastEpisodeId, podcastPlaybackSpeed]);
+
+  useEffect(() => {
+    const episodeId = currentSong?.podcastEpisodeId;
+    if (!episodeId) return;
+    const saveProgress = (position: number, completed = false) => {
+      if (!Number.isFinite(position) || position < 0) return;
+      void axiosInstance.put(`/v1/podcasts/episodes/${episodeId}/progress`, { positionSeconds: position, completed }).catch(() => undefined);
+    };
+    const interval = window.setInterval(() => {
+      const state = usePlayerStore.getState();
+      if (state.currentSong?.podcastEpisodeId === episodeId && state.isPlaying) {
+        const total = state.duration || state.currentSong.duration || 0;
+        saveProgress(state.progress, total > 0 && state.progress / total >= 0.95);
+      }
+    }, 10_000);
+    const saveOnPageHide = () => {
+      const state = usePlayerStore.getState();
+      if (state.currentSong?.podcastEpisodeId === episodeId) saveProgress(state.progress);
+    };
+    window.addEventListener("pagehide", saveOnPageHide);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("pagehide", saveOnPageHide);
+      const state = usePlayerStore.getState();
+      if (state.currentSong?.podcastEpisodeId === episodeId) saveProgress(state.progress);
+    };
+  }, [currentSong?.podcastEpisodeId]);
+
+  useEffect(() => {
+    const episodeId = currentSong?.podcastEpisodeId;
+    if (!episodeId || isPlaying) return;
+    const state = usePlayerStore.getState();
+    if (state.currentSong?.podcastEpisodeId === episodeId) {
+      void axiosInstance.put(`/v1/podcasts/episodes/${episodeId}/progress`, { positionSeconds: state.progress }).catch(() => undefined);
+    }
+  }, [currentSong?.podcastEpisodeId, isPlaying]);
+
   // The audio element is the single owner of media state. Never swap a live
   // source for a cached blob: doing so resets playback on mobile browsers.
   useEffect(() => {
     const audio = audioRef.current;
-    if (!audio || !source || lastSource.current === source) return;
+    if (!audio) return;
+    if (!source) { audio.pause(); return; }
+    if (lastSource.current === source) return;
     lastSource.current = source;
+    storyClipEndedFor.current = null;
     audio.currentTime = 0;
     audio.load();
   }, [source]);
@@ -80,11 +164,13 @@ const AudioPlayer = () => {
   // play/pause deliberately does not touch currentTime.
   useEffect(() => {
     const audio = audioRef.current;
-    if (!audio || !source) return;
+    if (!audio) return;
+    if (!source) return;
 
     if (lastPlayNonce.current !== playNonce) {
       audio.currentTime = 0;
       lastPlayNonce.current = playNonce;
+      storyClipEndedFor.current = null;
     }
 
     if (isPlaying) {
@@ -158,14 +244,39 @@ const AudioPlayer = () => {
       src={source || undefined}
       preload="metadata"
       playsInline
-      onEnded={handleTrackEnded}
-      onTimeUpdate={(event) => setProgress(event.currentTarget.currentTime)}
+      onEnded={handleEnded}
+      onTimeUpdate={(event) => {
+        const audio = event.currentTarget;
+        const song = usePlayerStore.getState().currentSong;
+        if (song?.storyPostId && song.storyClipDurationSeconds) {
+          const clipStart = Math.max(0, song.storyClipStartSeconds || 0);
+          const clipEnd = clipStart + song.storyClipDurationSeconds;
+          if (audio.currentTime < clipStart) audio.currentTime = clipStart;
+          if (audio.currentTime >= clipEnd && storyClipEndedFor.current !== song.storyPostId) {
+            storyClipEndedFor.current = song.storyPostId;
+            audio.currentTime = clipEnd;
+            setProgress(clipEnd);
+            audio.pause();
+            void handleTrackEnded();
+            return;
+          }
+        }
+        setProgress(audio.currentTime);
+      }}
       onLoadedMetadata={(event) =>
-        setDuration(
-          Number.isFinite(event.currentTarget.duration)
-            ? event.currentTarget.duration
-            : 0
-        )
+        {
+          const audio = event.currentTarget;
+          setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
+          const song = usePlayerStore.getState().currentSong;
+          if (song?.storyPostId) {
+            audio.currentTime = Math.max(0, song.storyClipStartSeconds || 0);
+            storyClipEndedFor.current = null;
+          } else if (song?.podcastEpisodeId && resumeAppliedFor.current !== trackKey) {
+            const resumeAt = Math.max(0, song.podcastResumePosition || 0);
+            if (resumeAt > 0 && (!Number.isFinite(audio.duration) || resumeAt < audio.duration)) audio.currentTime = resumeAt;
+            resumeAppliedFor.current = trackKey;
+          }
+        }
       }
       onError={() => {
         // Saavn/CDN URLs are short-lived and a particular quality can be

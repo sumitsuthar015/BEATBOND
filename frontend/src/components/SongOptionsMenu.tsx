@@ -40,6 +40,7 @@ import {
 } from "lucide-react";
 import { ShareToMessageDialog } from "@/components/ShareToMessageDialog";
 import { SongCommentsModal } from "@/components/SongCommentsModal";
+import { MusicStoryComposer } from "@/components/MusicStoryComposer";
 
 interface SongOptionsMenuProps {
   song: Song;
@@ -72,6 +73,7 @@ export const SongOptionsMenu: React.FC<SongOptionsMenuProps> = ({
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isStoryComposerOpen, setIsStoryComposerOpen] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const download = useSongDownload(song);
 
@@ -168,6 +170,19 @@ export const SongOptionsMenu: React.FC<SongOptionsMenuProps> = ({
           >
             <ListMusic className="size-4 text-cyan-400" />
             Add to Queue
+          </DropdownMenuItem>
+
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
+              setIsMenuOpen(false);
+              window.requestAnimationFrame(() => setIsStoryComposerOpen(true));
+            }}
+            disabled={!song.audioUrl}
+            className="flex items-center gap-2 px-3 py-2 text-sm text-zinc-200 focus:bg-white/10 focus:text-white rounded-lg cursor-pointer"
+          >
+            <Plus className="size-4 text-fuchsia-400" />
+            Choose clip for story
           </DropdownMenuItem>
 
           <DropdownMenuSeparator className="bg-zinc-800/80 my-1" />
@@ -269,6 +284,7 @@ export const SongOptionsMenu: React.FC<SongOptionsMenuProps> = ({
 
       {/* Comments Modal */}
       <SongCommentsModal song={song} open={isCommentsOpen} onOpenChange={setIsCommentsOpen} />
+      <MusicStoryComposer song={song} open={isStoryComposerOpen} onOpenChange={setIsStoryComposerOpen} />
 
       {/* Create Playlist Modal */}
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>

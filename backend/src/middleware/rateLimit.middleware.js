@@ -1,11 +1,9 @@
+import { consumeSharedRateLimit } from "../lib/sharedRateLimit.js";
+
 const buckets = new Map();
 
-/** Small per-process limiter for sensitive endpoints; use Redis for multi-instance enforcement. */
-export const rateLimit = ({ limit, windowMs, name }) => (req, res, next) => {
-  const userId = typeof req.auth === "function" ? req.auth()?.userId : null;
-  // Authenticated limits are per account. Public route limits use the socket
-  // peer IP because request headers must not define an attacker-controlled key.
-  const key = `${name}:${userId || req.socket?.remoteAddress || req.ip || "unknown"}`;
+const localLimit = ({ req, res, next, identity, limit, windowMs, name }) => {
+  const key = `${name}:${identity}`;
   const now = Date.now();
   let bucket = buckets.get(key);
   if (!bucket || now - bucket.startedAt >= windowMs) {
@@ -24,4 +22,22 @@ export const rateLimit = ({ limit, windowMs, name }) => (req, res, next) => {
     return res.status(429).json({ message: "Too many requests. Please try again shortly." });
   }
   next();
+};
+
+/** Uses an atomic Redis window across processes when REDIS_URL is available. */
+export const rateLimit = ({ limit, windowMs, name }) => (req, res, next) => {
+  const userId = typeof req.auth === "function" ? req.auth()?.userId : null;
+  // Authenticated limits are per account. Public route limits use the socket
+  // peer IP because request headers must not define an attacker-controlled key.
+  const identity = userId || req.socket?.remoteAddress || req.ip || "unknown";
+  const options = { req, res, next, identity, limit, windowMs, name };
+  if (!process.env.REDIS_URL) return localLimit(options);
+  void consumeSharedRateLimit({ name, identity, windowMs }).then((shared) => {
+    if (!shared) return localLimit(options);
+    if (shared.count > limit) {
+      res.setHeader("Retry-After", String(Math.max(1, Math.ceil(shared.resetMs / 1000))));
+      return res.status(429).json({ message: "Too many requests. Please try again shortly." });
+    }
+    return next();
+  }).catch(() => localLimit(options));
 };

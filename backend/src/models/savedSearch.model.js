@@ -34,6 +34,10 @@ const savedSearchSchema = new mongoose.Schema(
 			type: Number,
 			default: 0,
 		},
+		lastResultIds: {
+			type: [String],
+			default: [],
+		},
 		isActive: {
 			type: Boolean,
 			default: true,

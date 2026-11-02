@@ -4,10 +4,14 @@ import { Album } from "../models/album.model.js";
 import { User } from "../models/user.model.js";
 import { ListeningActivity } from "../models/listeningActivity.model.js";
 import { Comment } from "../models/comment.model.js";
+import { ContentReport } from "../models/contentReport.model.js";
+import { Post } from "../models/post.model.js";
 import { Message } from "../models/message.model.js";
 import { Playlist } from "../models/playlist.model.js";
 import { Notification } from "../models/notification.model.js";
 import { VerifiedArtist } from "../models/verifiedArtist.model.js";
+import { LikedArtist } from "../models/likedArtist.model.js";
+import { sendPushToUser } from "../services/push.service.js";
 import cloudinary from "../lib/cloudinary.js";
 import { isDatabaseConnected } from "../lib/db.js";
 import { getOnlineUserIds, isUserOnline } from "../lib/realtime.js";
@@ -88,16 +92,20 @@ export const createSong = async (req, res, next) => {
 
 		await song.save();
 
-		// Catalog additions are rare and useful to surface in the notification
-		// center. Persist these asynchronously so the admin upload response stays
-		// focused on the song save.
-		void User.distinct("clerkId", { clerkId: { $type: "string", $ne: "" } })
-			.then((userIds) => userIds.length && Notification.insertMany(userIds.map((userId) => ({
-				userId,
-				message: `New song added: ${title} by ${artist}`,
-				type: "system",
-				metadata: { songId: song._id.toString(), songTitle: title, songArtist: artist },
-			}))))
+		// Alert only listeners who follow this artist; avoid broadcasting uploads
+		// to every account. Keep notification work off the admin upload response.
+		void LikedArtist.distinct("userId", { name: { $regex: `^${escapeRegex(artist.trim())}$`, $options: "i" } })
+			.then(async (userIds) => {
+				if (!userIds.length) return;
+				const message = `New song from ${artist}: ${title}`;
+				await Notification.insertMany(userIds.map((userId) => ({
+					userId,
+					message,
+					type: "system",
+					metadata: { songId: song._id.toString(), songTitle: title, songArtist: artist },
+				})));
+				await Promise.all(userIds.map((userId) => sendPushToUser(userId, { title: `New song from ${artist}`, body: title, url: `/search?q=${encodeURIComponent(title)}` })));
+			})
 			.catch((notificationError) => console.error("Unable to notify users about new song:", notificationError));
 
 		// if song belongs to an album, update the album's songs array
@@ -463,20 +471,42 @@ export const getModerationFeed = async (req, res, next) => {
 	if (!isDatabaseConnected()) return databaseUnavailable(res);
 
 	try {
-		const comments = await Comment.find()
+		const [comments, reports] = await Promise.all([Comment.find()
 			.sort({ createdAt: -1 })
 			.limit(30)
 			.select("userId songTitle songArtist songImageUrl content createdAt")
-			.lean();
-		const authors = await authorsFor(comments.map((comment) => comment.userId));
+			.lean(), ContentReport.find({ status: "open" }).sort({ createdAt: -1 }).limit(100).lean()]);
+		const authors = await authorsFor([...comments.map((comment) => comment.userId), ...reports.flatMap((report) => [report.reporterId, report.targetAuthorId])]);
 
 		res.status(200).json({
 			comments: comments.map(({ userId, ...comment }) => ({ ...comment, author: authors.get(userId) || unknownAuthor })),
+			reports: reports.map(({ reporterId, targetAuthorId, ...report }) => ({ ...report, reporter: authors.get(reporterId) || unknownAuthor, author: authors.get(targetAuthorId) || unknownAuthor })),
 		});
 	} catch (error) {
 		console.log("Error in getModerationFeed", error);
 		next(error);
 	}
+};
+
+export const reviewContentReport = async (req, res, next) => {
+	if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: "Invalid report id" });
+	if (!["dismiss", "remove"].includes(req.body?.action)) return res.status(400).json({ message: "Choose dismiss or remove." });
+	if (!isDatabaseConnected()) return databaseUnavailable(res);
+	try {
+		const report = await ContentReport.findById(req.params.id);
+		if (!report || report.status !== "open") return res.status(404).json({ message: "Open report not found." });
+		if (req.body.action === "remove") {
+			if (report.targetType === "comment") await Comment.findByIdAndDelete(report.targetId);
+			else {
+				const post = await Post.findByIdAndDelete(report.targetId);
+				if (post?.media?.publicId) await cloudinary.uploader.destroy(post.media.publicId, { resource_type: post.media.type }).catch((error) => console.error("Reported media cleanup failed:", error.message));
+			}
+		}
+		await ContentReport.updateMany({ targetType: report.targetType, targetId: report.targetId, status: "open" }, {
+			$set: { status: req.body.action === "remove" ? "removed" : "dismissed", reviewedBy: req.auth().userId, reviewedAt: new Date() },
+		});
+		res.status(200).json({ message: req.body.action === "remove" ? "Content removed and related reports closed." : "Report dismissed." });
+	} catch (error) { next(error); }
 };
 
 export const deleteCommentAsAdmin = async (req, res, next) => {

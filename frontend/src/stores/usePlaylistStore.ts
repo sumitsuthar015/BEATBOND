@@ -11,6 +11,7 @@ export interface Playlist {
   description: string;
   songs: Song[];
   ownerId: string;
+  collaborators?: { userId: string; addedAt: string }[];
   downloadedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -34,6 +35,9 @@ interface PlaylistStore {
   removeSongFromPlaylist: (playlistId: string, songId: string) => Promise<void>;
   deletePlaylist: (playlistId: string) => Promise<void>;
   setPlaylistDownloaded: (playlistId: string, downloaded: boolean) => Promise<void>;
+  reorderPlaylistSongs: (playlistId: string, songIds: string[]) => Promise<void>;
+  addCollaborator: (playlistId: string, userId: string) => Promise<void>;
+  removeCollaborator: (playlistId: string, userId: string) => Promise<void>;
 }
 const replace = (playlist: Playlist) => (state: PlaylistStore) => ({
   playlists: state.playlists.map((item) =>
@@ -179,5 +183,24 @@ export const usePlaylistStore = create<PlaylistStore>((set) => ({
     } catch (error: any) {
       toast.error(error.response?.data?.message || "Could not update download");
     }
+  },
+  reorderPlaylistSongs: async (playlistId, songIds) => {
+    try {
+      const { data } = await axiosInstance.put(`/playlists/${playlistId}/songs/reorder`, { songIds });
+      set((state) => { const next = replace(data)(state); cachePlaylists(next.playlists); return next; });
+    } catch (error: any) { toast.error(error.response?.data?.message || "Could not reorder songs"); }
+  },
+  addCollaborator: async (playlistId, userId) => {
+    try {
+      const { data } = await axiosInstance.post(`/playlists/${playlistId}/collaborators`, { userId });
+      set((state) => { const next = replace(data)(state); cachePlaylists(next.playlists); return next; });
+      toast.success("Friend added as a collaborator");
+    } catch (error: any) { toast.error(error.response?.data?.message || "Could not add collaborator"); }
+  },
+  removeCollaborator: async (playlistId, userId) => {
+    try {
+      const { data } = await axiosInstance.delete(`/playlists/${playlistId}/collaborators/${encodeURIComponent(userId)}`);
+      set((state) => { const next = replace(data)(state); cachePlaylists(next.playlists); return next; });
+    } catch (error: any) { toast.error(error.response?.data?.message || "Could not remove collaborator"); }
   },
 }));

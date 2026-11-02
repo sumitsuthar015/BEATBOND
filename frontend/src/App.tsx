@@ -24,6 +24,7 @@ const pageLoaders = {
   artist: () => import("./pages/home/components/ArtistPage"),
   album: () => import("./pages/album/AlbumPage"),
   playlists: () => import("./pages/playlists/PlaylistsPage"),
+  aiPlaylist: () => import("./pages/playlists/AIPlaylistPage"),
   connections: () => import("./pages/profile/ConnectionsPage"),
   library: () => import("./pages/library/LibraryPage"),
   mobileProfile: () => import("./pages/profile/MobileProfilePage"),
@@ -35,9 +36,13 @@ const pageLoaders = {
   userSearch: () => import("./pages/users/UserSearchPage"),
   mood: () => import("./components/MoodPlaylist"),
   dashboard: () => import("./pages/dashboard/DashboardPage"),
+  wrapped: () => import("./pages/dashboard/WrappedPage"),
   avatar: () => import("./pages/avatar/AvatarCreatorPage"),
   map: () => import("./pages/map/MapPage"),
   settings: () => import("./pages/settings/SettingsPage"),
+  groupListening: () => import("./pages/group-listening/GroupListeningPage"),
+  blend: () => import("./pages/friends/BlendPage"),
+  podcasts: () => import("./pages/podcasts/PodcastsPage"),
 };
 const AuthCallbackPage = lazy(pageLoaders.authCallback);
 const NotFoundPage = lazy(pageLoaders.notFound);
@@ -49,6 +54,7 @@ const SearchPage = lazy(pageLoaders.search);
 const ArtistPage = lazy(pageLoaders.artist);
 const AlbumPage = lazy(() => pageLoaders.album().then((module) => ({ default: module.AlbumPage })));
 const PlaylistsPage = lazy(pageLoaders.playlists);
+const AIPlaylistPage = lazy(pageLoaders.aiPlaylist);
 const ConnectionsPage = lazy(pageLoaders.connections);
 const LibraryPage = lazy(pageLoaders.library);
 const MobileProfilePage = lazy(pageLoaders.mobileProfile);
@@ -60,9 +66,13 @@ const AdminPage = lazy(pageLoaders.admin);
 const UserSearchPage = lazy(pageLoaders.userSearch);
 const MoodPlaylist = lazy(pageLoaders.mood);
 const DashboardPage = lazy(pageLoaders.dashboard);
+const WrappedPage = lazy(pageLoaders.wrapped);
 const AvatarCreatorPage = lazy(pageLoaders.avatar);
 const MapPage = lazy(pageLoaders.map);
 const SettingsPage = lazy(pageLoaders.settings);
+const GroupListeningPage = lazy(pageLoaders.groupListening);
+const BlendPage = lazy(pageLoaders.blend);
+const PodcastsPage = lazy(pageLoaders.podcasts);
 const RouteLoading = () => <div className="flex h-full min-h-32 items-center justify-center text-sm text-muted-foreground" role="status">Loading…</div>;
 const withSuspense = (element: ReactNode) => <Suspense fallback={<RouteLoading />}>{element}</Suspense>;
 
@@ -128,10 +138,13 @@ function App() {
               </Suspense>
             }
           />
+          <Route path="/wrapped" element={withSuspense(<WrappedPage />)} />
           <Route path="/album/:id" element={withSuspense(<AlbumPage />)} />
           <Route path="/albums/:id" element={withSuspense(<AlbumPage />)} />
           <Route path='/artist/:id' element={withSuspense(<ArtistPage />)} />
           <Route path="/friends" element={withSuspense(<FriendsActivityPage />)} />
+          <Route path="/blend/:friendId" element={withSuspense(<BlendPage />)} />
+          <Route path="/group-listening" element={withSuspense(<GroupListeningPage />)} />
           <Route path="/notifications" element={withSuspense(<NotificationsPage />)} />
           <Route
             path="/mood"
@@ -142,6 +155,8 @@ function App() {
             }
           />
           <Route path="/playlists" element={withSuspense(<PlaylistsPage />)} />
+          <Route path="/podcasts" element={withSuspense(<PodcastsPage />)} />
+          <Route path="/playlists/generate" element={withSuspense(<AIPlaylistPage />)} />
           <Route path="/playlists/:playlistId" element={withSuspense(<PlaylistDetailPage />)} />
           <Route path="/downloads" element={withSuspense(<PlaylistDetailPage downloadsOnly />)} />
           <Route path="/liked-songs" element={withSuspense(<LikedSongsPage />)} />

@@ -15,6 +15,7 @@ import { useMyProfile } from "@/hooks/useMyProfile";
 import { PageBackButton } from "@/components/PageBackButton";
 import type { Song } from "@/types";
 import { useChatStore } from "@/stores/useChatStore";
+import { Link } from "react-router-dom";
 
 interface DashboardStats {
   hoursListened: number;
@@ -239,6 +240,8 @@ const DashboardPage = () => {
             </span>
           </div>
         </div>
+
+        <Link to="/wrapped" className="inline-flex items-center rounded-xl border border-primary/30 bg-primary/10 px-4 py-2 text-sm font-semibold text-primary transition hover:bg-primary/15">See your BeatBond Wrapped</Link>
 
         {/* Stats Grid */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">

@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import {
-  Bell, CheckCheck, ChevronRight, CircleDot, Cookie, Download, Eye, EyeOff, FileText, Gauge, History, KeyRound, LayoutDashboard, ListMusic, LogOut, Mail, MapPin, Palette,
+  Bell, CheckCheck, ChevronRight, CircleDot, Cookie, Download, Eye, EyeOff, FileText, Gauge, History, KeyRound, LayoutDashboard, ListMusic, LogOut, Mail, MapPin, Palette, Moon, Languages,
   Radio, Repeat, Sparkles, UserX, type LucideIcon,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -31,39 +31,43 @@ import { useAuthStore } from "@/stores/useAuthStore";
 import { useChatStore } from "@/stores/useChatStore";
 import { useLocationStore } from "@/stores/useLocationStore";
 import { usePreferencesStore } from "@/stores/usePreferencesStore";
+import { translate } from "@/lib/i18n";
 import { PushNotificationSetting } from "@/components/notifications/PushNotificationSetting";
 import { removeAllDownloads } from "@/lib/offlineDownloads";
 
 const rowClass = "flex min-h-[72px] w-full items-center gap-3 px-4 py-3 text-left";
 const rowLinkClass = cn(rowClass, "transition-colors hover:bg-secondary/50");
 
-const Section = ({ title, children }: { title: string; children: ReactNode }) => (
-  <section className="mb-6">
-    <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</h2>
+const Section = ({ title, children }: { title: string; children: ReactNode }) => {
+  const language = usePreferencesStore((state) => state.language);
+  return <section className="mb-6">
+    <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{translate(title, language)}</h2>
     <div className="divide-y overflow-hidden rounded-3xl border bg-card">{children}</div>
-  </section>
-);
+  </section>;
+};
 
 type RowBodyProps = { icon: LucideIcon; tone: string; title: string; detail?: ReactNode; end?: ReactNode; chevron?: boolean };
 
-const RowBody = ({ icon: Icon, tone, title, detail, end, chevron }: RowBodyProps) => (
-  <>
+const RowBody = ({ icon: Icon, tone, title, detail, end, chevron }: RowBodyProps) => {
+  const language = usePreferencesStore((state) => state.language);
+  return <>
     <span className={cn("grid size-10 shrink-0 place-items-center rounded-2xl", tone)}><Icon className="size-5" /></span>
     <span className="min-w-0 flex-1">
-      <span className="block font-semibold">{title}</span>
-      {detail && <span className="block text-sm text-muted-foreground">{detail}</span>}
+      <span className="block font-semibold">{translate(title, language)}</span>
+      {detail && <span className="block text-sm text-muted-foreground">{typeof detail === "string" ? translate(detail, language) : detail}</span>}
     </span>
     {end}
     {chevron && <ChevronRight className="size-5 shrink-0 text-muted-foreground" />}
-  </>
-);
+  </>;
+};
 
 const LinkRow = ({ to, ...body }: RowBodyProps & { to: string }) => (
   <Link to={to} className={rowLinkClass}><RowBody chevron {...body} /></Link>
 );
 
-const Segmented = <T extends string>({ label, value, options, onChange }: { label: string; value: T; options: { value: T; label: string }[]; onChange: (value: T) => void }) => (
-  <div role="radiogroup" aria-label={label} className="grid gap-1 rounded-xl bg-secondary/70 p-1 text-sm font-semibold" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
+const Segmented = <T extends string>({ label, value, options, onChange }: { label: string; value: T; options: { value: T; label: string }[]; onChange: (value: T) => void }) => {
+  const language = usePreferencesStore((state) => state.language);
+  return <div role="radiogroup" aria-label={translate(label, language)} className="grid gap-1 rounded-xl bg-secondary/70 p-1 text-sm font-semibold" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
     {options.map((option) => (
       <button
         key={option.value}
@@ -73,11 +77,11 @@ const Segmented = <T extends string>({ label, value, options, onChange }: { labe
         onClick={() => value !== option.value && onChange(option.value)}
         className={cn("rounded-lg px-2 py-2 transition-colors", value === option.value ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
       >
-        {option.label}
+        {translate(option.label, language)}
       </button>
     ))}
   </div>
-);
+};
 
 /** A setting with a few choices, shown under its title. */
 const ChoiceRow = <T extends string>({ icon, tone, title, detail, ...choice }: Omit<RowBodyProps, "end" | "chevron"> & { label: string; value: T; options: { value: T; label: string }[]; onChange: (value: T) => void }) => (
@@ -120,6 +124,7 @@ const THEMES = [
   { value: "light" as const, label: "Light" },
   { value: "system" as const, label: "System" },
 ];
+const LANGUAGES = [{ value: "en" as const, label: "English" }, { value: "hi" as const, label: "Hindi" }];
 
 const SettingsPage = () => {
   const { user } = useUser();
@@ -131,15 +136,22 @@ const SettingsPage = () => {
   // The top bar's admin button is desktop-only, so admins reach the dashboard from here on mobile.
   const isAdmin = useAuthStore((state) => state.isAdmin);
   const { theme, setTheme } = useTheme();
+  const language = usePreferencesStore((state) => state.language);
   const streamQuality = usePreferencesStore((state) => state.streamQuality);
+  const setLanguage = usePreferencesStore((state) => state.setLanguage);
   const setStreamQuality = usePreferencesStore((state) => state.setStreamQuality);
   const autoplay = usePreferencesStore((state) => state.autoplay);
   const setAutoplay = usePreferencesStore((state) => state.setAutoplay);
+  const sleepTimerEndsAt = usePreferencesStore((state) => state.sleepTimerEndsAt);
+  const setSleepTimer = usePreferencesStore((state) => state.setSleepTimer);
+  const sleepTimerAtTrackEnd = usePreferencesStore((state) => state.sleepTimerAtTrackEnd);
+  const setSleepTimerAtTrackEnd = usePreferencesStore((state) => state.setSleepTimerAtTrackEnd);
   const isSharing = useLocationStore((state) => state.isSharing);
   const locationVisibility = useLocationStore((state) => state.visibility);
   const stopSharing = useLocationStore((state) => state.stopSharing);
   const [downloads] = useState(() => getDownloadedSongs().length);
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [exportingData, setExportingData] = useState(false);
 
   if (!user) {
     return (
@@ -231,6 +243,21 @@ const SettingsPage = () => {
       toast.error("Account deletion could not be completed. Please contact support@beatbond.app.");
       setDeletingAccount(false);
     }
+  };
+
+  const exportData = async () => {
+    setExportingData(true);
+    try {
+      const { data } = await axiosInstance.get<Blob>("/users/account/export", { responseType: "blob" });
+      const url = URL.createObjectURL(data);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `beatbond-data-${new Date().toISOString().slice(0, 10)}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast.success("Your data export is ready.");
+    } catch { toast.error("Could not export your data. Please try again."); }
+    finally { setExportingData(false); }
   };
 
   return (
@@ -381,9 +408,20 @@ const SettingsPage = () => {
               end={<Switch checked={autoplay} onChange={setAutoplay} label="Autoplay similar songs" />}
             />
           </div>
+          <ChoiceRow
+            icon={Moon}
+            tone="bg-indigo-500/15 text-indigo-500"
+            title="Sleep timer"
+            detail={sleepTimerAtTrackEnd ? "Playback stops after the current song." : sleepTimerEndsAt ? `Playback stops at ${new Date(sleepTimerEndsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.` : "Stop playback after a set time or at the end of this song."}
+            label="Sleep timer"
+            value={sleepTimerAtTrackEnd ? "track-end" : sleepTimerEndsAt ? "active" : "off"}
+            options={[{ value: "off", label: "Off" }, { value: "15", label: "15 min" }, { value: "30", label: "30 min" }, { value: "60", label: "60 min" }, { value: "track-end", label: "End song" }, { value: "active", label: "Active" }]}
+            onChange={(value) => value === "track-end" ? setSleepTimerAtTrackEnd(true) : value === "off" ? (setSleepTimer(null), setSleepTimerAtTrackEnd(false)) : setSleepTimer(value === "active" ? Math.max(1, Math.ceil((sleepTimerEndsAt! - Date.now()) / 60_000)) : Number(value))}
+          />
         </Section>
 
         <Section title="Appearance">
+          <ChoiceRow icon={Languages} tone="bg-cyan-500/15 text-cyan-500" title="Interface language" detail="Choose the language used in BeatBond navigation and playback settings." label="Interface language" value={language} options={LANGUAGES} onChange={setLanguage} />
           <ChoiceRow icon={Palette} tone="bg-pink-500/15 text-pink-500" title="Theme" detail="System follows your device's setting" label="Theme" value={theme} options={THEMES} onChange={setTheme} />
         </Section>
 
@@ -394,6 +432,9 @@ const SettingsPage = () => {
         </Section>
 
         <Section title="Privacy & security">
+          <button type="button" className={rowLinkClass} onClick={() => void exportData()} disabled={exportingData}>
+            <RowBody icon={Download} tone="bg-sky-500/15 text-sky-500" title="Export my data" detail="Download a JSON copy of your BeatBond account data" end={exportingData ? <span className="text-xs text-muted-foreground">Preparing…</span> : undefined} />
+          </button>
           <LinkRow to="/privacy" icon={Eye} tone="bg-violet-500/15 text-violet-500" title="Privacy Policy" detail="What BeatBond stores and how it is used" />
           <LinkRow to="/terms" icon={FileText} tone="bg-sky-500/15 text-sky-500" title="Terms of Service" detail="Rules for using BeatBond" />
           <button type="button" className={rowLinkClass} onClick={() => window.dispatchEvent(new Event("beatbond:open-cookie-settings"))}>

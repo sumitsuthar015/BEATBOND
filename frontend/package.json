@@ -8,9 +8,15 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "mobile:sync": "npm run build && cap sync",
+    "mobile:open:android": "cap open android",
+    "mobile:open:ios": "cap open ios"
   },
   "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/ios": "^8.6.0",
     "@clerk/clerk-react": "^5.22.11",
     "@radix-ui/react-alert-dialog": "^1.1.18",
     "@radix-ui/react-avatar": "^1.1.1",
@@ -26,6 +32,7 @@
     "@radix-ui/react-slot": "^1.1.0",
     "@radix-ui/react-tabs": "^1.1.1",
     "@radix-ui/react-tooltip": "^1.1.8",
+    "@sentry/react": "^11.10.0",
     "@tanstack/react-query": "^5.66.0",
     "@types/recharts": "^1.8.29",
     "axios": "^1.7.7",
@@ -51,6 +58,7 @@
     "react-resizable-panels": "^2.1.6",
     "react-router-dom": "^7.18.2",
     "recharts": "^2.15.1",
+    "socket.io-client": "^4.8.1",
     "sonner": "^1.7.4",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
@@ -58,6 +66,7 @@
     "zustand": "^5.0.1"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.6.0",
     "@eslint/js": "^9.13.0",
     "@types/node": "^22.8.6",
     "@types/react": "^18.3.12",

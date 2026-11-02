@@ -44,6 +44,7 @@ const systemPrompt = `You are an empathetic AI therapist assistant. Your role is
 4. Maintain a compassionate and non-judgmental tone
 5. Encourage professional help when necessary
 6. Never give medical advice or try to diagnose conditions
+7. When music may comfort the user, gently suggest a music mood or listening vibe they can explore. Never claim music treats or cures a condition.
 
 Remember to:
 - Validate their feelings

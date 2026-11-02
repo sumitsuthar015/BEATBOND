@@ -25,6 +25,7 @@ import {
   ListMusic,
   MessageSquare,
   Disc3,
+  Cast,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -37,6 +38,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { useCallback, useEffect, useState } from "react";
+import toast from "react-hot-toast";
 import { useMusicStore } from "@/stores/useMusicStore";
 import { usePlaylistStore } from "@/stores/usePlaylistStore";
 import {
@@ -52,11 +54,26 @@ import { SongCommentsModal } from "@/components/SongCommentsModal";
 import { LyricsPanel } from "./LyricsPanel";
 import { useSongDownload } from "@/hooks/useOfflineDownloads";
 import { fetchLyricsForSong, lyricsAsPlainText } from "@/lib/lyrics";
+import { axiosInstance } from "@/lib/axios";
+import { usePreferencesStore } from "@/stores/usePreferencesStore";
 
 const formatTime = (seconds: number) => {
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = Math.floor(seconds % 60);
   return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
+};
+
+const castPlayback = async () => {
+  type RemoteAudio = HTMLAudioElement & { remote?: { prompt?: () => Promise<void> } };
+  const audio = document.getElementById("global-audio-player") as RemoteAudio | null;
+  if (typeof audio?.remote?.prompt !== "function") {
+    toast.error("This browser does not support selecting a cast or remote playback device.");
+    return;
+  }
+  try { await audio.remote.prompt(); }
+  catch (error: any) {
+    if (error?.name !== "NotAllowedError") toast.error("Could not connect to the selected playback device.");
+  }
 };
 
 // Extract dominant color from image
@@ -218,6 +235,14 @@ export const PlaybackControls = () => {
   const queue = usePlayerStore((state) => state.queue);
   const currentIndex = usePlayerStore((state) => state.currentIndex);
   const playFromQueue = usePlayerStore((state) => state.playFromQueue);
+  const podcastSpeed = usePreferencesStore((state) => state.podcastPlaybackSpeed);
+  const setPodcastSpeed = usePreferencesStore((state) => state.setPodcastPlaybackSpeed);
+  const podcastEpisode = Boolean(currentSong?.podcastEpisodeId);
+  const changePodcastSpeed = (value: number) => {
+    setPodcastSpeed(value);
+    void axiosInstance.put("/v1/podcasts/me/playback-preference", { speed: value }).catch(() => toast.error("Could not save playback speed."));
+  };
+  const activeChapter = currentSong?.podcastChapters?.filter((chapter) => chapter.startTime <= progress).at(-1);
 
   const playlists = usePlaylistStore((state) => state.playlists);
   const createPlaylist = usePlaylistStore((state) => state.createPlaylist);
@@ -275,9 +300,7 @@ export const PlaybackControls = () => {
   const handleSeek = (value: number[]) => {
     const time = value[0];
     const audio = document.getElementById("global-audio-player") as HTMLAudioElement | null;
-    if (audio) {
-      audio.currentTime = time;
-    }
+    if (audio) audio.currentTime = time;
     setProgress(time);
   };
 
@@ -370,6 +393,10 @@ export const PlaybackControls = () => {
                 align="end"
                 className="bg-zinc-800 border-zinc-700 text-white w-56"
               >
+                <DropdownMenuItem onSelect={() => void castPlayback()} className="text-zinc-300 focus:text-white focus:bg-zinc-700 cursor-pointer">
+                  <Cast className="w-4 h-4 mr-2" />Play on a device
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="bg-zinc-700" />
                 <DropdownMenuItem
                   onClick={handleLyricsOpen}
                   className="text-zinc-300 focus:text-white focus:bg-zinc-700 cursor-pointer"
@@ -791,6 +818,14 @@ export const PlaybackControls = () => {
                 {formatTime(duration)}
               </span>
             </div>
+            {podcastEpisode && <div className="flex w-full items-center justify-between gap-3 text-xs text-zinc-400">
+              <span className="min-w-0 truncate">{activeChapter ? `Chapter: ${activeChapter.title}` : "Podcast episode"}</span>
+              <label className="flex shrink-0 items-center gap-2">Speed
+                <select aria-label="Podcast playback speed" value={podcastSpeed} onChange={(event) => changePodcastSpeed(Number(event.target.value))} className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                  {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3].map((speed) => <option key={speed} value={speed}>{speed}×</option>)}
+                </select>
+              </label>
+            </div>}
           </div>
 
           {/* Right: Volume & Extra Controls */}
@@ -832,6 +867,10 @@ export const PlaybackControls = () => {
                 align="end"
                 className="bg-zinc-800 border-zinc-700 text-white w-48"
               >
+                <DropdownMenuItem onSelect={() => void castPlayback()} className="text-zinc-300 focus:text-white focus:bg-zinc-700 cursor-pointer">
+                  <Cast className="w-4 h-4 mr-2" />Play on a device
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="bg-zinc-700" />
                 <DropdownMenuItem
                   onClick={handleLyricsOpen}
                   className="text-zinc-300 focus:text-white focus:bg-zinc-700 cursor-pointer"

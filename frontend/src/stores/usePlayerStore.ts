@@ -53,8 +53,9 @@ const announce = (song: Song, shouldRecordHistory = true) => {
   if (shouldRecordHistory) recordListeningEvent(song);
 };
 
-const songIdentity = (song: Song) =>
-  `${song.title.trim().toLowerCase()}|${song.artist.trim().toLowerCase()}`;
+const songIdentity = (song: Song) => song.storyPostId
+  ? `story:${song.storyPostId}`
+  : `${song.title.trim().toLowerCase()}|${song.artist.trim().toLowerCase()}`;
 
 const uniqueSongs = (songs: Song[]) => {
   const seen = new Set<string>();
@@ -285,8 +286,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
     handleTrackEnded: async () => {
       finishCurrentTrack();
-      const { repeatMode } = get();
-      if (repeatMode === "one") {
+      const { repeatMode, currentSong } = get();
+      if (repeatMode === "one" && !currentSong?.storyPostId) {
         const audio = document.getElementById("global-audio-player") as HTMLAudioElement | null;
         if (audio) audio.currentTime = 0;
         set((state) => ({ progress: 0, playNonce: state.playNonce + 1, isPlaying: true }));
@@ -294,7 +295,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
       }
 
       let nextIndex = selectNext(get());
-      if (nextIndex === null) {
+      if (nextIndex === null && !currentSong?.storyPostId) {
         const added = await get().autoQueueRelatedOrTrending();
         if (added) {
           nextIndex = selectNext(get());

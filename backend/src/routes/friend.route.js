@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { getBlend } from "../controller/blend.controller.js";
 import { protectRoute } from "../middleware/auth.middleware.js";
 import { 
   sendFriendRequest, 
@@ -23,6 +24,7 @@ router.get("/pending", getPendingRequests);
 router.get("/status/:targetUserId", getFriendshipStatus);
 router.get("/user/:userId", getFriends);
 router.get("/mutual/:userId", getMutualFriends);
+router.get("/blend/:friendId", getBlend);
 router.delete("/:friendId", removeFriend);
 
 export default router;

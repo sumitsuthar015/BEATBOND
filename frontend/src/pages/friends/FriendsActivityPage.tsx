@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Link } from "react-router-dom";
 import { axiosInstance } from "@/lib/axios";
 import { useChatStore } from "@/stores/useChatStore";
-import { Music, Users, Loader2, AlertCircle, Check, X, UserPlus, MapPin, MessageCircle, Search } from "lucide-react";
+import { Music, Users, Loader2, AlertCircle, Check, X, UserPlus, MapPin, MessageCircle, Search, Sparkles } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "react-hot-toast";
 import { PageBackButton } from "@/components/PageBackButton";
@@ -203,6 +203,9 @@ const FriendsActivityPage = () => {
                   </Link>
 
                   <div className="flex items-center gap-1 shrink-0">
+                    <Link to={`/blend/${friend.clerkId}`} aria-label={`Create a blend with ${nickname}`}>
+                      <Button variant="ghost" size="icon" className="size-9 rounded-full text-muted-foreground hover:text-primary" title="Blend your taste"><Sparkles className="size-4" /></Button>
+                    </Link>
                     <Link to={`/chat?userId=${friend.clerkId}`}>
                       <Button variant="ghost" size="icon" className="size-9 rounded-full text-muted-foreground hover:text-foreground hover:bg-secondary" title="Send message">
                         <MessageCircle className="size-4" />

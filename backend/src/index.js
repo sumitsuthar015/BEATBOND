@@ -1,4 +1,5 @@
 import "./lib/loadEnv.js";
+import * as Sentry from "@sentry/node";
 import express from "express";
 import { clerkMiddleware } from "@clerk/express";
 import fileUpload from "express-fileupload";
@@ -9,6 +10,7 @@ import fs from "fs";
 import { createServer } from "http";
 import cron from "node-cron";
 import { emitRealtimeUpdate, initializeWebSocket } from "./lib/realtime.js";
+import { createGroupListeningServer } from "./lib/groupListening.js";
 import { connectDB, isDatabaseConnected } from "./lib/db.js";
 import userRoutes from "./routes/user.route.js";
 import adminRoutes from "./routes/admin.route.js";
@@ -29,12 +31,26 @@ import postRoutes from "./routes/post.route.js";
 import saavnRoutes from "./routes/saavn.route.js";
 import commentRoutes from "./routes/comment.route.js";
 import musicRoutes from "./routes/music.route.js";
+import groupChatRoutes from "./routes/groupChat.route.js";
+import reportRoutes from "./routes/report.route.js";
+import podcastRoutes from "./routes/podcast.route.js";
+import podcastV1Routes from "./routes/podcastV1.route.js";
+import { refreshDuePodcastFeeds } from "./services/podcast.service.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const frontendDistPath = path.resolve(__dirname, "../../frontend/dist");
 const app = express();
 const PORT = Number(process.env.PORT) || 5002;
+
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || "development",
+    sendDefaultPii: false,
+    tracesSampleRate: Math.min(0.2, Math.max(0, Number(process.env.SENTRY_TRACES_SAMPLE_RATE) || 0.05)),
+  });
+}
 
 const missingRequiredEnv = ["CLERK_SECRET_KEY", "MONGODB_URI"].filter((name) => !process.env[name]?.trim());
 if (missingRequiredEnv.length) {
@@ -51,6 +67,7 @@ if (process.env.TRUST_PROXY_HOPS) {
 
 const httpServer = createServer(app);
 initializeWebSocket(httpServer);
+app.locals.groupChatIo = createGroupListeningServer(httpServer).io;
 
 app.disable("x-powered-by");
 app.use((req, res, next) => {
@@ -145,6 +162,10 @@ cron.schedule("0 * * * *", () => {
   }
 });
 
+cron.schedule("*/30 * * * *", () => {
+  void refreshDuePodcastFeeds().catch((error) => console.error("Podcast feed refresh job failed:", error.message));
+});
+
 app.options('*', cors()); // Enable preflight requests for all routes
 
 // Keep the process available for diagnostics while MongoDB reconnects, but do
@@ -177,6 +198,10 @@ app.use("/api/posts", postRoutes);
 app.use("/api/saavn", saavnRoutes);
 app.use("/api/music", musicRoutes);
 app.use("/api/comments", commentRoutes);
+app.use("/api/group-chats", groupChatRoutes);
+app.use("/api/reports", reportRoutes);
+app.use("/api/podcasts", podcastRoutes);
+app.use("/api/v1/podcasts", podcastV1Routes);
 app.use("/health", healthRoutes);
 
 if (process.env.NODE_ENV === "production") {
@@ -197,10 +222,14 @@ if (process.env.NODE_ENV === "production") {
 }
 
 // error handler
+if (process.env.SENTRY_DSN) Sentry.setupExpressErrorHandler(app);
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
   const status = Number.isInteger(err.status) && err.status >= 400 && err.status < 500 ? err.status : 500;
-  if (status >= 500) console.error("Request failed:", { method: req.method, path: req.path, status });
+  if (status >= 500) {
+    Sentry.captureException(err);
+    console.error("Request failed:", { method: req.method, path: req.path, status });
+  }
   res.status(status).json({
     message: status === 500
       ? "Internal server error"

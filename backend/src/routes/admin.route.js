@@ -12,6 +12,7 @@ import {
 	unverifyArtistAsAdmin,
 	getDashboardOverview,
 	getModerationFeed,
+	reviewContentReport,
 } from "../controller/admin.controller.js";
 import { protectRoute, requireAdmin } from "../middleware/auth.middleware.js";
 import { rateLimit } from "../middleware/rateLimit.middleware.js";
@@ -38,6 +39,7 @@ router.post("/albums", rateLimit({ name: "admin-upload", limit: 20, windowMs: 60
 router.delete("/albums/:id", deleteAlbum);
 
 router.get("/moderation", getModerationFeed);
+router.patch("/moderation/reports/:id", reviewContentReport);
 router.delete("/comments/:id", deleteCommentAsAdmin);
 
 export default router;

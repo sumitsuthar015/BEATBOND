@@ -21,6 +21,14 @@ export interface Song {
 	audioFallbackUrls?: string[];
 	url?: string;
 	duration: number;
+	/** Podcast metadata consumed by the shared audio player. */
+	podcastEpisodeId?: string;
+	podcastShowId?: string;
+	podcastResumePosition?: number;
+	podcastChapters?: Array<{ startTime: number; title: string }>;
+	storyPostId?: string;
+	storyClipStartSeconds?: number;
+	storyClipDurationSeconds?: number;
 	isLiked?: boolean;
 	lyrics?: string;
 	lyricsId?: string;

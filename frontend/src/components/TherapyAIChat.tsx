@@ -2,10 +2,13 @@ import { useState, useRef, useEffect } from "react";
 import { Button } from "./ui/button";
 import { ScrollArea } from "./ui/scroll-area";
 import { Textarea } from "./ui/textarea";
-import { Send, Loader2, Bot, User } from "lucide-react";
+import { Send, Loader2, Bot, User, Sparkles } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { axiosInstance } from "@/lib/axios";
 import { Avatar, AvatarFallback } from "./ui/avatar";
+import { mapSaavnSong } from "@/lib/saavn";
+import { usePlayerStore } from "@/stores/usePlayerStore";
+import type { Song } from "@/types";
 
 interface Message {
   role: "user" | "assistant";
@@ -29,6 +32,8 @@ export const TherapyAIChat = () => {
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isFindingPlaylist, setIsFindingPlaylist] = useState(false);
+  const playAlbum = usePlayerStore((state) => state.playAlbum);
   const [providerConsent, setProviderConsent] = useState(() => localStorage.getItem("beatbond:ai-provider-consent:v1") === "accepted");
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -47,6 +52,24 @@ export const TherapyAIChat = () => {
   }, [input]);
 
   const isOverLimit = input.length > MAX_CHARS;
+
+  const findMoodPlaylist = async () => {
+    const latestUserMessage = [...messages].reverse().find((message) => message.role === "user")?.content;
+    if (!providerConsent || !latestUserMessage || isFindingPlaylist) return;
+    setIsFindingPlaylist(true);
+    try {
+      const { data } = await axiosInstance.post("/playlists/generate", {
+        prompt: `A comforting, gentle playlist inspired by this listening mood: ${latestUserMessage.slice(0, 220)}`,
+        thirdPartyConsent: true,
+      });
+      const songs = (data.songs as unknown[]).map((song) => mapSaavnSong(song)).filter((song): song is Song => Boolean(song));
+      if (!songs.length) throw new Error("No playable songs matched that mood.");
+      playAlbum(songs);
+      toast.success("Your mood playlist is ready.");
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || error.message || "Could not find a playlist for this mood.");
+    } finally { setIsFindingPlaylist(false); }
+  };
 
   const sendMessage = async () => {
     const trimmedInput = input.trim();
@@ -228,6 +251,14 @@ export const TherapyAIChat = () => {
           <div ref={scrollRef} />
         </div>
       </ScrollArea>
+
+      {providerConsent && messages.some((message) => message.role === "user") && <div className="border-t px-4 py-2">
+        <Button type="button" size="sm" variant="outline" onClick={() => void findMoodPlaylist()} disabled={isLoading || isFindingPlaylist}>
+          {isFindingPlaylist ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Sparkles className="mr-2 size-4" />}
+          {isFindingPlaylist ? "Finding a playlist…" : "Find a playlist for this mood"}
+        </Button>
+        <p className="mt-1 text-[11px] text-muted-foreground">Only starts when you tap. Your latest message is sent to the playlist service with your existing AI provider consent.</p>
+      </div>}
 
       {/* Input */}
       <div className="p-4 border-t bg-muted/30">

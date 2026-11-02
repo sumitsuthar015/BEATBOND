@@ -6,7 +6,7 @@ import { toast } from "react-hot-toast";
 import { useInView } from "react-intersection-observer";
 import {
   ArrowLeft, Ban, Check, CheckCheck, ChevronDown, Copy, ListMusic, Loader2, MoreVertical, Music2, Pencil, Reply,
-  Send, SmilePlus, Trash2, UserMinus, UserRound, X,
+  Send, SmilePlus, Trash2, UserMinus, UserRound, X, Mic, Square,
 } from "lucide-react";
 import { axiosInstance } from "@/lib/axios";
 import { REACTIONS, buildChatItems, canEditMessage, clockTime, summarizeReactions, toggleReaction, type Reaction } from "@/lib/chat";
@@ -37,6 +37,7 @@ interface Message {
   senderId: string;
   receiverId: string;
   content: string;
+  voiceNote?: { url: string; duration: number };
   createdAt: string;
   editedAt?: string | null;
   status?: "sent" | "delivered" | "read";
@@ -177,7 +178,7 @@ const MessageBubble = memo(({ msg, isMine, startsGroup, endsGroup, friend, frien
           onTouchMove={cancelPress}
           onContextMenu={openFromMouse}
           className={cn(
-            "max-w-full select-text whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm leading-relaxed [overflow-wrap:anywhere]",
+            "w-fit max-w-full select-text whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm leading-relaxed [overflow-wrap:anywhere]",
             isMine ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground",
             isMine ? (endsGroup ? "rounded-br-md" : "") : (endsGroup ? "rounded-bl-md" : ""),
             isTemp && msg.clientStatus === "sending" && "opacity-70",
@@ -211,9 +212,11 @@ const MessageBubble = memo(({ msg, isMine, startsGroup, endsGroup, friend, frien
             </button>
           )}
 
+          {msg.voiceNote?.url && <audio controls preload="metadata" src={msg.voiceNote.url} aria-label="Voice note" className="my-1 max-w-full" />}
+
           {msg.content && !(shared && isShareCaption(msg.content)) && <span>{msg.content}</span>}
 
-          <span className={cn("float-right ml-2 mt-1 inline-flex translate-y-0.5 items-center gap-1 text-[10px]", isMine ? "text-primary-foreground/70" : "text-muted-foreground")}>
+          <span className={cn("ml-2 inline-flex translate-y-px align-baseline items-center gap-1 whitespace-nowrap text-[10px]", isMine ? "text-primary-foreground/70" : "text-muted-foreground")}>
             {msg.editedAt && <span>edited</span>}
             {clockTime(msg.createdAt)}
             {isMine && <ReadReceipt msg={msg} />}
@@ -329,6 +332,12 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
   const messageRef = useRef(message);
   messageRef.current = message;
   const [isSending, setIsSending] = useState(false);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [isUploadingVoice, setIsUploadingVoice] = useState(false);
+  const voiceRecorderRef = useRef<MediaRecorder | null>(null);
+  const voiceChunksRef = useRef<Blob[]>([]);
+  const voiceStartedAtRef = useRef(0);
+  const voiceLimitTimerRef = useRef<number | null>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
   const [actions, setActions] = useState<ActionsState>(null);
@@ -353,6 +362,16 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
   const reportedReadRef = useRef(new Set<string>());
   const { ref: topRef, inView: isTopVisible } = useInView();
   const messagesKey = useMemo(() => ["messages", userId], [userId]);
+
+  useEffect(() => () => {
+    if (voiceLimitTimerRef.current !== null) window.clearTimeout(voiceLimitTimerRef.current);
+    const recorder = voiceRecorderRef.current;
+    if (recorder?.state === "recording") {
+      recorder.onstop = null;
+      recorder.stream.getTracks().forEach((track) => track.stop());
+      recorder.stop();
+    }
+  }, []);
 
   useLayoutEffect(() => {
     const saved = localStorage.getItem(`beatbond:nickname:${userId}`) || "";
@@ -714,6 +733,50 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
     setReplyingTo(null);
   };
 
+  const startOrStopVoiceNote = async () => {
+    if (voiceRecorderRef.current?.state === "recording") {
+      voiceRecorderRef.current.stop();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      toast.error("Voice recording is not supported in this browser.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : undefined;
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      voiceRecorderRef.current = recorder;
+      voiceChunksRef.current = [];
+      voiceStartedAtRef.current = Date.now();
+      recorder.ondataavailable = (event) => { if (event.data.size) voiceChunksRef.current.push(event.data); };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        setIsRecordingVoice(false);
+        if (voiceLimitTimerRef.current !== null) window.clearTimeout(voiceLimitTimerRef.current);
+        voiceLimitTimerRef.current = null;
+        const blob = new Blob(voiceChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        voiceRecorderRef.current = null;
+        if (!blob.size) return;
+        if (!isConnected) { toast.error("Reconnect before sending the voice note."); return; }
+        setIsUploadingVoice(true);
+        try {
+          const form = new FormData();
+          form.append("audio", blob, "voice-note.webm");
+          const { data } = await axiosInstance.post("/users/voice-note", form, { headers: { "Content-Type": "multipart/form-data" } });
+          const duration = Math.min(60, Math.max(0.2, (Date.now() - voiceStartedAtRef.current) / 1000));
+          if (!emit("sendMessage", { receiverId: userId, content: "Voice note", voiceNote: { url: data.url, duration } })) toast.error("Voice note could not be sent.");
+        } catch (error: any) { toast.error(error.response?.data?.message || "Could not upload the voice note."); }
+        finally { setIsUploadingVoice(false); }
+      };
+      recorder.start();
+      setIsRecordingVoice(true);
+      voiceLimitTimerRef.current = window.setTimeout(() => { if (recorder.state === "recording") recorder.stop(); }, 60_000);
+    } catch {
+      toast.error("Allow microphone access to record a voice note.");
+    }
+  };
+
   const onComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Escape") {
       if (editing) cancelEdit();
@@ -972,6 +1035,9 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
             </div>
           )}
           <form onSubmit={(event) => { event.preventDefault(); void sendText(); }} className="flex items-end gap-1.5 rounded-3xl border bg-card p-1.5 shadow-sm">
+            <Button type="button" variant={isRecordingVoice ? "destructive" : "ghost"} size="icon" className="size-10 shrink-0 rounded-full" onClick={() => void startOrStopVoiceNote()} disabled={!isConnected || isUploadingVoice || Boolean(editing)} aria-label={isRecordingVoice ? "Stop recording voice note" : isUploadingVoice ? "Uploading voice note" : "Record voice note"} title={isRecordingVoice ? "Stop recording" : "Record voice note"}>
+              {isUploadingVoice ? <Loader2 className="size-5 animate-spin" /> : isRecordingVoice ? <Square className="size-4 fill-current" /> : <Mic className="size-5" />}
+            </Button>
             {currentSong && !editing && (
               <Button type="button" variant="ghost" size="icon" className="size-10 shrink-0 rounded-full text-primary" onClick={shareCurrentSong} disabled={!isSocketConnected} title={`Share "${currentSong.title}"`} aria-label="Share the song you're playing">
                 <Music2 className="size-5" />

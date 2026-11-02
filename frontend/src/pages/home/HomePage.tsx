@@ -6,6 +6,10 @@ import SectionGrid from "./components/SectionGrid";
 import { AnimatedText } from "@/components/ui/animated-text";
 import AlbumGrid from "./components/AlbumGrid";
 import ArtistGrid from "./components/ArtistGrid";
+import { Link } from "react-router-dom";
+import { ArrowUpRight, Headphones, UsersRound } from "lucide-react";
+import MusicStories from "@/components/MusicStories";
+import TrendingNearYou from "@/components/TrendingNearYou";
 
 // Persists in JS memory across route changes. Resets to true only on page reload / fresh app open.
 let isInitialAppLoad = true;
@@ -98,7 +102,33 @@ const HomePage = () => {
           </div>
 
           {/* Featured Section */}
+          <MusicStories />
+          <TrendingNearYou />
           <FeaturedSection />
+
+          {/* Group listening */}
+          <section className="relative mb-6 overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/15 via-card/80 to-card p-5 shadow-sm sm:mb-8 sm:p-6" aria-labelledby="group-listening-title">
+            <div className="pointer-events-none absolute -right-10 -top-12 size-40 rounded-full bg-primary/15 blur-3xl" />
+            <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-4">
+                <div className="grid size-12 shrink-0 place-items-center rounded-2xl bg-primary/15 text-primary">
+                  <UsersRound className="size-6" aria-hidden="true" />
+                </div>
+                <div className="max-w-2xl">
+                  <p className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+                    <Headphones className="size-3.5" aria-hidden="true" /> Listen together
+                  </p>
+                  <h2 id="group-listening-title" className="text-lg font-bold tracking-tight text-foreground sm:text-xl">Make it a shared session</h2>
+                  <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+                    Friends join a shared room and playback stays in sync over Socket.IO. The host controls play, pause and seek, and every listener follows in real time.
+                  </p>
+                </div>
+              </div>
+              <Link to="/group-listening" className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 self-start rounded-xl border border-primary/25 bg-primary/10 px-4 text-sm font-semibold text-primary transition-colors hover:bg-primary/20 sm:self-center">
+                Start a group <ArrowUpRight className="size-4" aria-hidden="true" />
+              </Link>
+            </div>
+          </section>
 
           {/* Content Sections */}
           <div className="space-y-5 sm:space-y-6 lg:space-y-8 pb-4">

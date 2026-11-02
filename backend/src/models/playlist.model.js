@@ -2,6 +2,10 @@ import mongoose from "mongoose";
 
 const playlistSchema = new mongoose.Schema({
   ownerId: { type: String, required: true, index: true },
+  collaborators: [{
+    userId: { type: String, required: true },
+    addedAt: { type: Date, default: Date.now },
+  }],
   name: { type: String, required: true, trim: true, maxlength: 100 },
   description: { type: String, default: "", trim: true, maxlength: 500 },
   songs: { type: [mongoose.Schema.Types.Mixed], default: [] },

@@ -27,15 +27,18 @@ import {
 	showListeningTo,
 	updateEmailPreferences,
 } from "../controller/user.controller.js";
-import { deleteMyAccount } from "../controller/account.controller.js";
+import { deleteMyAccount, exportMyData } from "../controller/account.controller.js";
 import { getLikedArtists, syncLikedArtists, toggleLikedArtist } from "../controller/likedArtist.controller.js";
 import { editMessage, muteChat, reactToMessage, unmuteChat, updateChatSettings } from "../controller/message.controller.js";
 import { protectRoute } from "../middleware/auth.middleware.js";
 import { rateLimit } from "../middleware/rateLimit.middleware.js";
+import { uploadVoiceNote } from "../controller/voiceNote.controller.js";
+import { getMyWrapped } from "../controller/wrapped.controller.js";
 
 const router = Router();
 
 // Existing routes
+router.post("/voice-note", protectRoute, rateLimit({ name: "voice-note-upload", limit: 20, windowMs: 60 * 60 * 1000 }), uploadVoiceNote);
 router.get("/", protectRoute, getAllUsers);
 router.get("/suggested", protectRoute, getSuggestedUsers);
 router.get("/messages/:userId", protectRoute, getMessages);
@@ -56,9 +59,11 @@ router.delete("/chats/:userId/mute", protectRoute, unmuteChat);
 router.patch("/chat-settings", protectRoute, updateChatSettings);
 router.delete("/messages/:userId/clear", protectRoute, clearConversation);
 router.get("/listening-history", protectRoute, getListeningHistory);
+router.get("/wrapped", protectRoute, getMyWrapped);
 router.post("/listening-history", protectRoute, saveListeningActivity);
 router.delete("/listening-history", protectRoute, clearListeningHistory);
 router.delete("/account", protectRoute, deleteMyAccount);
+router.get("/account/export", protectRoute, rateLimit({ name: "account-export", limit: 3, windowMs: 60 * 60 * 1000 }), exportMyData);
 router.get("/blocked", protectRoute, getBlockedUsers);
 router.post("/block/:userId", protectRoute, blockUser);
 router.delete("/block/:userId", protectRoute, unblockUser);

@@ -94,6 +94,7 @@ const userSchema = new mongoose.Schema(
 		readReceipts: { type: Boolean, default: true },
 		showActivityStatus: { type: Boolean, default: true },
 		messageNotifications: { type: Boolean, default: true },
+		podcastPlaybackSpeed: { type: Number, min: 0.5, max: 3, default: 1 },
 		// Friends whose messages don't create notifications.
 		mutedChats: [{ type: String }],
 		// People who never see your listening (now playing or history).

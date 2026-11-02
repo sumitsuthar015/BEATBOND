@@ -6,14 +6,18 @@ import {
   Search,
   Sparkles,
   Users,
+  Headphones,
 } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { memo } from "react";
 import SignInConsentButton from "@/components/privacy/SignInConsentButton";
+import { usePreferencesStore } from "@/stores/usePreferencesStore";
+import { translate } from "@/lib/i18n";
 
 const MobileNav = memo(() => {
   const location = useLocation();
   const { user } = useUser();
+  const language = usePreferencesStore((state) => state.language);
 
   const items = [
     { icon: Home, label: "Home", path: "/" },
@@ -21,6 +25,7 @@ const MobileNav = memo(() => {
     { icon: Library, label: "Library", path: "/library" },
     { icon: Sparkles, label: "Mood", path: "/mood" },
     { icon: Users, label: "Friends", path: user ? "/friends" : "/" },
+    { icon: Headphones, label: "Podcasts", path: "/podcasts" },
   ];
 
   return (
@@ -33,7 +38,7 @@ const MobileNav = memo(() => {
         </SignedOut>
 
         <SignedIn>
-          <div className="grid h-[calc(4rem+env(safe-area-inset-bottom))] grid-cols-5 px-1 pb-[env(safe-area-inset-bottom)]">
+          <div className="grid h-[calc(4rem+env(safe-area-inset-bottom))] grid-cols-6 px-1 pb-[env(safe-area-inset-bottom)]">
             {items.map((item) => {
               const isActive = location.pathname === item.path;
               return (
@@ -52,7 +57,7 @@ const MobileNav = memo(() => {
                       isActive && "text-sky-400",
                     )}
                   />
-                  {item.label}
+                  {translate(item.label, language)}
                 </Link>
               );
             })}

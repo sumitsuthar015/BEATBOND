@@ -3,6 +3,8 @@ import { UserLocation } from "../models/userLocation.model.js";
 import { Avatar } from "../models/avatar.model.js";
 import { emitLocationToFriends, isUserOnline } from "../lib/realtime.js";
 import { canSeeLiveActivity } from "../services/privacy.service.js";
+import { canSeeListeningHistory } from "../services/privacy.service.js";
+import { ListeningActivity } from "../models/listeningActivity.model.js";
 import { canSeePresence } from "../services/chat.service.js";
 import {
   LAST_LOCATION_MAX_AGE_MS, areaNameFrom, createTtlCache, distanceMeters, isLiveLocation,
@@ -163,9 +165,11 @@ const presentLocations = async (viewerId, viewer, locations) => {
     const canSeeActivity = canSeeLiveActivity(user, viewerId);
     return [{
       userId: location.userId,
-      latitude: location.latitude,
-      longitude: location.longitude,
-      accuracy: location.accuracy ?? null,
+      // Never expose a shared user's raw GPS fix. A two-decimal grid keeps the
+      // map useful while reducing precision to roughly a kilometre.
+      latitude: Math.round(location.latitude * 100) / 100,
+      longitude: Math.round(location.longitude * 100) / 100,
+      accuracy: Math.max(Number(location.accuracy) || 0, 1000),
       updatedAt: location.updatedAt,
       // Live means sharing is on and the app checked in recently; a pin left
       // behind by a closed app shows as a last location instead.
@@ -231,6 +235,38 @@ export const getFriendLocations = async (req, res, next) => {
       };
       return { ...location, user, avatar: avatarByUser.get(location.userId), isOnline: isUserOnline(location.userId) };
     }));
+  } catch (error) { next(error); }
+};
+
+export const getTrendingNearby = async (req, res, next) => {
+  try {
+    const viewerId = req.auth().userId;
+    const [viewer, origin] = await Promise.all([
+      User.findOne({ clerkId: viewerId }).select("friends blockedUsers").lean(),
+      UserLocation.findOne({ userId: viewerId }).select("latitude longitude updatedAt").lean(),
+    ]);
+    if (!origin) return res.json({ available: false, songs: [] });
+    const cutoff = new Date(Date.now() - 60 * 60 * 1000);
+    const candidates = await UserLocation.find({ sharingEnabled: true, updatedAt: { $gte: cutoff }, userId: { $ne: viewerId } }).limit(500).lean();
+    const allowed = candidates.filter((location) =>
+      distanceMeters({ latitude: origin.latitude, longitude: origin.longitude }, { latitude: location.latitude, longitude: location.longitude }) <= 50_000 &&
+      (location.visibility === "everyone" || viewer?.friends?.includes(location.userId)) &&
+      !viewer?.blockedUsers?.includes(location.userId),
+    );
+    const userIds = [...new Set([...allowed.map((location) => location.userId), viewerId])];
+    const users = await User.find({ clerkId: { $in: userIds } }).select("clerkId historyPrivacy friends blockedUsers musicHiddenFrom").lean();
+    const usersById = new Map(users.map((user) => [user.clerkId, user]));
+    const visibleIds = userIds.filter((id) => id === viewerId || (!usersById.get(id)?.blockedUsers?.includes(viewerId) && canSeeListeningHistory(usersById.get(id), viewerId)));
+    const activities = await ListeningActivity.find({ userId: { $in: visibleIds }, playedAt: { $gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) } }).sort({ playedAt: -1 }).limit(5000).lean();
+    const trends = new Map();
+    for (const activity of activities) {
+      const key = `${activity.songId}|${String(activity.title).toLowerCase()}`;
+      const item = trends.get(key) || { song: { _id: activity.songId, title: activity.title, artist: activity.artist, imageUrl: activity.imageUrl, audioUrl: activity.audioUrl, duration: activity.duration || 0, genre: activity.genre || "Unknown" }, users: new Set(), plays: 0 };
+      item.users.add(activity.userId); item.plays += 1; trends.set(key, item);
+    }
+    const songs = [...trends.values()].map(({ song, users: listeners, plays }) => ({ ...song, listeners: listeners.size, plays }))
+      .filter((song) => song.audioUrl).sort((a, b) => b.listeners - a.listeners || b.plays - a.plays).slice(0, 20);
+    res.json({ available: true, radiusKm: 50, songs });
   } catch (error) { next(error); }
 };
 

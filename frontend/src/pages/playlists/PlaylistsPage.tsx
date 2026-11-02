@@ -6,6 +6,7 @@ import {
   Music2,
   Plus,
   Search,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -94,10 +95,17 @@ const PlaylistsPage = () => {
               Your music, saved to your account.
             </p>
           </div>
-          <Button onClick={() => setIsCreateOpen(true)} className="shrink-0">
-            <Plus className="mr-1 size-4" />
-            New
-          </Button>
+          <div className="flex shrink-0 gap-2">
+            <Button variant="outline" onClick={() => navigate("/playlists/generate")}>
+              <Sparkles className="mr-1 size-4" />
+              <span className="hidden sm:inline">AI playlist</span>
+              <span className="sm:hidden">AI</span>
+            </Button>
+            <Button onClick={() => setIsCreateOpen(true)}>
+              <Plus className="mr-1 size-4" />
+              New
+            </Button>
+          </div>
         </header>
         <div className="relative mb-5 max-w-sm">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />

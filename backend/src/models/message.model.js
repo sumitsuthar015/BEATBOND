@@ -30,6 +30,7 @@ const messageSchema = new mongoose.Schema(
       href: String,
       song: mongoose.Schema.Types.Mixed,
     },
+    voiceNote: { url: { type: String, default: "" }, duration: { type: Number, default: 0 } },
     status: {
       type: String,
       enum: ['sent', 'delivered', 'read'],

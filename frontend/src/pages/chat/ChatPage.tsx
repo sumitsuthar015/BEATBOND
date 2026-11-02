@@ -1,14 +1,16 @@
-import { useEffect, useState, useCallback, memo } from "react";
+import { useEffect, useState, useCallback, memo, lazy, Suspense } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { axiosInstance } from "@/lib/axios";
 import { UserList } from "./components/UserList";
 import { DirectMessageChat } from "../../components/chat/DirectMessageChat";
-import { AlertCircle, ArrowLeft, Loader2, MessageCircle } from "lucide-react";
+import { AlertCircle, ArrowLeft, Loader2, MessageCircle, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { beginBackNavigation } from "@/lib/routeHistory";
 import { useChatStore } from "@/stores/useChatStore";
 import { useUser } from "@clerk/clerk-react";
+
+const GroupChatsPage = lazy(() => import("./GroupChatsPage"));
 
 interface FriendUser {
   _id?: string;
@@ -35,6 +37,8 @@ const ChatPage = () => {
   const queryClient = useQueryClient();
   const { user } = useUser();
   const selectedUserId = searchParams.get("userId") || undefined;
+  const selectedGroupId = searchParams.get("groupId") || undefined;
+  const isGroupMode = searchParams.get("mode") === "groups";
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const socket = useChatStore((state) => state.socket);
   const isSocketConnected = useChatStore((state) => state.isConnected);
@@ -100,11 +104,19 @@ const ChatPage = () => {
     },
   });
 
+  const { data: groups = [], isLoading: isLoadingGroups } = useQuery<{ id: string; name: string; imageUrl?: string; members: { userId: string }[]; lastMessage?: string; lastMessageAt?: string }[]>({
+    queryKey: ["groupChats"],
+    queryFn: async () => (await axiosInstance.get("/group-chats")).data,
+  });
+
   const listPane = (
     <UserList
       users={users}
+      groups={groups}
+      selectedGroupId={selectedGroupId}
+      onGroupSelect={(groupId) => navigate(`/chat?groupId=${groupId}`)}
       selectedUserId={selectedUserId}
-      isLoading={isLoadingFriends}
+      isLoading={isLoadingFriends || isLoadingGroups}
       isError={isFriendsError}
       onRetry={refetchFriends}
       className="flex-1"
@@ -144,10 +156,16 @@ const ChatPage = () => {
     </div>
   );
 
+  if (isGroupMode) {
+    return <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading group chats…</div>}><GroupChatsPage embedded onBack={() => navigate("/chat", { replace: true })} /></Suspense>;
+  }
+
   if (isMobile) {
     return (
       <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-        {selectedUserId ? (
+        {selectedGroupId ? (
+          <div className="flex min-h-0 flex-1 flex-col"><GroupChatsPage embedded groupId={selectedGroupId} onBack={() => navigate("/chat", { replace: true })} /></div>
+        ) : selectedUserId ? (
           <div className="flex min-h-0 flex-1 flex-col"><DirectMessageChat userId={selectedUserId} /></div>
         ) : (
           <div className="flex flex-col h-full">
@@ -164,6 +182,7 @@ const ChatPage = () => {
                 <ArrowLeft className="size-5" />
               </Button>
               <h1 className="text-lg sm:text-xl font-semibold">Messages</h1>
+              <button type="button" onClick={() => navigate("/chat?mode=groups")} className="absolute right-3 grid size-10 place-items-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground" aria-label="Open group chats"><Users className="size-5" /></button>
             </div>
             <UserList
               users={users}
@@ -186,11 +205,14 @@ const ChatPage = () => {
           <MessageCircle className="h-5 w-5 text-primary" />
           <h1 className="font-semibold">Messages</h1>
           {isLoadingFriends && <Loader2 className="ml-auto h-4 w-4 animate-spin text-muted-foreground" />}
+          <button type="button" onClick={() => navigate("/chat?mode=groups")} className="ml-auto grid size-9 place-items-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground" aria-label="Open group chats"><Users className="size-4" /></button>
         </div>
         {listPane}
       </div>
       <div className="flex min-h-0 flex-1 flex-col">
-        {selectedUserId ? (
+        {selectedGroupId ? (
+          <GroupChatsPage embedded groupId={selectedGroupId} onBack={() => navigate("/chat", { replace: true })} />
+        ) : selectedUserId ? (
           <DirectMessageChat userId={selectedUserId} />
         ) : (
           emptyState

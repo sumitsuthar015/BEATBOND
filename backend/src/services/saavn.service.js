@@ -1,7 +1,8 @@
 
-import { Song, Album, Artist, fetchFromSaavn, setFetchConfig } from "@saavn-labs/sdk";
+import { Song as SaavnSong, Album, Artist, fetchFromSaavn, setFetchConfig } from "@saavn-labs/sdk";
 import CryptoJS from "crypto-js";
 import { VerifiedArtist } from "../models/verifiedArtist.model.js";
+import { Song as LocalSong } from "../models/song.model.js";
 
 // JioSaavn tailors its catalogue to the caller's country, and outside India it
 // hides many licensed originals (e.g. international hits). When the backend is
@@ -636,6 +637,28 @@ export const uniqueSongsById = (songs) => {
   return [...byId.values()];
 };
 
+const searchLocalCatalogue = async (query, limit, page) => {
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = { $or: [{ title: { $regex: escaped, $options: "i" } }, { artist: { $regex: escaped, $options: "i" } }] };
+  const skip = (page - 1) * limit;
+  const [songs, total] = await Promise.all([
+    LocalSong.find(match).sort({ playCount: -1, createdAt: -1 }).skip(skip).limit(limit).lean(),
+    LocalSong.countDocuments(match),
+  ]);
+  return {
+    results: songs.map((song) => ({
+      id: String(song._id), name: song.title,
+      artists: { primary: [{ id: String(song._id), name: song.artist }], all: [{ id: String(song._id), name: song.artist }] },
+      album: { id: String(song.albumId || ""), name: "BeatBond Catalogue" },
+      image: [{ url: song.imageUrl }, { url: song.imageUrl }, { url: song.imageUrl }],
+      downloadUrl: [{ quality: "320kbps", url: song.audioUrl }],
+      duration: String(song.duration || 0), language: song.language || song.genre || "Unknown", year: song.year || "",
+    })),
+    total,
+    hasMore: skip + songs.length < total,
+  };
+};
+
 export async function searchSongs(query, limit = 50, page = 1) {
   const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 50);
   const safePage = Math.max(Number(page) || 1, 1);
@@ -648,7 +671,7 @@ export async function searchSongs(query, limit = 50, page = 1) {
       let webResults;
       const sdkPromise =
         withTimeout(
-          Song.search({ query: normalized, limit: safeLimit, offset: safePage }),
+          SaavnSong.search({ query: normalized, limit: safeLimit, offset: safePage }),
           SEARCH_PROVIDER_TIMEOUT_MS,
           "Saavn SDK search",
         ).catch(() => ({ results: [] }))
@@ -685,12 +708,23 @@ export async function searchSongs(query, limit = 50, page = 1) {
       // web catalogue does. Retry against it before giving up on the query.
       if (!results.length && !webResults.length) {
         const retryWebResults = await searchJioSaavnWebSongs(normalized, safeLimit, safePage);
-        return { status: "SUCCESS", data: { results: (await Promise.all(retryWebResults.map(mapSongWithFullAudio))).filter((song) => song?.id) } };
+        const providerResults = (await Promise.all(retryWebResults.map(mapSongWithFullAudio))).filter((song) => song?.id);
+        if (providerResults.length) return { status: "SUCCESS", data: { results: providerResults } };
       }
+      const local = await searchLocalCatalogue(normalized, safeLimit, safePage).catch(() => ({ results: [], total: 0, hasMore: false }));
+      const seen = new Set(results.map((song) => `${String(song.name || song.title).trim().toLowerCase()}|${String(song.artists?.primary?.[0]?.name || song.artist || "").trim().toLowerCase()}`));
+      const merged = [...results, ...local.results.filter((song) => {
+        const key = `${song.name.trim().toLowerCase()}|${song.artists.primary[0].name.trim().toLowerCase()}`;
+        if (seen.has(key)) return false;
+        seen.add(key); return true;
+      })].slice(0, safeLimit);
       const total = Number(sdkResponse?.total) || 0;
-      const hasMore = total > safePage * safeLimit || sdkResults.length >= safeLimit || webResults.length >= safeLimit;
-      return { status: "SUCCESS", data: { results, page: safePage, limit: safeLimit, hasMore, total: total || undefined } };
-    } catch { return { status: "SUCCESS", data: { results: [] } }; }
+      const hasMore = total > safePage * safeLimit || sdkResults.length >= safeLimit || webResults.length >= safeLimit || local.hasMore;
+      return { status: "SUCCESS", data: { results: merged, page: safePage, limit: safeLimit, hasMore, total: total + local.total || undefined } };
+    } catch {
+      const local = await searchLocalCatalogue(query.trim(), safeLimit, safePage).catch(() => ({ results: [], total: 0, hasMore: false }));
+      return { status: "SUCCESS", data: { results: local.results, page: safePage, limit: safeLimit, hasMore: local.hasMore, total: local.total || undefined, source: "beatbond-catalogue" } };
+    }
   });
 }
 
@@ -701,7 +735,7 @@ export async function getDailyTrendingSongs() {
   }
 
   const languages = ["hindi", "punjabi", "english", "tamil", "telugu"];
-  const responses = await Promise.allSettled(languages.map((language) => Song.getTrending({ language })));
+  const responses = await Promise.allSettled(languages.map((language) => SaavnSong.getTrending({ language })));
   const charts = await Promise.all(responses.map(async (response) => {
     if (response.status !== "fulfilled") return [];
     const rawSongs = Array.isArray(response.value)
@@ -728,7 +762,7 @@ export async function getSongsByIds(songIds) {
   const ids = [...new Set((songIds || []).map(String).filter(Boolean))].slice(0, 20);
   if (!ids.length) return [];
   try {
-    const res = await Song.getById({ songIds: ids });
+    const res = await SaavnSong.getById({ songIds: ids });
     const songs = await Promise.all((res?.results || res?.songs || []).map(mapSongWithFullAudio));
     return songs.filter((song) => song?.id && song.downloadUrl?.length);
   } catch {

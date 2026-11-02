@@ -31,6 +31,9 @@ interface User {
 
 interface UserListProps {
   users: User[];
+  groups?: { id: string; name: string; imageUrl?: string; members: { userId: string }[]; lastMessage?: string; lastMessageAt?: string; unreadCount?: number }[];
+  selectedGroupId?: string;
+  onGroupSelect?: (groupId: string) => void;
   selectedUserId?: string;
   onUserSelect?: (userId: string) => void;
   isLoading?: boolean;
@@ -113,6 +116,9 @@ UserItem.displayName = "UserItem";
 export const UserList = memo(
   ({
     users,
+    groups = [],
+    selectedGroupId,
+    onGroupSelect,
     selectedUserId,
     onUserSelect,
     isLoading,
@@ -143,6 +149,7 @@ export const UserList = memo(
       const secondTime = second.lastMessageTime ? new Date(second.lastMessageTime).getTime() : 0;
       return secondTime - firstTime;
     });
+    const filteredGroups = groups.filter((group) => group.name.toLowerCase().includes(debouncedSearch.toLowerCase()));
 
     const handleUserSelect = useCallback(
       (userId: string) => {
@@ -196,6 +203,14 @@ export const UserList = memo(
               </div>
             )}
 
+            {!isLoading && !isError && filteredGroups.map((group) => (
+              <button key={group.id} type="button" onClick={() => onGroupSelect?.(group.id)} className={cn("flex w-full items-center gap-3 rounded-lg p-2.5 text-left transition-colors hover:bg-muted/50", selectedGroupId === group.id && "bg-muted")}>
+                <Avatar className="h-10 w-10 shrink-0"><AvatarImage src={group.imageUrl} alt="" /><AvatarFallback><MessageCircle className="size-4" /></AvatarFallback></Avatar>
+                <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{group.name}</span><span className="block truncate text-xs text-muted-foreground">{group.lastMessage || `${group.members.length} members`}</span></span>
+                {group.lastMessageAt && <span className="shrink-0 text-[10px] text-muted-foreground">{formatConversationTime(group.lastMessageAt)}</span>}
+              </button>
+            ))}
+
             {!isLoading && !isError && filteredUsers.map((user) => (
               <UserItem
                 key={user.clerkId}
@@ -206,7 +221,7 @@ export const UserList = memo(
               />
             ))}
 
-            {!isLoading && !isError && filteredUsers.length === 0 && (
+            {!isLoading && !isError && filteredUsers.length === 0 && filteredGroups.length === 0 && (
               <div className="text-center p-8 text-muted-foreground text-sm space-y-3">
                 <MessageCircle className="mx-auto h-8 w-8 text-muted-foreground/70" />
                 <p>{search ? "No users found" : "No friends available"}</p>

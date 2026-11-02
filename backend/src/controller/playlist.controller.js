@@ -1,4 +1,5 @@
 import { Playlist } from "../models/playlist.model.js";
+import { User } from "../models/user.model.js";
 
 const songPayload = (song) => ({
   _id: String(song._id || song.id || ""),
@@ -17,6 +18,7 @@ const present = (playlist) => ({
   description: playlist.description,
   songs: playlist.songs || [],
   ownerId: playlist.ownerId,
+  collaborators: (playlist.collaborators || []).map((entry) => ({ userId: entry.userId, addedAt: entry.addedAt })),
   downloadedAt: playlist.downloadedAt || null,
   createdAt: playlist.createdAt,
   updatedAt: playlist.updatedAt,
@@ -26,7 +28,7 @@ export const getMyPlaylists = async (req, res, next) => {
   try {
     res.json(
       (
-        await Playlist.find({ ownerId: req.auth().userId })
+        await Playlist.find({ $or: [{ ownerId: req.auth().userId }, { "collaborators.userId": req.auth().userId }] })
           .sort({ updatedAt: -1 })
           .lean()
       ).map(present),
@@ -38,7 +40,7 @@ export const getMyPlaylists = async (req, res, next) => {
 
 export const getPlaylistById = async (req, res, next) => {
   try {
-    const playlist = await Playlist.findOne({ _id: req.params.playlistId, ownerId: req.auth().userId }).lean();
+    const playlist = await Playlist.findOne({ _id: req.params.playlistId, $or: [{ ownerId: req.auth().userId }, { "collaborators.userId": req.auth().userId }] }).lean();
     if (!playlist) {
       return res.status(404).json({ message: "Playlist not found" });
     }
@@ -130,10 +132,8 @@ export const addSong = async (req, res, next) => {
     if (song.title.length > 200 || song.artist.length > 200 || song.imageUrl.length > 2_000 || song.audioUrl.length > 2_000 || !/^https:\/\//i.test(song.audioUrl)) {
       return res.status(400).json({ message: "Song details are invalid or too long." });
     }
-    const playlist = await Playlist.findOne({
-      _id: req.params.playlistId,
-      ownerId: req.auth().userId,
-    });
+    const userId = req.auth().userId;
+    const playlist = await Playlist.findOne({ _id: req.params.playlistId, $or: [{ ownerId: userId }, { "collaborators.userId": userId }] });
     if (!playlist)
       return res.status(404).json({ message: "Playlist not found" });
     if (playlist.songs.some((item) => String(item._id) === song._id))
@@ -149,10 +149,8 @@ export const addSong = async (req, res, next) => {
 };
 export const removeSong = async (req, res, next) => {
   try {
-    const playlist = await Playlist.findOne({
-      _id: req.params.playlistId,
-      ownerId: req.auth().userId,
-    });
+    const userId = req.auth().userId;
+    const playlist = await Playlist.findOne({ _id: req.params.playlistId, $or: [{ ownerId: userId }, { "collaborators.userId": userId }] });
     if (!playlist)
       return res.status(404).json({ message: "Playlist not found" });
     const initial = playlist.songs.length;
@@ -166,4 +164,51 @@ export const removeSong = async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+};
+
+export const addCollaborator = async (req, res, next) => {
+  try {
+    const ownerId = req.auth().userId;
+    const userId = typeof req.body?.userId === "string" ? req.body.userId.trim() : "";
+    if (!userId || userId === ownerId) return res.status(400).json({ message: "Choose a friend to invite." });
+    const [playlist, owner, collaborator] = await Promise.all([
+      Playlist.findOne({ _id: req.params.playlistId, ownerId }),
+      User.findOne({ clerkId: ownerId }).select("friends blockedUsers").lean(),
+      User.findOne({ clerkId: userId }).select("clerkId blockedUsers").lean(),
+    ]);
+    if (!playlist) return res.status(404).json({ message: "Playlist not found." });
+    if (!collaborator || !owner?.friends?.includes(userId) || owner.blockedUsers?.includes(userId) || collaborator.blockedUsers?.includes(ownerId)) return res.status(403).json({ message: "Only friends can collaborate on this playlist." });
+    if (playlist.collaborators.some((item) => item.userId === userId)) return res.status(409).json({ message: "This friend is already a collaborator." });
+    if (playlist.collaborators.length >= 20) return res.status(400).json({ message: "A playlist can have up to 20 collaborators." });
+    playlist.collaborators.push({ userId, addedAt: new Date() });
+    await playlist.save();
+    res.json(present(playlist));
+  } catch (error) { next(error); }
+};
+
+export const removeCollaborator = async (req, res, next) => {
+  try {
+    const playlist = await Playlist.findOne({ _id: req.params.playlistId, ownerId: req.auth().userId });
+    if (!playlist) return res.status(404).json({ message: "Playlist not found." });
+    playlist.collaborators = playlist.collaborators.filter((item) => item.userId !== req.params.userId);
+    await playlist.save();
+    res.json(present(playlist));
+  } catch (error) { next(error); }
+};
+
+export const reorderPlaylistSongs = async (req, res, next) => {
+  try {
+    const userId = req.auth().userId;
+    const playlist = await Playlist.findOne({ _id: req.params.playlistId, $or: [{ ownerId: userId }, { "collaborators.userId": userId }] });
+    if (!playlist) return res.status(404).json({ message: "Playlist not found." });
+    const ids = req.body?.songIds;
+    const existing = playlist.songs.map((song) => String(song._id));
+    if (!Array.isArray(ids) || ids.length !== existing.length || ids.some((id) => typeof id !== "string") || new Set(ids).size !== existing.length || ids.some((id) => !existing.includes(id))) {
+      return res.status(400).json({ message: "Provide each playlist song ID exactly once." });
+    }
+    const byId = new Map(playlist.songs.map((song) => [String(song._id), song]));
+    playlist.songs = ids.map((id) => byId.get(id));
+    await playlist.save();
+    res.json(present(playlist));
+  } catch (error) { next(error); }
 };

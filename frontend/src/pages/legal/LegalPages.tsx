@@ -13,13 +13,13 @@ const Page = ({ title, children }: { title: string; children: React.ReactNode })
 
 export const PrivacyPolicyPage = () => (
   <Page title="BeatBond Privacy Policy">
-    <p>This policy explains what BeatBond processes when you use the music and social features in this app. BeatBond uses Clerk for sign-in, MongoDB for app records, Cloudinary for uploaded profile media, Mapbox for map display, Groq to answer AI support chat requests, and third-party music and lyrics catalogs to provide those features.</p>
+    <p>This policy explains what BeatBond processes when you use the music and social features in this app. BeatBond uses Clerk for sign-in, MongoDB for app records, Cloudinary for uploaded media and voice notes, Mapbox for map display, Groq to answer AI support chat requests, and third-party music and lyrics catalogs to provide those features.</p>
     <h2>Information we process</h2>
     <ul>
       <li><b>Account and profile:</b> sign-in provider user ID, email, name, username, profile photo, bio, website, and profile preferences.</li>
-      <li><b>Activity you create:</b> friends and blocks, messages, posts, comments, playlists, liked artists, notifications, saved searches, and search history.</li>
+      <li><b>Activity you create:</b> friends and blocks, direct and group messages, voice notes, posts, 24-hour music stories, comments, shared playlists and collaborators, liked artists, notifications, saved searches, and search history.</li>
       <li><b>Listening:</b> song identifiers and metadata, playback time and playback outcomes. Listening history is private by default; you control whether profile history and live listening are visible to everyone, friends, or only you.</li>
-      <li><b>Location:</b> precise device coordinates are collected only after you choose to share live location. If the app closes or disconnects, the last reported pin can remain visible for up to seven days. Stop sharing in Settings or on the map to immediately delete the saved pin.</li>
+      <li><b>Location:</b> precise device coordinates are collected only after you choose to share live location. If the app closes or disconnects, the last reported pin can remain visible for up to seven days. With location sharing enabled, approximate nearby music trends use opted-in, recently shared locations within 50 km; song history is included only when its owner permits you to view it. Stop sharing in Settings or on the map to immediately delete the saved pin and remove it from nearby discovery.</li>
       <li><b>Device data:</b> selected preferences, storage/service choices, recent searches, listening history, recommendation signals, and optional downloaded media may be stored in this browser. Offline downloads are stored on your device.</li>
       <li><b>AI support chat:</b> messages you choose to send and recent chat context are forwarded to Groq to generate a reply. Chat history stays in the current page session and is not saved to your BeatBond account. Do not send information you do not want processed by an AI provider.</li>
     </ul>
@@ -32,7 +32,7 @@ export const PrivacyPolicyPage = () => (
       <li><b>Mapbox:</b> loaded only when you open Friends Map and allow it in service preferences. Mapbox receives your IP address and map/tile requests. Location sharing is a separate choice.</li>
       <li><b>Groq:</b> receives AI support chat messages and recent context only after you accept the in-chat notice and send a message.</li>
       <li><b>Music and lyrics catalogs:</b> BeatBond's server requests catalog data when you search or use music features; the provider receives the search terms or song identifiers needed for its request.</li>
-      <li><b>Cloudinary:</b> stores uploaded profile and post media. <b>Web Push:</b> browser push subscriptions are sent only if you enable notifications.</li>
+      <li><b>Cloudinary:</b> stores uploaded profile and post media and voice notes you send. <b>Web Push:</b> browser push subscriptions are sent only if you enable notifications.</li>
       <li><b>Analytics and advertising:</b> no analytics or advertising SDK is currently installed. The app uses system fonts instead of requesting Google Fonts.</li>
     </ul>
     <p>Other BeatBond users can see profile information and activity according to your settings. Your direct messages are delivered to their recipients. Providers process data under their own terms and privacy policies.</p>

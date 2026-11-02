@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Song } from "@/types";
+import { ReportContentButton } from "@/components/ReportContentButton";
 
 interface CommentItem {
   _id: string;
@@ -188,6 +189,7 @@ export const SongCommentsModal = ({ song, trigger, open, onOpenChange }: SongCom
                         <Trash2 className="size-3.5" />
                       </Button>
                     )}
+                    {!isAuthor && <ReportContentButton targetType="comment" targetId={comment._id} label={`Report comment by ${comment.user?.fullName || "listener"}`} />}
                   </div>
                 );
               })}

@@ -94,4 +94,17 @@ export interface ModerationComment {
 
 export interface ModerationFeed {
 	comments: ModerationComment[];
+	reports: ModerationReport[];
+}
+
+export interface ModerationReport {
+	_id: string;
+	targetType: "post" | "comment";
+	targetId: string;
+	reason: string;
+	details: string;
+	contentPreview: string;
+	createdAt: string;
+	reporter: ContentAuthor;
+	author: ContentAuthor;
 }
