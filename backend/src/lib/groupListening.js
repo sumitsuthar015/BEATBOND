@@ -6,6 +6,7 @@ import { GroupConversation } from "../models/groupConversation.model.js";
 import { GroupMessage } from "../models/groupMessage.model.js";
 import { User } from "../models/user.model.js";
 import { createGroupListeningRedis } from "./groupListeningRedis.js";
+import { getAllowedOrigins } from "./allowedOrigins.js";
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const rooms = new Map();
@@ -50,9 +51,7 @@ const makeCode = () => {
 };
 
 export const createGroupListeningServer = (httpServer, { authenticate } = {}) => {
-  const allowedOrigins = [process.env.CLIENT_URL, process.env.FRONTEND_URL, "https://beatbond-75ns.onrender.com",
-    ...(process.env.NODE_ENV === "production" ? [] : ["http://localhost:3000", "http://localhost:5173", "http://localhost:4173"])].filter(Boolean);
-  const io = new Server(httpServer, { cors: { origin: allowedOrigins, credentials: true } });
+  const io = new Server(httpServer, { cors: { origin: [...getAllowedOrigins()], credentials: true } });
   const roomStore = createGroupListeningRedis(io);
   const getRoom = async (code) => {
     const shared = await roomStore.get(code);

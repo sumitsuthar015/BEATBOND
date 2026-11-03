@@ -12,11 +12,24 @@
 
 Cloudinary credentials are required for voice-note uploads. Nearby trends appear after location sharing is enabled on Friends Map. Blend results require the friend's listening history to be shared with friends.
 
+### Deployment and operations
+
+- Configure `CLIENT_URL` or `FRONTEND_URL` on the backend to the deployed frontend origin. `ALLOWED_ORIGINS` can contain additional comma-separated origins. API requests, direct-chat WebSockets, and Group Listening use the same allowlist.
+- For separately hosted frontend/backend deployments, build the frontend with `VITE_API_URL=https://<backend-origin>/api` and `VITE_SOCKET_URL=https://<backend-origin>`. Leave these unset when both are served from one origin.
+- Set `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` in the backend hosting environment for voice-note uploads. Local `backend/.env` values do not transfer to a hosting provider.
+- `GET /health` reports MongoDB, Cloudinary, Redis, and JioSaavn provider status. MongoDB is required for an `ok` result; Cloudinary, Redis, and provider status are reported separately. The response is cached briefly and rate-limited.
+- Feature flags are server-evaluated for the signed-in user at `GET /api/features`. `FEATURE_FLAG_ROLLOUTS` is a JSON object and defaults to `{}`, so flags start off. Example: `{"daily_mixes":{"enabled":true,"rolloutPercent":10}}` enables a stable 10% user cohort. The verified admin can view configured flags under Admin → Feature flags and set a persistent on/off override via `/api/admin/feature-flags`; an admin override affects all signed-in users. Keep unapproved flags off in production.
+- Admin feature-flag API: `GET /api/admin/feature-flags` lists flags; `PATCH /api/admin/feature-flags/:name` accepts `{ "enabled": boolean }`; `DELETE /api/admin/feature-flags/:name` clears an override and restores the environment rollout. All require the verified admin account. `GET /api/features` returns the effective per-user boolean map.
+- HTTP responses include a server-generated `X-Request-Id`. Backend completion, failures, and first rate-limit rejections per window are structured JSON logs keyed by route pattern; raw paths, query strings, and user identifiers are excluded. Successful CORS preflights and `304 Not Modified` cache responses are omitted to reduce routine log noise.
+- Sentry reporting remains optional. Set `SENTRY_DSN` and `VITE_SENTRY_DSN` to receive API, socket, and terminal media playback error reports.
+
+See [the repo map](docs/REPO_MAP.md) and [Phase 0 manual QA checklist](docs/PHASE0_CHANGELOG.md) for implementation notes.
+
 ## Group Listening
 
 Group Listening uses an authenticated Socket.IO connection. A host creates a temporary five-character room code and shares it with listeners. The server owns the room's track and playback clock; it broadcasts a full snapshot after host actions and promotes the longest-present member if the host disconnects. Rooms are deleted when their last member leaves and are held in process memory.
 
-Run the backend and frontend with `npm run dev` from the repository root. Sign in, open **Group Listening** from the home page, create a room, and share its code. The host loads an HTTP or HTTPS audio URL; listeners join with the code. Browsers that block autoplay show a **Tap to enable sound** button.
+Run the backend and frontend with `npm run dev` from the repository root. Sign in, open **Group Listening** from the home page, create a room, and share its code. The host chooses and plays songs using BeatBond's normal player; track changes, play/pause, and seeks are broadcast to listeners. There is no separate upload or audio URL step. Listeners' own player pauses while they are in the room and is restored when they leave or close the room page. Browsers that block autoplay show a **Tap to enable sound** button.
 
 | Event | Direction | Purpose |
 | --- | --- | --- |

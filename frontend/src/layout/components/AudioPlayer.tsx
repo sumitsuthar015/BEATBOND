@@ -5,6 +5,7 @@ import { usePreferencesStore } from "@/stores/usePreferencesStore";
 import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { axiosInstance } from "@/lib/axios";
+import * as Sentry from "@sentry/react";
 
 const AudioPlayer = () => {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -291,6 +292,13 @@ const AudioPlayer = () => {
           toast.error("You're offline. Only downloaded songs can play right now.", { id: "offline-playback" });
           setIsPlaying(false);
           return;
+        }
+        if (import.meta.env.VITE_SENTRY_DSN) {
+          Sentry.captureMessage("All media playback sources failed", {
+            level: "warning",
+            tags: { subsystem: "media-playback" },
+            extra: { fallbackSourcesTried: sources.length, hasSource: Boolean(source) },
+          });
         }
         if (usePlayerStore.getState().isPlaying && source) void handleTrackEnded();
       }}

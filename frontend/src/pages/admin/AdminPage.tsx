@@ -2,9 +2,11 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { axiosInstance } from "@/lib/axios";
 import { useAuthStore } from "@/stores/useAuthStore";
+import { usePreferencesStore } from "@/stores/usePreferencesStore";
+import { translate } from "@/lib/i18n";
 import { useMusicStore } from "@/stores/useMusicStore";
 import { useQuery } from "@tanstack/react-query";
-import { Album, BadgeCheck, LayoutDashboard, Loader2, Music, ShieldAlert, ShieldCheck, Users2 } from "lucide-react";
+import { Album, BadgeCheck, Flag, LayoutDashboard, Loader2, Music, ShieldAlert, ShieldCheck, Users2 } from "lucide-react";
 import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import AlbumsTabContent from "./components/AlbumsTabContent";
@@ -15,6 +17,7 @@ import ModerationTabContent from "./components/ModerationTabContent";
 import OverviewTab from "./components/OverviewTab";
 import SongsTabContent from "./components/SongsTabContent";
 import UsersTabContent from "./components/UsersTabContent";
+import FeatureFlagsTabContent from "./components/FeatureFlagsTabContent";
 import type { DashboardOverview } from "./types";
 import "./admin.css";
 
@@ -27,10 +30,12 @@ const tabs = [
 	{ value: "artists", label: "Artists", icon: BadgeCheck },
 	{ value: "users", label: "Users", icon: Users2 },
 	{ value: "moderation", label: "Moderation", icon: ShieldCheck },
+	{ value: "feature-flags", label: "Feature flags", icon: Flag },
 ];
 
 const AdminPage = () => {
 	const { isAdmin, isLoading } = useAuthStore();
+	const language = usePreferencesStore((state) => state.language);
 	const { fetchAlbums, fetchSongs } = useMusicStore();
 
 	const overview = useQuery<DashboardOverview>({
@@ -108,7 +113,7 @@ const AdminPage = () => {
 									className='gap-2 px-3 py-1.5 data-[state=active]:bg-card data-[state=active]:shadow-sm'
 								>
 									<Icon className='size-4' />
-									{label}
+									{translate(label, language)}
 								</TabsTrigger>
 							))}
 						</TabsList>
@@ -131,6 +136,9 @@ const AdminPage = () => {
 					</TabsContent>
 					<TabsContent value='moderation'>
 						<ModerationTabContent />
+					</TabsContent>
+					<TabsContent value='feature-flags'>
+						<FeatureFlagsTabContent />
 					</TabsContent>
 				</Tabs>
 			</div>

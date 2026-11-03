@@ -1,4 +1,5 @@
 import { consumeSharedRateLimit } from "../lib/sharedRateLimit.js";
+import { logEvent, routeLabel } from "../lib/logger.js";
 
 const buckets = new Map();
 
@@ -18,6 +19,7 @@ const localLimit = ({ req, res, next, identity, limit, windowMs, name }) => {
     }
   }
   if (bucket.count > limit) {
+    if (bucket.count === limit + 1) logEvent("warn", "rate_limit.exceeded", { requestId: req.requestId, name, route: routeLabel(req) });
     res.setHeader("Retry-After", String(Math.max(1, Math.ceil((windowMs - (now - bucket.startedAt)) / 1000))));
     return res.status(429).json({ message: "Too many requests. Please try again shortly." });
   }
@@ -35,6 +37,7 @@ export const rateLimit = ({ limit, windowMs, name }) => (req, res, next) => {
   void consumeSharedRateLimit({ name, identity, windowMs }).then((shared) => {
     if (!shared) return localLimit(options);
     if (shared.count > limit) {
+      if (shared.count === limit + 1) logEvent("warn", "rate_limit.exceeded", { requestId: req.requestId, name, route: routeLabel(req) });
       res.setHeader("Retry-After", String(Math.max(1, Math.ceil(shared.resetMs / 1000))));
       return res.status(429).json({ message: "Too many requests. Please try again shortly." });
     }

@@ -1,6 +1,7 @@
 import { axiosInstance } from "@/lib/axios";
 import { create } from "zustand";
 import { RealtimeSocket } from "@/lib/realtimeSocket";
+import * as Sentry from "@sentry/react";
 
 type MusicPrivacy = "everyone" | "friends" | "none";
 
@@ -45,6 +46,13 @@ const attachSocketListeners = () => {
     useChatStore.setState({ isConnected: false, onlineUsers: new Set(), userActivities: new Map() });
   });
   socket.on("connect_error", (error) => {
+    if (import.meta.env.VITE_SENTRY_DSN) {
+      Sentry.captureMessage("Direct chat socket connection failed", {
+        level: "warning",
+        tags: { subsystem: "direct-chat-websocket" },
+        extra: { message: error.message },
+      });
+    }
     useChatStore.setState({ isConnected: false, error: error.message });
   });
   socket.on("users_online", (users: string[]) => {

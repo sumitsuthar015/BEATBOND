@@ -37,6 +37,10 @@ import reportRoutes from "./routes/report.route.js";
 import podcastRoutes from "./routes/podcast.route.js";
 import podcastV1Routes from "./routes/podcastV1.route.js";
 import { refreshDuePodcastFeeds } from "./services/podcast.service.js";
+import featureFlagsRoute from "./routes/featureFlags.route.js";
+import { isAllowedOrigin } from "./lib/allowedOrigins.js";
+import { requestContext } from "./middleware/requestContext.middleware.js";
+import { logEvent, routeLabel } from "./lib/logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -63,7 +67,7 @@ if (missingRequiredEnv.length) {
 if (process.env.TRUST_PROXY_HOPS) {
   const proxyHops = Number(process.env.TRUST_PROXY_HOPS);
   if (Number.isInteger(proxyHops) && proxyHops >= 0 && proxyHops <= 5) app.set("trust proxy", proxyHops);
-  else console.error("TRUST_PROXY_HOPS must be an integer between 0 and 5.");
+  else logEvent("warn", "config.invalid", { setting: "TRUST_PROXY_HOPS" });
 }
 
 const httpServer = createServer(app);
@@ -71,6 +75,7 @@ initializeWebSocket(httpServer);
 app.locals.groupChatIo = createGroupListeningServer(httpServer).io;
 
 app.disable("x-powered-by");
+app.use(requestContext);
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
@@ -82,17 +87,9 @@ app.use((req, res, next) => {
   next();
 });
 
-const allowedOrigins = new Set([
-  ...(process.env.NODE_ENV === "production"
-    ? ["https://beatbond-75ns.onrender.com"]
-    : ["http://localhost:3000", "http://localhost:5173", "http://localhost:4173"]),
-  process.env.CLIENT_URL,
-  process.env.FRONTEND_URL,
-].filter(Boolean));
-
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.has(origin) || (process.env.NODE_ENV !== "production" && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin))) {
+    if (isAllowedOrigin(origin)) {
       return callback(null, true);
     }
     const error = new Error("Origin is not allowed by CORS");
@@ -101,7 +98,8 @@ app.use(cors({
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   credentials: true,
-  allowedHeaders: ["Content-Type", "Authorization"]
+  allowedHeaders: ["Content-Type", "Authorization"],
+  exposedHeaders: ["X-Request-Id"],
 }));
 
 app.use(express.json({ limit: "256kb", strict: true }));
@@ -184,6 +182,7 @@ app.use((req, res, next) => {
 app.use("/api/users", userRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/features", featureFlagsRoute);
 app.use("/api/songs", songRoutes);
 app.use("/api/albums", albumRoutes);
 app.use("/api/stats", statRoutes);
@@ -229,8 +228,14 @@ app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
   const status = Number.isInteger(err.status) && err.status >= 400 && err.status < 500 ? err.status : 500;
   if (status >= 500) {
-    Sentry.captureException(err);
-    console.error("Request failed:", { method: req.method, path: req.path, status });
+    Sentry.withScope((scope) => {
+      if (req.requestId) scope.setTag("requestId", req.requestId);
+      scope.setTag("http.method", req.method);
+      scope.setTag("http.route", routeLabel(req));
+      scope.setTag("http.status_code", String(status));
+      Sentry.captureException(err);
+    });
+    logEvent("error", "http.request.failed", { requestId: req.requestId, method: req.method, route: routeLabel(req), statusCode: status });
   }
   res.status(status).json({
     message: status === 500

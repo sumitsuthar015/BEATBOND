@@ -10,6 +10,8 @@ import { PRIVACY_FIELDS, canSeeLiveActivity, liveActivityViewers } from "../serv
 import { sendsReadReceipts } from "../services/chat.service.js";
 import { Notification } from "../models/notification.model.js";
 import { sendPushToUser } from "../services/push.service.js";
+import * as Sentry from "@sentry/node";
+import { isAllowedOrigin } from "./allowedOrigins.js";
 
 const userSockets = new Map();
 const socketsById = new Map();
@@ -26,11 +28,6 @@ let redisReady = Promise.resolve(false);
 // retained for last-seen/profile views, but are never used to infer presence.
 export const isUserOnline = (userId) => userSockets.has(userId) || clusterOnlineUsers.has(userId);
 export const getOnlineUserIds = () => Array.from(new Set([...clusterOnlineUsers, ...userSockets.keys()]));
-
-const SOCKET_ORIGINS = [
-  "https://beatbond-75ns.onrender.com",
-];
-const DEV_SOCKET_ORIGINS = ["http://localhost:3000", "http://localhost:5173", "http://localhost:4173"];
 
 const addUserSocket = (userId, socketId, isVisible) => {
   const sockets = userSockets.get(userId) ?? new Set();
@@ -168,6 +165,10 @@ const isFriend = (user, otherUserId) => user.friends?.includes(otherUserId);
 
 export const initializeWebSocket = (server) => {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+  wss.on("error", (error) => {
+    if (process.env.SENTRY_DSN) Sentry.captureException(error, { tags: { subsystem: "direct-chat-websocket" } });
+    console.error("Direct chat WebSocket server error:", error.message);
+  });
   const io = {
     emit(event, payload) {
       sendToAllLocalUsers(event, payload);
@@ -259,13 +260,7 @@ export const initializeWebSocket = (server) => {
     // our own endpoint; destroying other paths here aborts their handshakes.
     if (pathname !== "/ws") return;
     const origin = request.headers.origin;
-    const allowedOrigins = new Set([
-      ...SOCKET_ORIGINS,
-      ...(process.env.NODE_ENV === "production" ? [] : DEV_SOCKET_ORIGINS),
-      process.env.CLIENT_URL,
-      process.env.FRONTEND_URL,
-    ].filter(Boolean));
-    if (origin && !allowedOrigins.has(origin)) {
+    if (!isAllowedOrigin(origin)) {
       networkSocket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
       networkSocket.destroy();
       return;
@@ -274,6 +269,9 @@ export const initializeWebSocket = (server) => {
   });
 
   const onAuthenticatedConnection = async (socket) => {
+    socket.on("error", (error) => {
+      if (process.env.SENTRY_DSN) Sentry.captureException(error, { tags: { subsystem: "direct-chat-websocket" } });
+    });
     const userId = socket.user.clerkId;
     // Ensure startup cleanup cannot overwrite a connection that arrives while
     // MongoDB is clearing records left by the previous server process.

@@ -6,6 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createGroupSocket, estimateServerOffset, type GroupSocket } from "@/lib/groupListeningSocket";
+import * as Sentry from "@sentry/react";
+import { usePlayerStore } from "@/stores/usePlayerStore";
+import type { Song } from "@/types";
 
 type RoomMember = { id: string; name: string; joinedAt: number };
 type RoomState = {
@@ -23,6 +26,7 @@ const positionAt = (state: RoomState, serverNow: number) =>
 
 const GroupListeningPage = () => {
   const { getToken, userId } = useAuth();
+  const playerSong = usePlayerStore((state) => state.currentSong);
   const socketRef = useRef<GroupSocket | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const sourceRef = useRef<string | null>(null);
@@ -31,6 +35,7 @@ const GroupListeningPage = () => {
   const roomCodeRef = useRef("");
   const nameRef = useRef("");
   const targetRef = useRef<number | null>(null);
+  const personalPlaybackRef = useRef<{ song: Song | null; playing: boolean; position: number } | null>(null);
   const [socket, setSocket] = useState<GroupSocket | null>(null);
   const [connected, setConnected] = useState(false);
   const [name, setName] = useState("");
@@ -41,8 +46,6 @@ const GroupListeningPage = () => {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [blocked, setBlocked] = useState(false);
-  const [songUrl, setSongUrl] = useState("");
-  const [songTitle, setSongTitle] = useState("");
   const [seekDraft, setSeekDraft] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -75,7 +78,11 @@ const GroupListeningPage = () => {
         void estimateServerOffset(liveSocket!).then((offset) => { if (!disposed) setServerOffset(offset); });
       });
       liveSocket.on("disconnect", () => setConnected(false));
-      liveSocket.on("connect_error", (reason: Error) => { setBusy(false); setError(reason.message || "Could not connect to the group server."); });
+      liveSocket.on("connect_error", (reason: Error) => {
+        if (import.meta.env.VITE_SENTRY_DSN) Sentry.captureMessage("Group Listening socket connection failed", { level: "warning", tags: { subsystem: "group-listening-socket" }, extra: { message: reason.message } });
+        setBusy(false);
+        setError(reason.message || "Could not connect to the group server.");
+      });
       liveSocket.on("room:state", applyState);
       liveSocket.connect();
     };
@@ -163,11 +170,68 @@ const GroupListeningPage = () => {
       if (result.state) applyState(result.state);
     });
   };
+  const publishPlayerState = useCallback((state: ReturnType<typeof usePlayerStore.getState>) => {
+    const song = state.currentSong;
+    if (!song?.audioUrl || !socketRef.current?.connected) return;
+    socketRef.current.emit("host:load", {
+      url: song.audioUrl,
+      title: `${song.title} — ${song.artist}`.slice(0, 120),
+      duration: state.duration || song.duration || 0,
+    }, (loaded: Ack) => {
+      if (loaded.error) { setError(loaded.error); return; }
+      if (state.isPlaying) socketRef.current?.emit("host:play", {}, (played: Ack) => { if (played.error) setError(played.error); });
+    });
+  }, []);
+  const activeRoomCode = room?.code;
+  const activeRoomHostId = room?.hostId;
+
+  // The global player is authoritative for the host while this room is open.
+  useEffect(() => {
+    if (!activeRoomCode || !connected || activeRoomHostId !== userId) return;
+    let previous: ReturnType<typeof usePlayerStore.getState> | null = null;
+    const sync = (state: ReturnType<typeof usePlayerStore.getState>) => {
+      if (!state.currentSong?.audioUrl) return;
+      const oldSong = previous?.currentSong;
+      const changedTrack = !oldSong || oldSong._id !== state.currentSong._id || oldSong.audioUrl !== state.currentSong.audioUrl || previous?.playNonce !== state.playNonce;
+      if (changedTrack) {
+        publishPlayerState(state);
+      } else if (previous && previous.isPlaying !== state.isPlaying) {
+        socketRef.current?.emit(state.isPlaying ? "host:play" : "host:pause", {}, (result: Ack) => { if (result.error) setError(result.error); });
+      } else if (previous && Math.abs(state.progress - previous.progress) > 2.5) {
+        socketRef.current?.emit("host:seek", { position: state.progress }, (result: Ack) => { if (result.error) setError(result.error); });
+      }
+      previous = state;
+    };
+    sync(usePlayerStore.getState());
+    return usePlayerStore.subscribe((state) => sync(state));
+  }, [activeRoomCode, activeRoomHostId, connected, publishPlayerState, userId]);
+
+  // Prevent two songs playing locally for listeners. Restore their own player
+  // when they leave the room or navigate away from the room page.
+  useEffect(() => {
+    if (!activeRoomCode || activeRoomHostId === userId) return;
+    if (!personalPlaybackRef.current) {
+      const player = usePlayerStore.getState();
+      personalPlaybackRef.current = { song: player.currentSong, playing: player.isPlaying, position: player.progress };
+      if (player.isPlaying) player.setIsPlaying(false);
+    }
+  }, [activeRoomCode, activeRoomHostId, userId]);
+
+  const restorePersonalPlayback = useCallback(() => {
+    const saved = personalPlaybackRef.current;
+    if (!saved) return;
+    personalPlaybackRef.current = null;
+    const player = usePlayerStore.getState();
+    player.setCurrentSong(saved.song, { recordHistory: false });
+    player.setProgress(saved.position);
+    player.setIsPlaying(saved.playing);
+  }, []);
+  useEffect(() => () => restorePersonalPlayback(), [restorePersonalPlayback]);
   const createRoom = () => { nameRef.current = name.trim(); emit("room:create", { name: name.trim() }); };
   const joinRoom = () => { nameRef.current = name.trim(); emit("room:join", { name: name.trim(), code: codeInput.trim().toUpperCase() }); };
   const leaveRoom = () => {
     socketRef.current?.emit("room:leave"); roomCodeRef.current = ""; roomRef.current = null;
-    setRoom(null); setBlocked(false); setError("");
+    setRoom(null); setBlocked(false); setError(""); restorePersonalPlayback();
   };
   const enableSound = () => {
     const audio = audioRef.current;
@@ -221,20 +285,20 @@ const GroupListeningPage = () => {
             </section>
 
             <section className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-7">
-              <div className="flex items-center gap-3"><div className="grid size-12 place-items-center rounded-xl bg-secondary text-muted-foreground"><Music2 className="size-5" /></div><div className="min-w-0"><p className="text-xs uppercase tracking-wider text-muted-foreground">Now listening</p><h2 className="truncate text-lg font-semibold">{room.title || "No song loaded yet"}</h2></div></div>
+              <div className="flex items-center gap-3"><div className="grid size-12 place-items-center rounded-xl bg-secondary text-muted-foreground"><Music2 className="size-5" /></div><div className="min-w-0"><p className="text-xs uppercase tracking-wider text-muted-foreground">Now listening</p><h2 className="truncate text-lg font-semibold">{room.title || "Waiting for the host to play a song"}</h2></div></div>
               {room.trackUrl && <div className="mt-5">
-                <div className="flex items-center gap-3"><span className="w-10 text-right text-xs tabular-nums text-muted-foreground">{formatTime(shownPosition)}</span><input aria-label="Playback position" type="range" min={0} max={Math.max(1, room.duration || 1)} step={0.1} value={Math.min(shownPosition, room.duration || shownPosition)} disabled={!host || !room.duration} onChange={(event) => setSeekDraft(Number(event.target.value))} onPointerUp={(event) => { if (host) emit("host:seek", { position: Number(event.currentTarget.value) }); }} onKeyUp={(event) => { if (host) emit("host:seek", { position: Number(event.currentTarget.value) }); }} className="h-2 min-w-0 flex-1 cursor-pointer accent-primary disabled:cursor-not-allowed" /><span className="w-10 text-xs tabular-nums text-muted-foreground">{formatTime(room.duration)}</span></div>
-                {host ? <div className="mt-4 flex items-center justify-center gap-3"><Button size="icon" className="size-12 rounded-full" aria-label={room.playing ? "Pause playback" : "Start playback"} onClick={() => emit(room.playing ? "host:pause" : "host:play")}>{room.playing ? <Pause className="size-5" /> : <Play className="size-5" />}</Button><span className="sr-only">Only you, as host, can control playback.</span></div> : <div className="mt-3 flex items-center justify-center gap-2"><Button size="icon" variant="outline" className="size-10 rounded-full" aria-label="Playback controls disabled for listeners" disabled><Play className="size-4" /></Button><p className="text-xs text-muted-foreground">The host controls playback.</p></div>}
+                <div className="flex items-center gap-3"><span className="w-10 text-right text-xs tabular-nums text-muted-foreground">{formatTime(shownPosition)}</span><input aria-label="Playback position" type="range" min={0} max={Math.max(1, room.duration || 1)} step={0.1} value={Math.min(shownPosition, room.duration || shownPosition)} disabled={!host || !room.duration} onChange={(event) => setSeekDraft(Number(event.target.value))} onPointerUp={(event) => { if (host) usePlayerStore.getState().setProgress(Number(event.currentTarget.value)); }} onKeyUp={(event) => { if (host) usePlayerStore.getState().setProgress(Number(event.currentTarget.value)); }} className="h-2 min-w-0 flex-1 cursor-pointer accent-primary disabled:cursor-not-allowed" /><span className="w-10 text-xs tabular-nums text-muted-foreground">{formatTime(room.duration)}</span></div>
+                {host ? <div className="mt-4 flex items-center justify-center gap-3"><Button size="icon" className="size-12 rounded-full" aria-label={room.playing ? "Pause playback" : "Start playback"} onClick={() => usePlayerStore.getState().setIsPlaying(!usePlayerStore.getState().isPlaying)}>{room.playing ? <Pause className="size-5" /> : <Play className="size-5" />}</Button><span className="sr-only">Only you, as host, can control playback.</span></div> : <div className="mt-3 flex items-center justify-center gap-2"><Button size="icon" variant="outline" className="size-10 rounded-full" aria-label="Playback controls disabled for listeners" disabled><Play className="size-4" /></Button><p className="text-xs text-muted-foreground">The host controls playback.</p></div>}
                 {blocked && <div className="mt-4 text-center"><Button variant="outline" onClick={enableSound}>Tap to enable sound</Button></div>}
               </div>}
-              {host ? <form className="mt-6 grid gap-3 border-t border-border/70 pt-5 sm:grid-cols-[1fr_1fr_auto] sm:items-end" onSubmit={(event) => { event.preventDefault(); emit("host:load", { url: songUrl.trim(), title: songTitle.trim() }); }}><div className="space-y-2"><Label htmlFor="group-song-title">Song title</Label><Input id="group-song-title" maxLength={120} value={songTitle} onChange={(event) => setSongTitle(event.target.value)} placeholder="Song title" required /></div><div className="space-y-2"><Label htmlFor="group-song-url">Audio URL</Label><Input id="group-song-url" type="url" value={songUrl} onChange={(event) => setSongUrl(event.target.value)} placeholder="https://…" required /></div><Button type="submit" disabled={!songTitle.trim() || !songUrl.trim()}>Load song</Button></form> : <div className="mt-5 border-t border-border/70 pt-4"><p className="text-center text-sm text-muted-foreground">The host controls playback.</p></div>}
+              <div className="mt-5 border-t border-border/70 pt-4"><p className="text-center text-sm text-muted-foreground">{host ? playerSong?.audioUrl ? "Your BeatBond player controls this room. Play, pause, seek, or choose another song there." : "Play a song with the BeatBond player to start listening together." : "The host's BeatBond player controls this room."}</p></div>
               {error && <p className="mt-4 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">{error}</p>}
             </section>
             {blocked && !room.trackUrl && <p className="text-sm text-muted-foreground">Tap to enable sound when a song is playing.</p>}
             <div className="flex justify-end"><Button variant="ghost" onClick={leaveRoom}>Leave group</Button></div>
           </div>
         )}
-              <audio ref={audioRef} preload="metadata" onLoadedMetadata={(event) => { const audio = event.currentTarget; if (targetRef.current !== null) audio.currentTime = Math.min(targetRef.current, Number.isFinite(audio.duration) ? audio.duration : targetRef.current); const current = roomRef.current; if (current && userId === current.hostId && current.trackUrl && current.duration === 0 && Number.isFinite(audio.duration)) emit("host:load", { url: current.trackUrl, title: current.title, duration: audio.duration }); }} onEnded={() => { if (roomRef.current && userId === roomRef.current.hostId) emit("host:pause"); }} onTimeUpdate={() => setNow(Date.now())} onError={() => setError("This audio URL could not be played. Ask the host to load another song.")} />
+              <audio ref={audioRef} muted={Boolean(host && playerSong?.audioUrl === room?.trackUrl)} preload="metadata" onLoadedMetadata={(event) => { const audio = event.currentTarget; if (targetRef.current !== null) audio.currentTime = Math.min(targetRef.current, Number.isFinite(audio.duration) ? audio.duration : targetRef.current); const current = roomRef.current; if (current && userId === current.hostId && current.trackUrl && current.duration === 0 && Number.isFinite(audio.duration)) emit("host:load", { url: current.trackUrl, title: current.title, duration: audio.duration }); }} onEnded={() => { if (roomRef.current && userId === roomRef.current.hostId) emit("host:pause"); }} onTimeUpdate={() => setNow(Date.now())} onError={() => setError("This audio URL could not be played. Ask the host to load another song.")} />
       </div>
     </main>
   );
