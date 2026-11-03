@@ -150,6 +150,20 @@ export const UserList = memo(
       return secondTime - firstTime;
     });
     const filteredGroups = groups.filter((group) => group.name.toLowerCase().includes(debouncedSearch.toLowerCase()));
+    const conversations = [
+      ...filteredGroups.map((group) => ({
+        kind: "group" as const,
+        id: group.id,
+        sortTime: group.lastMessageAt ? new Date(group.lastMessageAt).getTime() : 0,
+        group,
+      })),
+      ...filteredUsers.map((user) => ({
+        kind: "user" as const,
+        id: user.clerkId,
+        sortTime: user.lastMessageTime ? new Date(user.lastMessageTime).getTime() : 0,
+        user,
+      })),
+    ].sort((first, second) => second.sortTime - first.sortTime);
 
     const handleUserSelect = useCallback(
       (userId: string) => {
@@ -203,20 +217,18 @@ export const UserList = memo(
               </div>
             )}
 
-            {!isLoading && !isError && filteredGroups.map((group) => (
-              <button key={group.id} type="button" onClick={() => onGroupSelect?.(group.id)} className={cn("flex w-full items-center gap-3 rounded-lg p-2.5 text-left transition-colors hover:bg-muted/50", selectedGroupId === group.id && "bg-muted")}>
-                <Avatar className="h-10 w-10 shrink-0"><AvatarImage src={group.imageUrl} alt="" /><AvatarFallback><MessageCircle className="size-4" /></AvatarFallback></Avatar>
-                <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{group.name}</span><span className="block truncate text-xs text-muted-foreground">{group.lastMessage || `${group.members.length} members`}</span></span>
-                {group.lastMessageAt && <span className="shrink-0 text-[10px] text-muted-foreground">{formatConversationTime(group.lastMessageAt)}</span>}
+            {!isLoading && !isError && conversations.map((conversation) => conversation.kind === "group" ? (
+              <button key={`group-${conversation.id}`} type="button" onClick={() => onGroupSelect?.(conversation.group.id)} className={cn("flex w-full items-center gap-3 rounded-lg p-2.5 text-left transition-colors hover:bg-muted/50", selectedGroupId === conversation.group.id && "bg-muted")}>
+                <Avatar className="h-10 w-10 shrink-0"><AvatarImage src={conversation.group.imageUrl} alt="" /><AvatarFallback><MessageCircle className="size-4" /></AvatarFallback></Avatar>
+                <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{conversation.group.name}</span><span className="block truncate text-xs text-muted-foreground">{conversation.group.lastMessage || `${conversation.group.members.length} members`}</span></span>
+                {conversation.group.lastMessageAt && <span className="shrink-0 text-[10px] text-muted-foreground">{formatConversationTime(conversation.group.lastMessageAt)}</span>}
               </button>
-            ))}
-
-            {!isLoading && !isError && filteredUsers.map((user) => (
+            ) : (
               <UserItem
-                key={user.clerkId}
-                user={user}
-                nickname={localStorage.getItem(`beatbond:nickname:${user.clerkId}`) || undefined}
-                isSelected={selectedUserId === user.clerkId}
+                key={`user-${conversation.id}`}
+                user={conversation.user}
+                nickname={localStorage.getItem(`beatbond:nickname:${conversation.user.clerkId}`) || undefined}
+                isSelected={selectedUserId === conversation.user.clerkId}
                 onSelect={handleUserSelect}
               />
             ))}
@@ -224,7 +236,7 @@ export const UserList = memo(
             {!isLoading && !isError && filteredUsers.length === 0 && filteredGroups.length === 0 && (
               <div className="text-center p-8 text-muted-foreground text-sm space-y-3">
                 <MessageCircle className="mx-auto h-8 w-8 text-muted-foreground/70" />
-                <p>{search ? "No users found" : "No friends available"}</p>
+                <p>{search ? "No conversations found" : "No friends available"}</p>
               </div>
             )}
           </div>

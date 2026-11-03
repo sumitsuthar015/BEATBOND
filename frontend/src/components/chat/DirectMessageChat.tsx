@@ -6,16 +6,19 @@ import { toast } from "react-hot-toast";
 import { useInView } from "react-intersection-observer";
 import {
   ArrowLeft, Ban, Check, CheckCheck, ChevronDown, Copy, ListMusic, Loader2, MoreVertical, Music2, Pencil, Reply,
-  Send, SmilePlus, Trash2, UserMinus, UserRound, X, Mic, Square,
+  Send, SmilePlus, Trash2, UserMinus, UserRound, X, CircleAlert,
 } from "lucide-react";
 import { axiosInstance } from "@/lib/axios";
 import { REACTIONS, buildChatItems, canEditMessage, clockTime, summarizeReactions, toggleReaction, type Reaction } from "@/lib/chat";
 import { beginBackNavigation } from "@/lib/routeHistory";
 import { cn } from "@/lib/utils";
+import { voiceFileExtension } from "@/lib/voiceNotes";
 import { useChatStore } from "@/stores/useChatStore";
 import { usePlayerStore } from "@/stores/usePlayerStore";
 import type { Song } from "@/types";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import VoiceNotePlayer from "@/components/chat/VoiceNotePlayer";
+import VoiceNoteRecorder from "@/components/chat/VoiceNoteRecorder";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -33,11 +36,11 @@ interface ChatProps {
 interface Message {
   _id: string;
   clientMessageId?: string;
-  clientStatus?: "sending" | "sent";
+  clientStatus?: "sending" | "sent" | "failed";
   senderId: string;
   receiverId: string;
   content: string;
-  voiceNote?: { url: string; duration: number };
+  voiceNote?: { url: string; duration: number; mimeType?: string; size?: number; publicId?: string };
   createdAt: string;
   editedAt?: string | null;
   status?: "sent" | "delivered" | "read";
@@ -129,6 +132,7 @@ type BubbleProps = {
 
 const ReadReceipt = ({ msg }: { msg: Message }) => {
   if (msg.clientStatus === "sending") return <Loader2 className="size-3 animate-spin opacity-70" aria-label="Sending" />;
+  if (msg.clientStatus === "failed") return <CircleAlert className="size-3.5 text-destructive" aria-label="Sending failed; retry the voice note" />;
   if (msg.status === "read") return <CheckCheck className="size-3.5 text-sky-400" aria-label="Read" />;
   if (msg.status === "delivered") return <CheckCheck className="size-3.5 opacity-70" aria-label="Delivered" />;
   return <Check className="size-3.5 opacity-70" aria-label="Sent" />;
@@ -212,7 +216,7 @@ const MessageBubble = memo(({ msg, isMine, startsGroup, endsGroup, friend, frien
             </button>
           )}
 
-          {msg.voiceNote?.url && <audio controls preload="metadata" src={msg.voiceNote.url} aria-label="Voice note" className="my-1 max-w-full" />}
+          {msg.voiceNote?.url && <VoiceNotePlayer src={msg.voiceNote.url} duration={msg.voiceNote.duration} isMine={isMine} />}
 
           {msg.content && !(shared && isShareCaption(msg.content)) && <span>{msg.content}</span>}
 
@@ -332,12 +336,7 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
   const messageRef = useRef(message);
   messageRef.current = message;
   const [isSending, setIsSending] = useState(false);
-  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
-  const [isUploadingVoice, setIsUploadingVoice] = useState(false);
-  const voiceRecorderRef = useRef<MediaRecorder | null>(null);
-  const voiceChunksRef = useRef<Blob[]>([]);
-  const voiceStartedAtRef = useRef(0);
-  const voiceLimitTimerRef = useRef<number | null>(null);
+  const [isVoiceComposerActive, setIsVoiceComposerActive] = useState(false);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
   const [actions, setActions] = useState<ActionsState>(null);
@@ -356,22 +355,13 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
   const nearBottomRef = useRef(true);
   const restoreScrollRef = useRef<{ height: number; top: number } | null>(null);
   const pendingMessagesRef = useRef(new Map<string, { tempId: string; content: string }>());
+  const voiceUrlsRef = useRef(new Map<string, string>());
   const typingRef = useRef<{ active: boolean; timer: number }>({ active: false, timer: 0 });
   const friendTypingTimer = useRef(0);
   // Each message is reported read once; the screen re-checks what's visible on every update.
   const reportedReadRef = useRef(new Set<string>());
   const { ref: topRef, inView: isTopVisible } = useInView();
   const messagesKey = useMemo(() => ["messages", userId], [userId]);
-
-  useEffect(() => () => {
-    if (voiceLimitTimerRef.current !== null) window.clearTimeout(voiceLimitTimerRef.current);
-    const recorder = voiceRecorderRef.current;
-    if (recorder?.state === "recording") {
-      recorder.onstop = null;
-      recorder.stream.getTracks().forEach((track) => track.stop());
-      recorder.stop();
-    }
-  }, []);
 
   useLayoutEffect(() => {
     const saved = localStorage.getItem(`beatbond:nickname:${userId}`) || "";
@@ -424,6 +414,10 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
     staleTime: 30_000,
   });
 
+  useEffect(() => {
+    if (isConnected) void refetchMessages();
+  }, [isConnected, refetchMessages]);
+
   const { data: sharedMessages = [], isLoading: isLoadingShared } = useQuery<Message[]>({
     queryKey: ["sharedMessages", userId],
     queryFn: async () => (await axiosInstance.get(`/users/messages/${userId}/shared`)).data,
@@ -448,6 +442,68 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
     socket.emit(event, data);
     return true;
   }, [socket]);
+
+  const sendVoiceMessage = async (
+    blob: Blob,
+    duration: number,
+    clientMessageId: string,
+    signal: AbortSignal,
+    onProgress: (progress: number) => void,
+  ) => {
+    if (!myId) throw new Error("Sign in again before sending a voice message.");
+    const tempId = `temp-${clientMessageId}`;
+    let localUrl = voiceUrlsRef.current.get(clientMessageId);
+    if (!localUrl) {
+      localUrl = URL.createObjectURL(blob);
+      voiceUrlsRef.current.set(clientMessageId, localUrl);
+    }
+    const optimistic: Message = {
+      _id: tempId,
+      clientMessageId,
+      clientStatus: "sending",
+      senderId: myId,
+      receiverId: userId,
+      content: "Voice note",
+      createdAt: new Date().toISOString(),
+      status: "sent",
+      voiceNote: { url: localUrl, duration, mimeType: blob.type, size: blob.size },
+    };
+    pendingMessagesRef.current.set(clientMessageId, { tempId, content: "Voice note" });
+    setMessages((data) => {
+      const exists = data?.pages.some((page) => page.messages.some((item) => item.clientMessageId === clientMessageId));
+      return exists
+        ? mapMessages(data, (list) => list.map((item) => item.clientMessageId === clientMessageId ? { ...item, ...optimistic } : item))!
+        : appendMessage(data, optimistic);
+    });
+    try {
+      const form = new FormData();
+      const extension = voiceFileExtension(blob.type);
+      form.append("audio", blob, `voice-note.${extension}`);
+      form.append("receiverId", userId);
+      form.append("clientMessageId", clientMessageId);
+      form.append("duration", String(duration));
+      const { data } = await axiosInstance.post("/messages/audio", form, {
+        signal,
+        headers: { "Content-Type": "multipart/form-data" },
+        onUploadProgress: (event) => onProgress(event.total ? Math.round(event.loaded / event.total * 100) : 0),
+      });
+      const saved = { ...data.message, clientStatus: "sent" as const } as Message;
+      setMessages((current) => {
+        const exists = current?.pages.some((page) => page.messages.some((item) => item.clientMessageId === clientMessageId || item._id === tempId));
+        return exists
+          ? mapMessages(current, (list) => list.map((item) => item.clientMessageId === clientMessageId || item._id === tempId ? saved : item))
+          : appendMessage(current, saved);
+      });
+      pendingMessagesRef.current.delete(clientMessageId);
+      URL.revokeObjectURL(localUrl);
+      voiceUrlsRef.current.delete(clientMessageId);
+      void queryClient.invalidateQueries({ queryKey: ["friends"] });
+    } catch (cause) {
+      setMessages((current) => mapMessages(current, (list) => list.map((item) => item.clientMessageId === clientMessageId ? { ...item, clientStatus: "failed" } : item)));
+      const error = cause as { response?: { data?: { message?: string } }; message?: string };
+      throw new Error(error.response?.data?.message || (signal.aborted ? "Upload cancelled. Tap send to retry." : "Voice message could not be sent. Check your connection and retry."));
+    }
+  };
 
   const handleBack = useCallback(() => {
     if (onBack) onBack();
@@ -577,6 +633,10 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
   }, [emit, stopTyping, userId]);
 
   useEffect(() => stopTyping, [stopTyping]);
+  useEffect(() => () => {
+    for (const url of voiceUrlsRef.current.values()) URL.revokeObjectURL(url);
+    voiceUrlsRef.current.clear();
+  }, []);
 
   // ---- Live updates ----
   useEffect(() => {
@@ -609,11 +669,17 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
           : appendMessage(data, persisted);
       });
       pendingMessagesRef.current.delete(clientMessageId);
+      const voiceUrl = voiceUrlsRef.current.get(clientMessageId);
+      if (voiceUrl) { URL.revokeObjectURL(voiceUrl); voiceUrlsRef.current.delete(clientMessageId); }
     };
     const onFailed = ({ clientMessageId, senderId, receiverId, message: errorMessage }: { clientMessageId: string; senderId: string; receiverId: string; message: string }) => {
       if (senderId !== userId && receiverId !== userId) return;
       const pending = pendingMessagesRef.current.get(clientMessageId);
-      setMessages((data) => mapMessages(data, (list) => list.filter((item) => item.clientMessageId !== clientMessageId && item._id !== `temp-${clientMessageId}`)));
+      if (pending?.content === "Voice note") {
+        setMessages((data) => mapMessages(data, (list) => list.map((item) => item.clientMessageId === clientMessageId ? { ...item, clientStatus: "failed" } : item)));
+      } else {
+        setMessages((data) => mapMessages(data, (list) => list.filter((item) => item.clientMessageId !== clientMessageId && item._id !== `temp-${clientMessageId}`)));
+      }
       pendingMessagesRef.current.delete(clientMessageId);
       if (pending) {
         if (!messageRef.current) setMessage(pending.content);
@@ -624,8 +690,12 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
     const onError = (error: { message?: string; clientMessageId?: string }) => {
       const pending = error.clientMessageId ? pendingMessagesRef.current.get(error.clientMessageId) : undefined;
       if (pending) {
-        removeMessage(pending.tempId);
-        if (!messageRef.current) setMessage(pending.content);
+        if (pending.content === "Voice note") {
+          setMessages((data) => mapMessages(data, (list) => list.map((item) => item.clientMessageId === error.clientMessageId ? { ...item, clientStatus: "failed" } : item)));
+        } else {
+          removeMessage(pending.tempId);
+          if (!messageRef.current) setMessage(pending.content);
+        }
         pendingMessagesRef.current.delete(error.clientMessageId!);
       }
       setIsSending(false);
@@ -731,50 +801,6 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
       toast.error("You're offline. Try again in a moment.");
     } else if (!sentWhileConnected) setIsSending(false);
     setReplyingTo(null);
-  };
-
-  const startOrStopVoiceNote = async () => {
-    if (voiceRecorderRef.current?.state === "recording") {
-      voiceRecorderRef.current.stop();
-      return;
-    }
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      toast.error("Voice recording is not supported in this browser.");
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : undefined;
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      voiceRecorderRef.current = recorder;
-      voiceChunksRef.current = [];
-      voiceStartedAtRef.current = Date.now();
-      recorder.ondataavailable = (event) => { if (event.data.size) voiceChunksRef.current.push(event.data); };
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((track) => track.stop());
-        setIsRecordingVoice(false);
-        if (voiceLimitTimerRef.current !== null) window.clearTimeout(voiceLimitTimerRef.current);
-        voiceLimitTimerRef.current = null;
-        const blob = new Blob(voiceChunksRef.current, { type: recorder.mimeType || "audio/webm" });
-        voiceRecorderRef.current = null;
-        if (!blob.size) return;
-        if (!isConnected) { toast.error("Reconnect before sending the voice note."); return; }
-        setIsUploadingVoice(true);
-        try {
-          const form = new FormData();
-          form.append("audio", blob, "voice-note.webm");
-          const { data } = await axiosInstance.post("/users/voice-note", form, { headers: { "Content-Type": "multipart/form-data" } });
-          const duration = Math.min(60, Math.max(0.2, (Date.now() - voiceStartedAtRef.current) / 1000));
-          if (!emit("sendMessage", { receiverId: userId, content: "Voice note", voiceNote: { url: data.url, duration } })) toast.error("Voice note could not be sent.");
-        } catch (error: any) { toast.error(error.response?.data?.message || "Could not upload the voice note."); }
-        finally { setIsUploadingVoice(false); }
-      };
-      recorder.start();
-      setIsRecordingVoice(true);
-      voiceLimitTimerRef.current = window.setTimeout(() => { if (recorder.state === "recording") recorder.stop(); }, 60_000);
-    } catch {
-      toast.error("Allow microphone access to record a voice note.");
-    }
   };
 
   const onComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1035,28 +1061,41 @@ export const DirectMessageChat = ({ userId, onBack }: ChatProps) => {
             </div>
           )}
           <form onSubmit={(event) => { event.preventDefault(); void sendText(); }} className="flex items-end gap-1.5 rounded-3xl border bg-card p-1.5 shadow-sm">
-            <Button type="button" variant={isRecordingVoice ? "destructive" : "ghost"} size="icon" className="size-10 shrink-0 rounded-full" onClick={() => void startOrStopVoiceNote()} disabled={!isConnected || isUploadingVoice || Boolean(editing)} aria-label={isRecordingVoice ? "Stop recording voice note" : isUploadingVoice ? "Uploading voice note" : "Record voice note"} title={isRecordingVoice ? "Stop recording" : "Record voice note"}>
-              {isUploadingVoice ? <Loader2 className="size-5 animate-spin" /> : isRecordingVoice ? <Square className="size-4 fill-current" /> : <Mic className="size-5" />}
-            </Button>
-            {currentSong && !editing && (
+            <VoiceNoteRecorder
+              showTrigger={!message.trim() && !editing}
+              maxDuration={Math.min(600, Math.max(1, Number(import.meta.env.VITE_AUDIO_MAX_DURATION_SECONDS) || 60))}
+              onActiveChange={setIsVoiceComposerActive}
+              onDiscard={(clientMessageId) => {
+                pendingMessagesRef.current.delete(clientMessageId);
+                setMessages((data) => mapMessages(data, (list) => list.filter((item) => item.clientMessageId !== clientMessageId)));
+                const voiceUrl = voiceUrlsRef.current.get(clientMessageId);
+                if (voiceUrl) { URL.revokeObjectURL(voiceUrl); voiceUrlsRef.current.delete(clientMessageId); }
+              }}
+              onSend={sendVoiceMessage}
+            />
+            {!isVoiceComposerActive && currentSong && !editing && (
               <Button type="button" variant="ghost" size="icon" className="size-10 shrink-0 rounded-full text-primary" onClick={shareCurrentSong} disabled={!isSocketConnected} title={`Share "${currentSong.title}"`} aria-label="Share the song you're playing">
                 <Music2 className="size-5" />
               </Button>
             )}
-            <Textarea
-              ref={inputRef}
-              rows={1}
-              value={message}
-              onChange={(event) => { setMessage(event.target.value); if (!editing) signalTyping(); }}
-              onKeyDown={onComposerKeyDown}
-              onBlur={stopTyping}
-              placeholder={editing ? "Edit your message" : isSocketConnected ? "Message" : "Connecting…"}
-              maxLength={4000}
-              className="max-h-[132px] min-h-10 flex-1 resize-none border-0 bg-transparent px-3 py-2.5 shadow-none focus-visible:ring-0"
-            />
-            <Button type="submit" size="icon" className="size-10 shrink-0 rounded-full" disabled={!message.trim() || isSending || (!editing && !isSocketConnected)} aria-label={editing ? "Save edit" : "Send"}>
-              {isSending ? <Loader2 className="size-5 animate-spin" /> : editing ? <Check className="size-5" /> : <Send className="size-5" />}
-            </Button>
+            {!isVoiceComposerActive && (
+              <Textarea
+                ref={inputRef}
+                rows={1}
+                value={message}
+                onChange={(event) => { setMessage(event.target.value); if (!editing) signalTyping(); }}
+                onKeyDown={onComposerKeyDown}
+                onBlur={stopTyping}
+                placeholder={editing ? "Edit message" : isSocketConnected ? "Message" : "Connecting…"}
+                maxLength={4000}
+                className="max-h-[132px] min-h-10 flex-1 resize-none border-0 bg-transparent px-3 py-2.5 shadow-none focus-visible:ring-0"
+              />
+            )}
+            {!isVoiceComposerActive && Boolean(message.trim()) && (
+              <Button type="submit" size="icon" className="size-10 shrink-0 rounded-full" disabled={isSending || (!editing && !isSocketConnected)} aria-label={editing ? "Save edit" : "Send"}>
+                {isSending ? <Loader2 className="size-5 animate-spin" /> : editing ? <Check className="size-5" /> : <Send className="size-5" />}
+              </Button>
+            )}
           </form>
         </div>
       </div>

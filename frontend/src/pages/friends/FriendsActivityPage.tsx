@@ -16,7 +16,18 @@ interface Friend {
   clerkId: string;
   fullName: string;
   imageUrl: string;
+  lastMessage?: string;
+  lastMessageTime?: string;
   musicPrivacy?: "everyone" | "friends" | "none";
+}
+
+interface GroupChat {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  members: { userId: string }[];
+  lastMessage?: string;
+  lastMessageAt?: string;
 }
 
 interface PendingRequest {
@@ -64,6 +75,11 @@ const FriendsActivityPage = () => {
     staleTime: 15000,
   });
 
+  const { data: groupChats = [] } = useQuery<GroupChat[]>({
+    queryKey: ["groupChats"],
+    queryFn: async () => (await axiosInstance.get("/group-chats")).data,
+  });
+
   const { mutate: respondToRequest, isPending: isResponding } = useMutation({
     mutationFn: async ({ requestId, status }: { requestId: string; status: string }) => {
       await axiosInstance.put(`/friends/request/${requestId}`, { status });
@@ -105,6 +121,20 @@ const FriendsActivityPage = () => {
   }
 
   const onlineFriendsCount = friends.filter((friend) => onlineUsers.has(friend.clerkId)).length;
+  const activityItems = [
+    ...groupChats.map((group) => ({
+      kind: "group" as const,
+      id: group.id,
+      sortTime: group.lastMessageAt ? new Date(group.lastMessageAt).getTime() : 0,
+      group,
+    })),
+    ...friends.map((friend) => ({
+      kind: "friend" as const,
+      id: friend.clerkId,
+      sortTime: friend.lastMessageTime ? new Date(friend.lastMessageTime).getTime() : 0,
+      friend,
+    })),
+  ].sort((first, second) => second.sortTime - first.sortTime);
 
   return (
     <main className="h-full overflow-y-auto px-4 pb-28 pt-[calc(env(safe-area-inset-top)+1rem)] sm:px-6 md:pb-8">
@@ -149,7 +179,7 @@ const FriendsActivityPage = () => {
         <Tabs defaultValue="activity" className="w-full">
           <TabsList className="grid w-full grid-cols-2 mb-4 h-11 rounded-2xl bg-secondary/60 p-1">
             <TabsTrigger value="activity" className="rounded-xl font-semibold text-xs sm:text-sm">
-              Activity ({friends.length})
+              Activity ({activityItems.length})
             </TabsTrigger>
             <TabsTrigger value="requests" className="rounded-xl font-semibold text-xs sm:text-sm">
               Requests ({pendingRequests.length})
@@ -157,7 +187,30 @@ const FriendsActivityPage = () => {
           </TabsList>
 
           <TabsContent value="activity" className="space-y-2.5">
-            {friends.map((friend) => {
+            {activityItems.map((item) => {
+              if (item.kind === "group") {
+                const group = item.group;
+                return (
+                  <div key={`group-${group.id}`} className="flex items-center justify-between gap-3 rounded-2xl border border-border/80 bg-card/90 p-3.5 shadow-sm transition-all hover:bg-secondary/40">
+                    <Link to={`/chat?groupId=${group.id}`} className="flex min-w-0 flex-1 items-center gap-3" aria-label={`Open ${group.name} group chat`}>
+                      <Avatar className="size-11 shrink-0 border border-border">
+                        <AvatarImage src={group.imageUrl} alt={group.name} />
+                        <AvatarFallback className="bg-primary/10 text-primary"><Users className="size-5" /></AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold">{group.name}</p>
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground">{group.lastMessage || `${group.members.length} members`}</p>
+                      </div>
+                    </Link>
+                    <Link to={`/chat?groupId=${group.id}`} aria-label={`Message in ${group.name}`}>
+                      <Button variant="ghost" size="icon" className="size-9 rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground" title="Open group chat">
+                        <MessageCircle className="size-4" />
+                      </Button>
+                    </Link>
+                  </div>
+                );
+              }
+              const friend = item.friend;
               const isOnline = onlineUsers.has(friend.clerkId);
               const activity = userActivities.get(friend.clerkId) ?? "";
               const hasActivity = activity.length > 0 && activity.trim().toLowerCase() !== "idle";
@@ -216,7 +269,7 @@ const FriendsActivityPage = () => {
               );
             })}
 
-            {friends.length === 0 && (
+            {activityItems.length === 0 && (
               <div className="text-center py-12 rounded-2xl border border-dashed border-border bg-card/40 p-6">
                 <Users className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
                 <p className="text-sm font-semibold mb-1">No friends yet</p>

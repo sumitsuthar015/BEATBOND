@@ -30,7 +30,13 @@ const messageSchema = new mongoose.Schema(
       href: String,
       song: mongoose.Schema.Types.Mixed,
     },
-    voiceNote: { url: { type: String, default: "" }, duration: { type: Number, default: 0 } },
+    voiceNote: {
+      url: { type: String, default: "" },
+      publicId: { type: String, default: "" },
+      duration: { type: Number, default: 0, min: 0, max: 600 },
+      mimeType: { type: String, default: "audio/mpeg" },
+      size: { type: Number, default: 0, min: 0 },
+    },
     status: {
       type: String,
       enum: ['sent', 'delivered', 'read'],

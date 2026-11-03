@@ -603,6 +603,10 @@ export const deleteMessage = async (req, res, next) => {
 				return res.status(403).json({ message: "You can only delete your own messages for everyone" });
 			}
 			await Message.deleteOne({ _id: messageId });
+			if (message.voiceNote?.publicId) {
+				void cloudinary.uploader.destroy(message.voiceNote.publicId, { resource_type: "video" })
+					.catch((error) => console.error("Unable to delete voice note asset:", error.message));
+			}
 			// The other person's open chat drops it straight away.
 			emitToUsers([message.senderId, message.receiverId], "messageDeleted", { messageId });
 		} else {

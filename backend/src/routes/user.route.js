@@ -32,13 +32,11 @@ import { getLikedArtists, syncLikedArtists, toggleLikedArtist } from "../control
 import { editMessage, muteChat, reactToMessage, unmuteChat, updateChatSettings } from "../controller/message.controller.js";
 import { protectRoute } from "../middleware/auth.middleware.js";
 import { rateLimit } from "../middleware/rateLimit.middleware.js";
-import { uploadVoiceNote } from "../controller/voiceNote.controller.js";
 import { getMyWrapped } from "../controller/wrapped.controller.js";
 
 const router = Router();
 
 // Existing routes
-router.post("/voice-note", protectRoute, rateLimit({ name: "voice-note-upload", limit: 20, windowMs: 60 * 60 * 1000 }), uploadVoiceNote);
 router.get("/", protectRoute, getAllUsers);
 router.get("/suggested", protectRoute, getSuggestedUsers);
 router.get("/messages/:userId", protectRoute, getMessages);

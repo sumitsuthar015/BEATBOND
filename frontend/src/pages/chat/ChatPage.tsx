@@ -186,8 +186,11 @@ const ChatPage = () => {
             </div>
             <UserList
               users={users}
+              groups={groups}
+              selectedGroupId={selectedGroupId}
+              onGroupSelect={(groupId) => navigate(`/chat?groupId=${groupId}`)}
               selectedUserId={selectedUserId}
-              isLoading={isLoadingFriends}
+              isLoading={isLoadingFriends || isLoadingGroups}
               isError={isFriendsError}
               onRetry={refetchFriends}
               className="flex-1"
