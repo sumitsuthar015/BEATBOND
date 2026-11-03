@@ -15,7 +15,7 @@ mock.module(new URL("../src/lib/realtime.js", import.meta.url), {
   namedExports: { emitToUsers: (...args) => deleteCalls.push(args), isUserOnline: () => false, refreshActivityAudience: async () => {} },
 });
 mock.module(new URL("../src/lib/cloudinary.js", import.meta.url), {
-  namedExports: { default: { uploader: { destroy: async (publicId, options) => { storageDeletes.push({ publicId, options }); return { result: "ok" }; } } } },
+  defaultExport: { uploader: { destroy: async (publicId, options) => { storageDeletes.push({ publicId, options }); return { result: "ok" }; } } },
 });
 
 const { deleteMessage } = await import("../src/controller/user.controller.js");

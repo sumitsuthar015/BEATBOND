@@ -26,10 +26,10 @@ mock.module(new URL("../src/models/user.model.js", import.meta.url), {
   namedExports: { User: { findOne: (query) => ({ select: () => ({ lean: async () => query.clerkId === sender.clerkId ? sender : query.clerkId === recipient.clerkId ? recipient : null }) }) } },
 });
 mock.module(new URL("../src/lib/cloudinary.js", import.meta.url), {
-  namedExports: { default: { uploader: {
+  defaultExport: { uploader: {
     upload: async () => { uploadCount += 1; return uploaded; },
     destroy: async () => ({ result: "ok" }),
-  } } },
+  } },
 });
 mock.module(new URL("../src/lib/realtime.js", import.meta.url), {
   namedExports: { isUserOnline: () => false, emitToUsers: (...args) => emitted.push(args) },
